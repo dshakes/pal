@@ -847,7 +847,7 @@ func (h *RESTHandler) CreateRun(w http.ResponseWriter, r *http.Request) {
 			})
 			// rls-exempt: keyed by the just-created authorized run id.
 			_, _ = h.srv.Pool.Exec(ctx,
-				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 				run.GetId(), string(failJSON))
 			writeJSON(w, http.StatusCreated, runToMap(run))
 			return
@@ -1096,7 +1096,7 @@ func (h *RESTHandler) dispatchMicroVMRun(runID, tenantID, agentVersionID, imageD
 	// Mark running.
 	// rls-exempt: inline executor — runs write keyed by authorized run id.
 	if _, err := h.srv.Pool.Exec(ctx,
-		`UPDATE runs SET status = 'running', started_at = now() WHERE id = $1`, runID,
+		`UPDATE runs SET status = 'running', started_at = now() WHERE id = $1 AND status <> 'cancelled'`, runID,
 	); err != nil {
 		h.logger().Error("dispatchMicroVMRun: mark running failed",
 			zap.String("run_id", runID), zap.Error(err))
@@ -1132,7 +1132,7 @@ func (h *RESTHandler) dispatchMicroVMRun(runID, tenantID, agentVersionID, imageD
 		})
 		// rls-exempt: inline executor — runs write keyed by authorized run id.
 		if _, dbErr := h.srv.Pool.Exec(ctx,
-			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 			runID, string(failJSON),
 		); dbErr != nil {
 			h.logger().Error("dispatchMicroVMRun: mark failed failed",
@@ -1232,7 +1232,7 @@ func (h *RESTHandler) executeRunInline(runID, tenantID, agentName string, input 
 			failJSON, _ := json.Marshal(map[string]string{"code": "internal_panic", "message": fmt.Sprintf("%v", r)})
 			// rls-exempt: inline executor — runs write keyed by id (authorized run).
 			if _, upErr := h.srv.Pool.Exec(ctx,
-				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 				runID, string(failJSON),
 			); upErr != nil {
 				h.logger().Error("inline run panic: failed to mark run failed",
@@ -1444,7 +1444,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 			// tenant); keyed by the authorized run id. Cannot use WithTenant.
 			if _, dbErr := h.srv.Pool.Exec(
 				context.Background(),
-				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 				runID, string(safetyErrJSON),
 			); dbErr != nil {
 				h.logger().Error("inline executor safety net: failed to mark run failed",
@@ -1457,7 +1457,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 	logStep("initialize", "running", "Starting agent execution")
 	// rls-exempt: inline executor — runs write keyed by id (authorized run).
 	_, err := h.srv.Pool.Exec(ctx,
-		`UPDATE runs SET status = 'running', started_at = now() WHERE id = $1`,
+		`UPDATE runs SET status = 'running', started_at = now() WHERE id = $1 AND status <> 'cancelled'`,
 		runID,
 	)
 	if err != nil {
@@ -1498,7 +1498,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 			failJSON, _ := json.Marshal(map[string]string{"code": "loop_agent_failed", "message": loopErr.Error()})
 			// rls-exempt: inline executor — runs write keyed by id (authorized run).
 			if _, upErr := h.srv.Pool.Exec(ctx,
-				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 				runID, string(failJSON),
 			); upErr != nil {
 				h.logger().Error("loop run: failed to mark run failed",
@@ -1678,7 +1678,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 		outputJSON, _ := json.Marshal(map[string]string{"result": cached.Result})
 		// rls-exempt: inline executor — runs write keyed by id (authorized run).
 		_, _ = h.srv.Pool.Exec(ctx,
-			`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb, tokens_in = $3, tokens_out = $4, cost_usd = $5 WHERE id = $1`,
+			`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb, tokens_in = $3, tokens_out = $4, cost_usd = $5 WHERE id = $1 AND status <> 'cancelled'`,
 			runID, string(outputJSON), cached.TokensIn, cached.TokensOut, cached.CostUSD,
 		)
 		logStep("complete", "completed", fmt.Sprintf("Run finished (replay): %d tokens, $%.4f",
@@ -1717,7 +1717,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 			noLLMJSON, _ := json.Marshal(map[string]string{"code": "no_llm", "message": err.Error()})
 			// rls-exempt: inline executor — runs write keyed by id (authorized run).
 			if _, updateErr := h.srv.Pool.Exec(ctx,
-				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+				`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 				runID, string(noLLMJSON),
 			); updateErr != nil {
 				h.logger().Error("inline executor: failed to mark run failed (no LLM key)",
@@ -1883,7 +1883,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 		errJSON, _ := json.Marshal(map[string]string{"code": "llm_error", "message": llmErr.Error()})
 		// rls-exempt: inline executor — runs write keyed by id (authorized run).
 		_, _ = h.srv.Pool.Exec(ctx,
-			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 			runID, string(errJSON),
 		)
 		return "", resolvedTemplateID, fmt.Errorf("LLM call failed: %w", llmErr)
@@ -1914,7 +1914,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 	outputJSON, _ := json.Marshal(map[string]string{"result": result})
 	// rls-exempt: inline executor — runs write keyed by id (authorized run).
 	if _, upErr := h.srv.Pool.Exec(ctx,
-		`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb, tokens_in = $3, tokens_out = $4, cost_usd = $5 WHERE id = $1`,
+		`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb, tokens_in = $3, tokens_out = $4, cost_usd = $5 WHERE id = $1 AND status <> 'cancelled'`,
 		runID, string(outputJSON), tokensIn, tokensOut, costUsd,
 	); upErr != nil {
 		h.logger().Error("inline executor: failed to mark run succeeded",
@@ -2390,7 +2390,7 @@ func (h *RESTHandler) runWorkflowIfPresent(ctx context.Context, runID, tenantID,
 		errJSON, _ := json.Marshal(map[string]string{"code": "workflow_error", "message": runErr.Error()})
 		// rls-exempt: inline executor — runs write keyed by id (authorized run).
 		_, _ = h.srv.Pool.Exec(ctx,
-			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 			runID, string(errJSON),
 		)
 		return true
@@ -2412,7 +2412,7 @@ func (h *RESTHandler) runWorkflowIfPresent(ctx context.Context, runID, tenantID,
 		})
 		// rls-exempt: inline executor — runs write keyed by id (authorized run).
 		_, _ = h.srv.Pool.Exec(ctx,
-			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+			`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 			runID, string(errJSON),
 		)
 		return true
@@ -2421,7 +2421,7 @@ func (h *RESTHandler) runWorkflowIfPresent(ctx context.Context, runID, tenantID,
 	outputJSON, _ := json.Marshal(map[string]any{"result": res.Output, "stepsRan": res.StepsRan})
 	// rls-exempt: inline executor — runs write keyed by id (authorized run).
 	_, _ = h.srv.Pool.Exec(ctx,
-		`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb WHERE id = $1`,
+		`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 		runID, string(outputJSON),
 	)
 	// Count the run once toward maxRunsPerDay, like a successful inline run.
@@ -3238,7 +3238,7 @@ func (h *RESTHandler) establishRunPrincipal(ctx context.Context, runID, tenantID
 	failJSON, _ := json.Marshal(map[string]string{"code": code, "message": aerr.Error()})
 	// rls-exempt: inline executor — runs write keyed by id (authorized run).
 	_, _ = h.srv.Pool.Exec(context.WithoutCancel(ctx),
-		`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1`,
+		`UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb WHERE id = $1 AND status <> 'cancelled'`,
 		runID, string(failJSON))
 	return ctx, aerr
 }
