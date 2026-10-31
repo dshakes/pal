@@ -179,6 +179,7 @@ type evalAgent struct {
 	SystemPrompt string
 	Model        string
 	Description  string
+	Labels       []byte
 }
 
 func (h *EvalHandler) loadEvalAgent(ctx context.Context, tenantID, name string) (*evalAgent, string, error) {
@@ -204,6 +205,7 @@ func (h *EvalHandler) loadEvalAgent(ctx context.Context, tenantID, name string) 
 		return nil, "", err
 	}
 	a.Name = name
+	a.Labels = labels
 	var def workflow.Definition
 	if json.Unmarshal(wf, &def) == nil && len(def.Nodes) > 0 {
 		return &a, "workflow", nil
@@ -673,7 +675,7 @@ func (h *EvalHandler) executeSuite(ctx context.Context, tenantID string, agent *
 // executeSample runs the agent once against the case's mocks.
 func (h *EvalHandler) executeSample(ctx context.Context, tenantID string, agent *evalAgent, c evalCase, baseTools []map[string]any) evalSample {
 	tools := hermeticTools(baseTools, c.Mocks)
-	if agentForbidsTools(agent.SystemPrompt, nil) { // same rule as the run executor
+	if agentForbidsTools(agent.SystemPrompt, agent.Labels) { // same rule as the run executor
 		tools = nil
 	}
 	system := agent.SystemPrompt

@@ -3247,7 +3247,7 @@ When the instructions above mention a 'GitHub connector', 'Linear connector',
 DO NOT respond with "I don't have access" — the tools are right here. Call them.`, strings.Join(names, ", "))
 }
 
-var noToolsDirective = regexp.MustCompile(`(?i)\b(?:never|do not|don'?t|must not|mustn'?t|should not|shouldn'?t|cannot|can'?t|may not)\s+(?:ever\s+)?(?:call|use|invoke|run|attempt|make)\s+(?:any\s+|the\s+|a\s+)?(?:tools?|tool[ -]calls?|functions?|connectors?)\b|\bwithout\s+(?:calling|using|invoking)\s+(?:any\s+)?(?:tools?|functions?)\b|\bno\s+tool[ -]calls?\b`)
+var noToolsDirective = regexp.MustCompile(`(?i)\b(?:never|do not|don'?t|must not|mustn'?t|should not|shouldn'?t|cannot|can'?t|may not)\s+(?:ever\s+)?(?:call|use|invoke|run|attempt|make)\s+(?:any\s+|the\s+|a\s+)?(?:tools?|tool[ -]calls?|function[ -]calls?|connector[ -]calls?)\b|\bwithout\s+(?:calling|using|invoking)\s+(?:any\s+)?(?:tools?|functions?)\b|\bno\s+tool[ -]calls?\b`)
 
 // agentForbidsTools reports whether the agent itself opts out of tools: label
 // tools=none, or an explicit directive in its own system prompt ("never call

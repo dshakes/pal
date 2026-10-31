@@ -33,6 +33,6 @@ export const PG_ADMIN_URL = required("E2E_PG_ADMIN_URL");
 export const REDIS_HOST = process.env.E2E_REDIS_HOST ?? "127.0.0.1";
 export const REDIS_PORT = Number(required("E2E_REDIS_PORT"));
 export const REDIS_DB = Number(process.env.E2E_REDIS_DB ?? 13);
-if (/:5432\//.test(PG_ADMIN_URL) || REDIS_PORT === 6379) {
+if (/:5432(\/|$)/.test(PG_ADMIN_URL) || REDIS_PORT === 6379) {
   throw new Error("e2e refuses the shared Postgres :5432 / Redis :6379 ports; use a private container.");
 }
