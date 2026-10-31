@@ -22,20 +22,20 @@ export function PageHeader({
     <div
       className={clsx(
         // Solid, flat header — opaque so scrolling content doesn't bleed through.
-        "relative isolate border-b border-zinc-800 bg-surface-1 px-6 py-5 md:px-8",
+        "relative isolate border-b border-line bg-canvas px-4 py-5 md:px-8",
         className,
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">
+            <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.02em] text-fg">
               {title}
             </h1>
             {badge}
           </div>
           {description && (
-            <p className="mt-1 max-w-3xl text-xs leading-relaxed text-zinc-500">
+            <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-fg-3">
               {description}
             </p>
           )}
@@ -53,7 +53,7 @@ export function PageHeader({
 
 export function CountBadge({ count }: { count: number }) {
   return (
-    <span className="inline-flex items-center justify-center rounded-full bg-surface-3 px-2.5 py-0.5 text-xs font-medium text-zinc-400">
+    <span className="num inline-flex items-center justify-center rounded-md bg-raised px-2 py-0.5 text-[12px] font-medium text-fg-2">
       {count}
     </span>
   );
@@ -61,7 +61,7 @@ export function CountBadge({ count }: { count: number }) {
 
 export function DemoBadge() {
   return (
-    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[12px] font-medium text-amber-400">
+    <span className="rounded-md bg-warn-soft px-2 py-0.5 text-[12px] font-medium text-warn">
       Demo data
     </span>
   );

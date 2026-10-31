@@ -1,15 +1,12 @@
 "use client";
+// DataTable (v3). Sortable columns with aria-sort, sticky header, density-aware
+// rows (--row-h / --cell-* from <html data-density>), keyboard row navigation
+// (↑/↓ between rows, Enter opens), and its own loading + empty states. Pages
+// pass real API rows only — there is no sample data anywhere in apps/web.
 
-import { ReactNode, useState, useCallback, useMemo, useRef } from "react";
-import {
-  ChevronUp,
-  ChevronDown,
-  ChevronsUpDown,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  Inbox,
-} from "lucide-react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Eye, Inbox } from "lucide-react";
+import clsx from "clsx";
 
 export interface Column<T> {
   key: string;
@@ -20,6 +17,9 @@ export interface Column<T> {
   sortFn?: (a: T, b: T) => number;
   width?: number;
   minWidth?: number;
+  align?: "left" | "right";
+  /** Hide below the md breakpoint so phones keep the essential columns. */
+  hideOnMobile?: boolean;
 }
 
 interface RowAction<T> {
@@ -34,14 +34,20 @@ interface DataTableProps<T> {
   rows: T[];
   onRowClick?: (row: T) => void;
   rowKey: (row: T) => string;
+  /** 0 disables paging. */
   pageSize?: number;
   rowActions?: RowAction<T>[];
+  loading?: boolean;
+  /** Accessible name for the table. */
+  label?: string;
+  defaultSort?: { key: string; dir: "asc" | "desc" };
   emptyIcon?: typeof Inbox;
   emptyTitle?: string;
   emptyDescription?: string;
+  emptyAction?: ReactNode;
 }
 
-type SortDir = "asc" | "desc" | null;
+type SortDir = "asc" | "desc";
 
 export function DataTable<T>({
   columns,
@@ -50,220 +56,181 @@ export function DataTable<T>({
   rowKey,
   pageSize = 10,
   rowActions,
+  loading = false,
+  label,
+  defaultSort,
   emptyIcon: EmptyIcon = Inbox,
-  emptyTitle = "No data",
+  emptyTitle = "Nothing here yet",
   emptyDescription = "There are no items to display.",
+  emptyAction,
 }: DataTableProps<T>) {
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>(null);
+  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(defaultSort ?? null);
   const [page, setPage] = useState(0);
-  const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
 
-  // Sort
-  const sortedRows = useMemo(() => {
-    if (!sortKey || !sortDir) return rows;
-    const col = columns.find((c) => c.key === sortKey);
+  const sorted = useMemo(() => {
+    if (!sort) return rows;
+    const col = columns.find((c) => c.key === sort.key);
     if (!col?.sortFn) return rows;
-    const direction = sortDir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => col.sortFn!(a, b) * direction);
-  }, [rows, sortKey, sortDir, columns]);
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => col.sortFn!(a, b) * dir);
+  }, [rows, sort, columns]);
 
-  // Paginate
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
-  const paginatedRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
+  const paged = pageSize > 0;
+  const totalPages = paged ? Math.max(1, Math.ceil(sorted.length / pageSize)) : 1;
+  const current = Math.min(page, totalPages - 1);
+  const visible = paged ? sorted.slice(current * pageSize, (current + 1) * pageSize) : sorted;
 
-  const handleSort = useCallback((key: string) => {
-    setSortKey((prev) => {
-      if (prev !== key) {
-        setSortDir("asc");
-        return key;
-      }
-      setSortDir((d) => {
-        if (d === "asc") return "desc";
-        if (d === "desc") return null;
-        return "asc";
-      });
-      return key;
-    });
+  const toggleSort = useCallback((key: string) => {
+    setSort((s) => (s?.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : null));
   }, []);
 
-  // Resize handlers
-  const handleResizeStart = useCallback(
-    (e: React.MouseEvent, colKey: string, defaultWidth: number) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const startX = e.clientX;
-      const startWidth = columnWidths[colKey] ?? defaultWidth;
-      resizingRef.current = { key: colKey, startX, startWidth };
+  const onRowKey = (e: React.KeyboardEvent<HTMLTableRowElement>, row: T) => {
+    const rowsEls = Array.from(bodyRef.current?.querySelectorAll<HTMLTableRowElement>("tr[tabindex]") ?? []);
+    const i = rowsEls.indexOf(e.currentTarget);
+    if (e.key === "ArrowDown") { e.preventDefault(); rowsEls[i + 1]?.focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); rowsEls[i - 1]?.focus(); }
+    else if (e.key === "Enter" && onRowClick) { e.preventDefault(); onRowClick(row); }
+  };
 
-      const onMove = (ev: MouseEvent) => {
-        if (!resizingRef.current) return;
-        const diff = ev.clientX - resizingRef.current.startX;
-        const minW = columns.find((c) => c.key === colKey)?.minWidth ?? 60;
-        const newWidth = Math.max(minW, resizingRef.current.startWidth + diff);
-        setColumnWidths((prev) => ({ ...prev, [colKey]: newWidth }));
-      };
+  const hide = (c: Column<T>) => (c.hideOnMobile ? "hidden md:table-cell" : "");
+  const cell = "px-[var(--cell-px)] py-[var(--cell-py)]";
 
-      const onUp = () => {
-        resizingRef.current = null;
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    },
-    [columnWidths, columns],
-  );
-
-  if (rows.length === 0) {
+  if (!loading && rows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-700/60 bg-surface-1 px-8 py-20 text-center">
-        <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-3/60">
-          <EmptyIcon className="h-7 w-7 text-zinc-500" />
-        </div>
-        <h3 className="mb-1.5 text-sm font-semibold text-zinc-200">{emptyTitle}</h3>
-        <p className="max-w-xs text-sm leading-relaxed text-zinc-500">{emptyDescription}</p>
+      <div className="flex flex-col items-center justify-center rounded-[12px] border border-dashed border-line-strong bg-panel px-6 py-14 text-center">
+        <EmptyIcon className="mb-3 h-6 w-6 text-fg-3" aria-hidden />
+        <h3 className="text-sm font-semibold text-fg">{emptyTitle}</h3>
+        <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-fg-3">{emptyDescription}</p>
+        {emptyAction && <div className="mt-4">{emptyAction}</div>}
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-surface-1">
+    <div className="overflow-hidden rounded-[12px] border border-line bg-panel">
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          {/* Sticky header */}
-          <thead className="sticky top-0 z-10 bg-surface-1">
+        <table className="w-full border-collapse text-left" aria-label={label} aria-busy={loading || undefined}>
+          <thead className="sticky top-0 z-10 bg-panel">
             <tr>
               {columns.map((col) => {
-                const isSorted = sortKey === col.key;
-                const width = columnWidths[col.key] ?? col.width;
+                const active = sort?.key === col.key;
+                const ariaSort = active ? (sort!.dir === "asc" ? "ascending" : "descending") : col.sortable ? "none" : undefined;
                 return (
                   <th
                     key={col.key}
-                    className={`relative border-b border-zinc-800 px-4 py-3 text-left text-xs font-medium uppercase tracking-[0.05em] text-zinc-500 ${
-                      col.sortable ? "cursor-pointer select-none hover:text-zinc-300" : ""
-                    } ${col.className ?? ""}`}
-                    style={width ? { width, minWidth: col.minWidth ?? 60 } : undefined}
-                    onClick={() => col.sortable && handleSort(col.key)}
+                    scope="col"
+                    aria-sort={ariaSort}
+                    className={clsx(
+                      "border-b border-line text-[12px] font-medium text-fg-3",
+                      cell,
+                      col.align === "right" && "text-right",
+                      hide(col),
+                      col.className,
+                    )}
+                    style={col.width ? { width: col.width, minWidth: col.minWidth } : undefined}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span>{col.header}</span>
-                      {col.sortable && (
-                        <span className="inline-flex flex-col">
-                          {isSorted && sortDir === "asc" ? (
-                            <ChevronUp className="h-3.5 w-3.5 text-pal-400" />
-                          ) : isSorted && sortDir === "desc" ? (
-                            <ChevronDown className="h-3.5 w-3.5 text-pal-400" />
-                          ) : (
-                            <ChevronsUpDown className="h-3.5 w-3.5 text-zinc-600" />
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    {/* Resize handle */}
-                    <div
-                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-pal-500/30"
-                      onMouseDown={(e) => handleResizeStart(e, col.key, width ?? 150)}
-                    />
+                    {col.sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(col.key)}
+                        className={clsx("focus-ring -mx-1 inline-flex items-center gap-1 rounded px-1 hover:text-fg", active && "text-fg", col.align === "right" && "flex-row-reverse")}
+                      >
+                        {col.header}
+                        {active && sort!.dir === "asc" && <ChevronUp className="h-3 w-3" aria-hidden />}
+                        {active && sort!.dir === "desc" && <ChevronDown className="h-3 w-3" aria-hidden />}
+                      </button>
+                    ) : (
+                      col.header
+                    )}
                   </th>
                 );
               })}
-              {/* Actions column placeholder */}
-              {rowActions && rowActions.length > 0 && (
-                <th className="w-10 border-b border-zinc-800" />
-              )}
+              {rowActions?.length ? <th className="w-10 border-b border-line" aria-label="Actions" /> : null}
             </tr>
           </thead>
-          <tbody>
-            {paginatedRows.map((row) => {
-              const key = rowKey(row);
-              const isHovered = hoveredRowKey === key;
-              return (
-                <tr
-                  key={key}
-                  className={`border-b border-zinc-800/40 transition-colors hover:bg-surface-2 ${
-                    onRowClick ? "cursor-pointer" : ""
-                  }`}
-                  onClick={() => onRowClick?.(row)}
-                  onMouseEnter={() => setHoveredRowKey(key)}
-                  onMouseLeave={() => setHoveredRowKey(null)}
-                >
-                  {columns.map((col) => {
-                    const width = columnWidths[col.key] ?? col.width;
-                    return (
-                      <td
-                        key={col.key}
-                        className={`px-4 py-3 text-sm text-zinc-300 ${col.className ?? ""}`}
-                        style={width ? { width, minWidth: col.minWidth ?? 60 } : undefined}
-                      >
+          <tbody ref={bodyRef}>
+            {loading && rows.length === 0
+              ? Array.from({ length: 4 }, (_, i) => (
+                  <tr key={i} className="border-b border-line last:border-0">
+                    {columns.map((c) => (
+                      <td key={c.key} className={clsx(cell, hide(c))} style={{ height: "var(--row-h)" }}>
+                        <span className="block h-3 w-2/3 animate-pulse rounded bg-raised" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              : visible.map((row) => (
+                  <tr
+                    key={rowKey(row)}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onKeyDown={onRowClick ? (e) => onRowKey(e, row) : undefined}
+                    className={clsx(
+                      "group border-b border-line text-[13px] text-fg-2 last:border-0",
+                      onRowClick && "cursor-pointer outline-none hover:bg-raised focus-visible:bg-raised focus-visible:shadow-[inset_2px_0_0_var(--color-accent)]",
+                    )}
+                    style={{ height: "var(--row-h)" }}
+                  >
+                    {columns.map((col) => (
+                      <td key={col.key} className={clsx(cell, col.align === "right" && "text-right", hide(col), col.className)}>
                         {col.render(row)}
                       </td>
-                    );
-                  })}
-                  {/* Row actions */}
-                  {rowActions && rowActions.length > 0 && (
-                    <td
-                      className="px-3 py-3"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div
-                        className={`flex items-center gap-1 transition-opacity ${
-                          isHovered ? "opacity-100" : "opacity-0"
-                        }`}
-                      >
-                        {rowActions.map((action) => (
-                          <button
-                            key={action.label}
-                            onClick={() => action.onClick(row)}
-                            className={`rounded-md p-1.5 transition-colors ${
-                              action.variant === "danger"
-                                ? "text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
-                                : "text-zinc-500 hover:bg-surface-3 hover:text-zinc-300"
-                            }`}
-                            title={action.label}
-                          >
-                            <action.icon className="h-3.5 w-3.5" />
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
+                    ))}
+                    {rowActions?.length ? (
+                      <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                          {rowActions.map((a) => (
+                            <button
+                              key={a.label}
+                              type="button"
+                              onClick={() => a.onClick(row)}
+                              aria-label={a.label}
+                              title={a.label}
+                              className={clsx(
+                                "focus-ring rounded-md p-1.5 text-fg-3 transition-colors",
+                                a.variant === "danger" ? "hover:bg-bad-soft hover:text-bad" : "hover:bg-hover hover:text-fg",
+                              )}
+                            >
+                              <a.icon className="h-3.5 w-3.5" />
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
           </tbody>
         </table>
       </div>
 
-      {/* Pagination footer */}
-      <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-2.5">
-        <span className="text-xs text-zinc-500">
-          Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, sortedRows.length)} of{" "}
-          {sortedRows.length}
-        </span>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-surface-3 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-          <span className="px-2 text-xs text-zinc-400">
-            {page + 1} / {totalPages}
+      {paged && sorted.length > pageSize && (
+        <div className="flex items-center justify-between border-t border-line px-[var(--cell-px)] py-2 text-[12px] text-fg-3">
+          <span className="num">
+            {current * pageSize + 1}–{Math.min((current + 1) * pageSize, sorted.length)} of {sorted.length}
           </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-surface-3 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(Math.max(0, current - 1))}
+              disabled={current === 0}
+              aria-label="Previous page"
+              className="focus-ring flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover hover:text-fg disabled:opacity-30"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(Math.min(totalPages - 1, current + 1))}
+              disabled={current >= totalPages - 1}
+              aria-label="Next page"
+              className="focus-ring flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover hover:text-fg disabled:opacity-30"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

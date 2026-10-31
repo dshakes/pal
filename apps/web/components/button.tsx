@@ -15,20 +15,20 @@ type Size = "sm" | "md" | "lg";
 // without touching this file.
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-pal-400 text-on-flame hover:bg-pal-300 active:scale-[0.98] shadow-sm hover:shadow-md",
+    "bg-accent text-on-accent hover:bg-accent-strong shadow-[var(--elev-1)]",
   secondary:
-    "border border-zinc-700 bg-surface-1 text-zinc-200 hover:bg-surface-3 hover:border-zinc-600",
+    "border border-line-strong bg-panel text-fg hover:bg-hover",
   ghost:
-    "text-zinc-400 hover:text-zinc-100 hover:bg-surface-3",
+    "text-fg-2 hover:text-fg hover:bg-hover",
   danger:
-    "bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/20",
+    "bg-bad-soft text-bad border border-bad/30 hover:border-bad/60",
 };
 
 // Sizes read from --text-* + --radius-* so the type scale evolves in one place.
 const SIZE: Record<Size, string> = {
   sm: "h-7 px-2.5 text-[12px] gap-1 rounded-md",
-  md: "h-8 px-3 text-xs gap-1.5 rounded-lg",
-  lg: "h-10 px-4 text-sm gap-2 rounded-lg",
+  md: "h-8 px-3 text-[13px] gap-1.5 rounded-md",
+  lg: "h-10 px-4 text-sm gap-2 rounded-md",
 };
 
 interface CommonProps {
@@ -43,7 +43,7 @@ interface CommonProps {
 type ButtonProps = CommonProps & ButtonHTMLAttributes<HTMLButtonElement>;
 
 const BASE =
-  "inline-flex items-center justify-center font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-pal-500/30 focus-visible:ring-offset-0";
+  "inline-flex items-center justify-center font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus-ring";
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   function Button(

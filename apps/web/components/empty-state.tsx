@@ -41,35 +41,27 @@ export function EmptyState({
     <div
       className={clsx(
         "relative isolate flex flex-col items-center justify-center overflow-hidden text-center",
-        "rounded-2xl border border-dashed border-zinc-700/60 bg-surface-1",
-        isHero ? "px-8 py-20" : "px-6 py-10"
+        "rounded-[12px] border border-dashed border-line-strong bg-panel",
+        isHero ? "px-6 py-16" : "px-6 py-10"
       )}
     >
-      {/* Soft halo behind the icon for a hint of depth — pure CSS, no asset. */}
-      {isHero && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute left-1/2 top-12 -z-10 h-40 w-40 -translate-x-1/2 rounded-full opacity-30 blur-3xl"
-          style={{ background: "radial-gradient(circle, var(--color-accent), transparent 70%)" }}
-        />
-      )}
       {illustration ? (
         <div className="mb-6">{illustration}</div>
       ) : Icon ? (
         <div
           className={clsx(
-            "mb-5 flex items-center justify-center rounded-2xl",
-            "bg-surface-3/60 ring-1 ring-zinc-800",
+            "mb-4 flex items-center justify-center rounded-[10px]",
+            "bg-raised ring-1 ring-line",
             isHero ? "h-14 w-14" : "h-10 w-10"
           )}
         >
-          <Icon className={clsx("text-zinc-400", isHero ? "h-6 w-6" : "h-5 w-5")} />
+          <Icon className={clsx("text-fg-3", isHero ? "h-6 w-6" : "h-5 w-5")} />
         </div>
       ) : null}
-      <h3 className="mb-1.5 text-sm font-semibold text-zinc-100">{title}</h3>
+      <h3 className="mb-1.5 text-[15px] font-semibold text-fg">{title}</h3>
       <p className={clsx(
-        "max-w-sm text-xs leading-relaxed text-zinc-500",
-        (actionLabel || secondaryActionLabel || suggestions) && "mb-7"
+        "max-w-md text-[13px] leading-relaxed text-fg-3",
+        (actionLabel || secondaryActionLabel || suggestions) && "mb-6"
       )}>
         {description}
       </p>
@@ -79,7 +71,7 @@ export function EmptyState({
             {actionLabel && actionHref && !onAction && (
               <Link
                 href={actionHref}
-                className="inline-flex items-center gap-2 rounded-lg bg-pal-500 px-5 py-2.5 text-xs font-medium text-on-flame shadow-sm transition-all duration-150 hover:bg-pal-400 hover:shadow-md active:scale-[0.98]"
+                className="focus-ring inline-flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-medium text-on-accent transition-colors duration-150 hover:bg-accent-strong"
               >
                 {actionLabel}
               </Link>
@@ -87,7 +79,7 @@ export function EmptyState({
             {actionLabel && onAction && (
               <button
                 onClick={onAction}
-                className="inline-flex items-center gap-2 rounded-lg bg-pal-500 px-5 py-2.5 text-xs font-medium text-on-flame shadow-sm transition-all duration-150 hover:bg-pal-400 hover:shadow-md active:scale-[0.98]"
+                className="focus-ring inline-flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-[13px] font-medium text-on-accent transition-colors duration-150 hover:bg-accent-strong"
               >
                 {actionLabel}
               </button>
@@ -95,7 +87,7 @@ export function EmptyState({
             {secondaryActionLabel && secondaryActionHref && !onSecondaryAction && (
               <Link
                 href={secondaryActionHref}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-5 py-2.5 text-xs font-medium text-zinc-300 transition-colors duration-150 hover:bg-surface-3 hover:text-zinc-100"
+                className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line-strong px-4 text-[13px] font-medium text-fg-2 transition-colors duration-150 hover:bg-hover hover:text-fg"
               >
                 {secondaryActionLabel}
               </Link>
@@ -103,7 +95,7 @@ export function EmptyState({
             {secondaryActionLabel && onSecondaryAction && (
               <button
                 onClick={onSecondaryAction}
-                className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-5 py-2.5 text-xs font-medium text-zinc-300 transition-colors duration-150 hover:bg-surface-3 hover:text-zinc-100"
+                className="focus-ring inline-flex h-9 items-center gap-2 rounded-md border border-line-strong px-4 text-[13px] font-medium text-fg-2 transition-colors duration-150 hover:bg-hover hover:text-fg"
               >
                 {secondaryActionLabel}
               </button>
@@ -114,7 +106,7 @@ export function EmptyState({
           <div className="flex flex-wrap items-center justify-center gap-1.5">
             {suggestions.map((s, i) => {
               const cls =
-                "rounded-full border border-zinc-800 bg-surface-1 px-3 py-1 text-[12px] text-zinc-400 transition-colors duration-150 hover:border-pal-500/40 hover:bg-pal-500/5 hover:text-pal-200";
+                "focus-ring rounded-full border border-line px-3 py-1 text-[12px] text-fg-2 transition-colors duration-150 hover:border-accent/50 hover:text-fg";
               if (s.href) {
                 return (
                   <Link key={i} href={s.href} className={cls}>
