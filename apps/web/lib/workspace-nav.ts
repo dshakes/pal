@@ -105,8 +105,8 @@ export const MOBILE_PRIMARY: Record<WorkspaceMode, NavItem[]> = {
   runtime: [NAV.runtime[0].items[0], NAV.runtime[0].items[1], NAV.runtime[0].items[2]],
 };
 
-const PAL_PREFIXES = ["/brief", "/personal", "/automations", "/voice", "/pal"];
-const RUNTIME_PREFIXES = [
+export const PAL_PREFIXES = ["/brief", "/personal", "/automations", "/voice", "/pal"];
+export const RUNTIME_PREFIXES = [
   "/overview", "/agents", "/runs", "/inbox", "/runtime", "/deployments", "/eval-suites",
   "/evaluations", "/experiments", "/budgets", "/connectors", "/surfaces", "/embed", "/marketplace",
 ];

@@ -27,6 +27,8 @@
   --sig-ok: #5fd3a6;
   --sig-ok-soft: #12332a;
   --sig-hold: #ffb547;
+  --sig-warn: #e6d548; /* sulfur: warning ink, reads apart from flame + bad */
+  --sig-warn-soft: #2c2a0e;
   --sig-bad: #ff8a8a;
   --sig-bad-soft: #3a1b1d;
 }
@@ -42,6 +44,8 @@
   --sig-ok: #146b4b;
   --sig-ok-soft: #d8f0e6;
   --sig-hold: #a8460a;
+  --sig-warn: #655c06;
+  --sig-warn-soft: #f4f0c8;
   --sig-bad: #b42323;
   --sig-bad-soft: #fbe0e0;
 }
@@ -104,6 +108,31 @@
   --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-jetbrains), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: var(--font-inter-tight), "Inter Tight", var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* v3 semantic layer — every new component reads ONLY these (plus
+     surface-*). They resolve through the remapped scales, so dark / light /
+     high-contrast and the pal / Runtime accent all flip with zero component
+     branches. The no-literal-color check (scripts/check-literal-colors.mjs)
+     keeps hex and white-literals out of components. */
+  --color-canvas: var(--color-surface-0);
+  --color-panel: var(--color-surface-1);
+  --color-raised: var(--color-surface-2);
+  --color-hover: var(--color-surface-3);
+  --color-fg: var(--color-zinc-50);
+  --color-fg-2: var(--color-zinc-300);
+  --color-fg-3: var(--color-zinc-600); /* faint, still AA on canvas/panel/raised */
+  --color-line: var(--color-zinc-800);
+  --color-line-strong: var(--color-zinc-700);
+  --color-accent: var(--color-pal-400);
+  --color-accent-strong: var(--color-pal-500);
+  --color-accent-soft: color-mix(in srgb, var(--color-pal-400) 13%, transparent);
+  --color-on-accent: var(--color-on-flame);
+  --color-ok: var(--sig-ok);
+  --color-ok-soft: var(--sig-ok-soft);
+  --color-warn: var(--sig-warn);
+  --color-warn-soft: var(--sig-warn-soft);
+  --color-bad: var(--sig-bad);
+  --color-bad-soft: var(--sig-bad-soft);
 }
 
 /* ---------------------------------------------------------------------------
@@ -159,27 +188,27 @@
   --easing-standard: cubic-bezier(0.2, 0.0, 0, 1);
   --easing-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Semantic colors — alias to palette so themes can swap. */
-  --color-text-primary: var(--color-zinc-50);
-  --color-text-secondary: var(--color-zinc-200);
-  --color-text-tertiary: var(--color-zinc-400);
-  --color-text-muted: var(--color-zinc-500);
-  --color-text-disabled: var(--color-zinc-600);
+  /* Semantic colors live in the v3 @theme block below (fg / line / accent /
+     ok / warn / bad) so they are real utilities: text-fg-2, border-line,
+     bg-warn-soft… Legacy aliases kept for older call sites. */
+  --color-text-primary: var(--color-fg);
+  --color-text-secondary: var(--color-fg-2);
+  --color-text-muted: var(--color-fg-3);
+  --color-border-subtle: var(--color-line);
+  --color-border-default: var(--color-line-strong);
+  --color-success: var(--color-ok);
+  --color-danger: var(--color-bad);
 
-  --color-border-subtle: var(--color-zinc-800);
-  --color-border-default: var(--color-zinc-700);
-  --color-border-strong: var(--color-zinc-600);
+  /* Density (v3): one attribute on <html> retunes every table row, list row
+     and nav item. Comfortable is the default; data-density="compact" below. */
+  --row-h: 40px;
+  --cell-px: 14px;
+  --cell-py: 9px;
+  --nav-h: 30px;
+  --control-h: 32px;
 
-  --color-accent: var(--color-pal-400);
-  --color-accent-hover: var(--color-pal-300);
-  --color-accent-soft: color-mix(in srgb, var(--color-pal-400) 14%, transparent);
-
-  --color-success: var(--sig-ok);
-  --color-success-soft: var(--sig-ok-soft);
-  --color-warn: var(--color-amber-400);
-  --color-warn-soft: color-mix(in srgb, var(--color-amber-400) 12%, transparent);
-  --color-danger: var(--sig-bad);
-  --color-danger-soft: var(--sig-bad-soft);
+  /* Focus ring: token-driven so high-contrast can harden it in one place. */
+  --focus-ring: color-mix(in srgb, var(--color-pal-400) 55%, transparent);
 
   /* Per-page container chrome. */
   --page-max-w: 1400px;
@@ -230,10 +259,6 @@ h1, h2 {
   color: var(--color-zinc-50);
 }
 
-@keyframes glow-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
-}
 
 /* Page transition — fades each route in for 180ms.
    Honors prefers-reduced-motion automatically. */
@@ -289,52 +314,6 @@ h1, h2 {
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
-}
-
-@keyframes gradient-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-.glow-amber {
-  box-shadow: 0 0 60px rgba(245, 158, 11, 0.15), 0 0 120px rgba(245, 158, 11, 0.05);
-}
-
-.glow-text {
-  text-shadow: 0 0 40px rgba(245, 158, 11, 0.3);
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706, #f59e0b);
-  background-size: 300% 300%;
-  animation: gradient-shift 6s ease infinite;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.grid-bg {
-  background-image:
-    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-  background-size: 64px 64px;
-}
-
-.noise-bg {
-  position: relative;
-}
-.noise-bg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 0;
-}
 
 .code-block {
   background: var(--color-surface-2);
@@ -342,13 +321,9 @@ h1, h2 {
   border-radius: 12px;
 }
 
-/* Smooth page transitions */
+/* Route entrance (shares page-fade-in above). */
 .page-enter {
-  animation: page-fade-in 0.2s ease-out;
-}
-@keyframes page-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  animation: page-fade-in var(--motion-normal) var(--easing-standard);
 }
 
 /* Global cursor styles for interactive elements */
@@ -419,14 +394,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-top: 1px solid var(--color-zinc-800);
 }
 
-/* Card hover lift */
-.card-hover {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.card-hover:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
 
 /* Smooth modal backdrop */
 .modal-backdrop {
@@ -484,10 +451,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   opacity: 1;
 }
 
-/* Focus ring */
+/* Focus ring — token-driven (high-contrast hardens --focus-ring). */
 .focus-ring:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--color-surface-0), 0 0 0 4px color-mix(in srgb, var(--color-pal-500) 60%, transparent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* Button variants */
@@ -853,42 +820,6 @@ input[type="range"]::-webkit-slider-thumb {
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-/* ---------------------------------------------------------------------------
-   Mission control — dense glass console treatment (Agents page).
-   Background/border/backdrop-blur stay as Tailwind utilities at the call
-   site (bg-white/[0.024], border-white/[0.07], backdrop-blur-xl) so the
-   per-status left-border stripe (border-l-4 border-l-*) keeps overriding
-   cleanly; these classes only add the top-highlight line + hover glow.
-   --------------------------------------------------------------------------- */
-
-.mc-glass {
-  position: relative;
-  isolation: isolate;
-}
-.mc-glass::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent, rgba(45, 212, 191, 0.55), rgba(129, 140, 248, 0.5), transparent);
-  opacity: 0.7;
-  pointer-events: none;
-}
-.mc-glass::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(120% 90% at 50% 0%, rgba(45, 212, 191, 0.08), transparent 60%);
-  opacity: 0;
-  transition: opacity var(--motion-normal) var(--easing-standard);
-  pointer-events: none;
-  z-index: -1;
-}
-.mc-glass:hover::after {
-  opacity: 1;
-}
 
 .mc-micro-label {
   font-family: var(--font-mono);
@@ -898,26 +829,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--color-zinc-500);
 }
 
-/* Ambient aurora glow behind the Agents page header — layered radial
-   gradients drifting very subtly. The site-wide prefers-reduced-motion
-   rule above (animation-duration: 0ms) already freezes this for users
-   who asked for less motion, so no extra media query needed here. */
-@keyframes mc-aurora-drift {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(2%, -4%, 0) scale(1.06); }
-}
-
-.mc-aurora {
-  position: absolute;
-  inset: -30% -15%;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(480px 220px at 22% 35%, rgba(45, 212, 191, 0.12), transparent 70%),
-    radial-gradient(420px 200px at 78% 25%, rgba(129, 140, 248, 0.10), transparent 70%),
-    radial-gradient(360px 180px at 50% 70%, rgba(56, 189, 248, 0.06), transparent 70%);
-  animation: mc-aurora-drift 20s ease-in-out infinite;
-}
 
 /* Page-load reveal — fade + rise on first paint. `.mc-reveal` for a single
    element; `.mc-stagger` sequences its direct children (delay capped at the
@@ -1057,18 +968,16 @@ input[type="range"]::-webkit-slider-thumb {
   --color-amber-600: #5e5605;
 }
 
-/* All-in YC flat style: neutralize the mission-control glass + aurora GLOBALLY
-   so every page that already uses .mc-glass / .mc-aurora becomes a calm flat
-   product surface — no per-page edits. Flat solid card, hairline border, and a
-   soft shadow in light; the ambient aurora is dropped entirely. */
+/* Flat card used by older pages (.mc-glass); .mc-aurora is retired and kept
+   hidden until those pages are rebuilt. */
 .mc-aurora { display: none !important; }
 .mc-glass {
+  position: relative;
   background: var(--color-surface-1);
   border-color: var(--color-zinc-800);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.mc-glass::before, .mc-glass::after { display: none !important; }
 :root[data-theme="light"] .mc-glass {
   box-shadow: 0 1px 2px rgba(20, 20, 40, .05), 0 8px 24px -14px rgba(20, 20, 40, .12);
 }
@@ -1079,7 +988,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* PAL Runtime accent: pages under .theme-runtime re-point the pal-* scale at
    indigo -> cyan, so every existing text-pal-* / bg-pal-* utility on /runtime
    picks it up with no per-component edits. Semantic colours are untouched. */
-.theme-runtime {
+:root[data-mode="runtime"], .theme-runtime {
   --color-pal-50: #eef1ff;
   --color-pal-100: #dde3ff;
   --color-pal-200: #bcc6ff;
@@ -1092,7 +1001,7 @@ input[type="range"]::-webkit-slider-thumb {
   --color-pal-900: #12113a;
   --color-on-flame: #06121a;
 }
-:root[data-theme="light"] .theme-runtime {
+:root[data-theme="light"][data-mode="runtime"], :root[data-theme="light"] .theme-runtime {
   --color-pal-50: #f1f0ff;
   --color-pal-100: #e2e0ff;
   --color-pal-200: #2f25b8;
@@ -1108,4 +1017,89 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Brand moment: the one place the coral -> magenta gradient fills a surface. */
 .bg-pal-grad { background-image: var(--pal-grad); }
-.theme-runtime .bg-pal-grad { background-image: var(--rt-grad); }
+:root[data-mode="runtime"] .bg-pal-grad, .theme-runtime .bg-pal-grad { background-image: var(--rt-grad); }
+
+/* Custom properties resolve where they are declared, so a nested
+   .theme-runtime (e.g. the Runtime card on /welcome) must re-derive the
+   semantic accent from its own pal-* scale. On <html> (data-mode) the
+   @theme declarations already do this. */
+.theme-runtime {
+  --color-accent: var(--color-pal-400);
+  --color-accent-strong: var(--color-pal-500);
+  --color-accent-soft: color-mix(in srgb, var(--color-pal-400) 13%, transparent);
+  --color-on-accent: var(--color-on-flame);
+  --focus-ring: color-mix(in srgb, var(--color-pal-400) 55%, transparent);
+}
+
+/* ===========================================================================
+   v3 — high contrast + density.
+   Both are data-* attributes on <html>, set pre-paint by THEME_INIT_SCRIPT
+   (lib/theme-init-script.ts) from the saved preference, falling back to the
+   OS (prefers-contrast: more). Components never branch on them in JS.
+   =========================================================================== */
+
+/* Dark, more contrast: text pushed to the light end, hairlines become real
+   lines, surfaces flatten toward black so panels separate by border, not tint. */
+:root[data-contrast="more"] {
+  --color-surface-0: #000000;
+  --color-surface-1: #0a0a0c;
+  --color-surface-2: #141519;
+  --color-surface-3: #23252b;
+  --color-surface-4: #33363e;
+  --color-zinc-200: #f0f0ee;
+  --color-zinc-300: #e6e6e3;
+  --color-zinc-400: #dadad6;
+  --color-zinc-500: #cfd0d3;
+  --color-zinc-600: #c2c3c8;
+  --color-zinc-700: #8d9099;
+  --color-zinc-800: #6f727b;
+  --sig-ok: #7ff0c2;
+  --sig-bad: #ffadad;
+  --sig-warn: #f6e86a;
+  --focus-ring: var(--color-pal-300);
+}
+/* Light, more contrast: ink to near-black, borders to mid-grey. */
+:root[data-theme="light"][data-contrast="more"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #f3f3f1;
+  --color-surface-3: #e6e6e2;
+  --color-surface-4: #d2d2cc;
+  --color-zinc-200: #101114;
+  --color-zinc-300: #16171b;
+  --color-zinc-400: #1c1e22;
+  --color-zinc-500: #24262b;
+  --color-zinc-600: #2e3036;
+  --color-zinc-700: #6e7077;
+  --color-zinc-800: #8b8d93;
+  --color-pal-400: #9c1546;
+  --sig-ok: #0b4a33;
+  --sig-bad: #8a1414;
+  --sig-warn: #4a4302;
+  --focus-ring: var(--color-pal-500);
+}
+:root[data-theme="light"][data-contrast="more"][data-mode="runtime"],
+:root[data-theme="light"][data-contrast="more"] .theme-runtime {
+  --color-pal-400: #33289e;
+}
+:root[data-contrast="more"] .surface-card::before { display: none; }
+
+/* Density. Comfortable defaults live in :root above. */
+:root[data-density="compact"] {
+  --row-h: 30px;
+  --cell-px: 12px;
+  --cell-py: 5px;
+  --nav-h: 26px;
+  --control-h: 28px;
+}
+
+/* Agent surface sheet + Radix popovers: one entrance each, motion-token driven. */
+@keyframes v3-sheet-in { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes v3-pop-in { from { transform: translateY(-4px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes v3-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.v3-sheet[data-state="open"] { animation: v3-sheet-in var(--motion-slow) var(--easing-emphasized); }
+.v3-pop[data-state="open"] { animation: v3-pop-in var(--motion-normal) var(--easing-emphasized); }
+.v3-overlay[data-state="open"] { animation: v3-fade-in var(--motion-normal) var(--easing-standard); }
+
+/* Tabular figures everywhere numbers are compared. */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "ss01"; }
