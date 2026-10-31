@@ -171,3 +171,10 @@ export function chooseLanding(f: LandingFacts): string {
   if (f.onboardingStarted) return "/onboarding";
   return "/welcome";
 }
+
+/** The label for where you are, for the topbar breadcrumb ("Runtime / Agents"). */
+export function currentNavLabel(pathname: string, mode: WorkspaceMode): string | null {
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) return "Settings";
+  const items = allNavItems(mode);
+  return items.find((i) => isNavActive(i, pathname, items))?.label ?? null;
+}

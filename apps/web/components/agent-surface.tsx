@@ -97,28 +97,32 @@ export function AgentSurface() {
     void ask(text, onScreen);
   };
 
-  return (
-    <Dialog.Root open={open} onOpenChange={(o) => s?.setOpen(o)}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="v3-overlay fixed inset-0 z-[70] bg-black/30 md:bg-black/10" />
-        <Dialog.Content
-          className="v3-sheet fixed inset-y-0 right-0 z-[71] flex w-full flex-col border-l border-line bg-panel shadow-[var(--elev-4)] outline-none sm:w-[420px]"
-          onOpenAutoFocus={(e) => { e.preventDefault(); inputRef.current?.focus(); }}
-        >
+  // ≥1024px the panel docks beside the page and reflows it (nothing is
+  // covered); below that it is a modal sheet with a scrim.
+  const docked = useMediaQuery("(min-width: 1024px)");
+  useEffect(() => {
+    if (open && docked) inputRef.current?.focus();
+  }, [open, docked]);
+  const Title = docked ? "h2" : Dialog.Title;
+  const Desc = docked ? "p" : Dialog.Description;
+  const CloseBtn = docked ? "button" : Dialog.Close;
+
+  const body = (
+    <>
           <header className="flex items-center gap-2.5 border-b border-line px-4 py-3">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-soft text-accent">
               <Sparkles className="h-3.5 w-3.5" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-[14px] font-semibold text-fg">PAL agent</Dialog.Title>
-              <Dialog.Description className="truncate text-[12px] text-fg-3">
+              <Title className="text-[14px] font-semibold text-fg">PAL agent</Title>
+              <Desc className="truncate text-[12px] text-fg-3">
                 {ctx ? `Looking at ${ctx.page}` : "Ask about anything in this workspace"}
-              </Dialog.Description>
+              </Desc>
             </div>
             <span className="hidden sm:inline-flex"><Kbd>⌘\</Kbd></span>
-            <Dialog.Close className="focus-ring rounded-md p-1.5 text-fg-3 hover:bg-hover hover:text-fg" aria-label="Close agent panel">
+            <CloseBtn type="button" onClick={close} className="focus-ring rounded-md p-1.5 text-fg-3 hover:bg-hover hover:text-fg" aria-label="Close agent panel">
               <X className="h-4 w-4" />
-            </Dialog.Close>
+            </CloseBtn>
           </header>
 
           <Tabs.Root defaultValue="ask" className="flex min-h-0 flex-1 flex-col">
@@ -191,7 +195,7 @@ export function AgentSurface() {
                     type="submit"
                     aria-label="Send"
                     disabled={q.trim().length < 2}
-                    className={clsx("focus-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent-strong text-on-accent hover:bg-accent disabled:opacity-40")}
+                    className={clsx("focus-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-action text-on-action hover:bg-action/90 disabled:opacity-40")}
                   >
                     <ArrowUp className="h-4 w-4" />
                   </button>
@@ -219,8 +223,44 @@ export function AgentSurface() {
               )}
             </Tabs.Content>
           </Tabs.Root>
+    </>
+  );
+
+  if (docked) {
+    return open ? (
+      <aside
+        aria-label="PAL agent"
+        onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } }}
+        className="v3-sheet flex w-[400px] shrink-0 flex-col border-l border-line bg-panel"
+      >
+        {body}
+      </aside>
+    ) : null;
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={(o) => s?.setOpen(o)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="v3-overlay fixed inset-0 z-[70] bg-black/50" />
+        <Dialog.Content
+          className="v3-sheet fixed inset-y-0 right-0 z-[71] flex w-full flex-col border-l border-line bg-panel shadow-[var(--elev-4)] outline-none sm:w-[420px]"
+          onOpenAutoFocus={(e) => { e.preventDefault(); inputRef.current?.focus(); }}
+        >
+          {body}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+function useMediaQuery(q: string): boolean {
+  const [m, setM] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setM(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [q]);
+  return m;
 }

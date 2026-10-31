@@ -127,6 +127,9 @@
   --color-accent-strong: var(--color-pal-500);
   --color-accent-soft: color-mix(in srgb, var(--color-pal-400) 13%, transparent);
   --color-on-accent: var(--color-on-flame);
+  /* Solid fill for primary actions: pal coral, Runtime indigo (set below). */
+  --color-action: var(--color-pal-500);
+  --color-on-action: var(--color-on-flame);
   --color-ok: var(--sig-ok);
   --color-ok-soft: var(--sig-ok-soft);
   --color-warn: var(--sig-warn);
@@ -1030,6 +1033,12 @@ input[type="range"]::-webkit-slider-thumb {
   --color-on-accent: var(--color-on-flame);
   --focus-ring: color-mix(in srgb, var(--color-pal-400) 55%, transparent);
 }
+/* Runtime's primary fill is the indigo end of its gradient in every theme —
+   one hue for the space's actions; cyan stays the text/line accent in dark. */
+:root[data-mode="runtime"], .theme-runtime {
+  --color-action: var(--color-pal-600);
+  --color-on-action: #ffffff;
+}
 
 /* ===========================================================================
    v3 — high contrast + density.
@@ -1083,6 +1092,11 @@ input[type="range"]::-webkit-slider-thumb {
   --color-pal-400: #33289e;
 }
 :root[data-contrast="more"] .surface-card::before { display: none; }
+/* More contrast: accent-colored links are underlined (color is not the only cue),
+   focus rings get thicker, and Runtime's indigo fill deepens for white ink. */
+:root[data-contrast="more"] a.text-accent { text-decoration: underline; text-underline-offset: 2px; }
+:root[data-contrast="more"] .focus-ring:focus-visible { outline-width: 3px; }
+:root[data-contrast="more"][data-mode="runtime"] { --color-action: #4a3ee6; }
 
 /* Density. Comfortable defaults live in :root above. */
 :root[data-density="compact"] {
@@ -1092,6 +1106,8 @@ input[type="range"]::-webkit-slider-thumb {
   --nav-h: 26px;
   --control-h: 28px;
 }
+/* Compact drops secondary lines (descriptions, error text) from dense lists. */
+:root[data-density="compact"] .density-detail { display: none; }
 
 /* Agent surface sheet + Radix popovers: one entrance each, motion-token driven. */
 @keyframes v3-sheet-in { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }

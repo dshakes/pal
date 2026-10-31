@@ -3,8 +3,8 @@
 // from lib/workspace-nav (the single IA source of truth).
 //
 // ┌──────────────────────────┐
-// │ ◎ Ada’s workspace    ⇅   │  ← OrgSwitcher (workspace + role)
-// │ [ ● pal  |  ● Runtime ]  │  ← space switch (re-points the accent)
+// │ ◎ Ada’s workspace    ⇅   │  ← OrgSwitcher: workspace + space (pal /
+// │   ● Runtime              │    Runtime); the menu switches space
 // │ Today / Holds / …        │  ← nav for the active space
 // │ Recent agents            │  ← Runtime only
 // ├──────────────────────────┤
@@ -15,12 +15,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { PanelLeft, PanelLeftClose, Plus, Settings } from "lucide-react";
-import { ModeSwitch } from "@/components/mode-switch";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { navIcon } from "@/components/nav-icon";
 import { RoleGate } from "@/components/role-gate";
 import { Tooltip } from "@/components/ui";
-import { useAgents } from "@/lib/hooks";
+import { useAgents, useRuns } from "@/lib/hooks";
+import { ts } from "@/lib/overview";
 import { NAV, allNavItems, isNavActive } from "@/lib/workspace-nav";
 import { useWorkspaceMode } from "@/lib/use-workspace-mode";
 
@@ -52,9 +52,8 @@ export function Sidebar() {
         collapsed ? "w-[60px]" : "w-[244px]",
       )}
     >
-      <div className={clsx("space-y-2.5 pt-3", collapsed ? "px-2" : "px-3")}>
+      <div className={clsx("pt-2.5", collapsed ? "px-2" : "px-2.5")}>
         <OrgSwitcher collapsed={collapsed} />
-        {!collapsed && <ModeSwitch />}
       </div>
 
       <nav aria-label={mode === "pal" ? "pal navigation" : "Runtime navigation"} className="mt-3 flex-1 overflow-y-auto px-2 pb-2">
@@ -136,6 +135,17 @@ function NavLink({
 
 function RecentAgents({ pathname }: { pathname: string }) {
   const { agents, loading } = useAgents();
+  const { runs } = useRuns({});
+  // Last run per agent → the one useful signal here: did it last work?
+  const lastStatus = useMemo(() => {
+    const m = new Map<string, { at: number; failed: boolean }>();
+    for (const r of runs) {
+      const at = ts(r.createdAt);
+      const cur = m.get(r.agentName);
+      if (!cur || at > cur.at) m.set(r.agentName, { at, failed: r.status === "failed" });
+    }
+    return m;
+  }, [runs]);
   const recent = useMemo(
     () => [...agents].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, RECENT_AGENTS),
     [agents],
@@ -170,10 +180,8 @@ function RecentAgents({ pathname }: { pathname: string }) {
                     active ? "bg-hover text-fg" : "text-fg-2 hover:bg-raised hover:text-fg",
                   )}
                 >
-                  <span aria-hidden className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-raised font-mono text-[10px] text-fg-3">
-                    {a.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="truncate font-mono text-[12.5px]">{a.name}</span>
+                  <AgentDot state={!lastStatus.has(a.name) ? "idle" : lastStatus.get(a.name)!.failed ? "bad" : "ok"} />
+                  <span className="truncate">{a.name}</span>
                 </Link>
               </li>
             );
@@ -181,5 +189,20 @@ function RecentAgents({ pathname }: { pathname: string }) {
         </ul>
       )}
     </div>
+  );
+}
+
+function AgentDot({ state }: { state: "ok" | "bad" | "idle" }) {
+  return (
+    <span
+      role="img"
+      aria-label={state === "bad" ? "last run failed" : state === "ok" ? "last run succeeded" : "never run"}
+      className={clsx(
+        "mx-1 h-2 w-2 shrink-0 rounded-full",
+        state === "ok" && "bg-ok",
+        state === "bad" && "bg-bad",
+        state === "idle" && "border border-line-strong",
+      )}
+    />
   );
 }

@@ -140,7 +140,7 @@ export default function OverviewPage() {
         }
       />
 
-      <div className="mx-auto w-full max-w-[1200px] space-y-5 px-4 py-6 md:px-8">
+      <div className="mx-auto w-full max-w-[1200px] space-y-5 px-4 pb-8 pt-4 md:px-8">
         {allFailed ? (
           <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[12px] border border-bad/40 bg-bad-soft px-4 py-3.5">
             <AlertCircle className="h-4 w-4 text-bad" aria-hidden />
@@ -157,12 +157,13 @@ export default function OverviewPage() {
             <div className="flex min-w-0 items-start gap-3">
               <StatusGlyph tone={runs === null ? "idle" : s.verdict.tone} />
               <div className="min-w-0">
-                <p className="text-[19px] font-medium leading-snug tracking-[-0.01em] text-fg md:text-[21px]" aria-live="polite">
-                  {runs === null ? "Run history is unavailable right now." : s.verdict.text}
+                <p className="text-[17px] font-medium leading-snug tracking-[-0.01em] text-fg md:text-[21px]" aria-live="polite">
+                  {/* Non-breaking hyphens keep agent names like pr-triage on one line. */}
+                  {(runs === null ? "Run history is unavailable right now." : s.verdict.text).replace(/-/g, "\u2011")}
                 </p>
                 {loadedAt && (
                   <p className="mt-0.5 text-[12px] text-fg-3">
-                    Updated {formatDistanceToNowStrict(loadedAt, { addSuffix: true })}, refreshes every 20 seconds
+                    {now - loadedAt < 10_000 ? "Updated just now" : `Updated ${formatDistanceToNowStrict(loadedAt, { addSuffix: true })}`}, refreshes every 20 seconds
                   </p>
                 )}
               </div>
@@ -181,7 +182,7 @@ export default function OverviewPage() {
         <section aria-label="At a glance" className="grid grid-cols-2 overflow-hidden rounded-[12px] border border-line bg-panel lg:grid-cols-4">
           <Stat
             href="/runs"
-            label="Runs, 24h"
+            label="Runs (24h)"
             value={loading ? null : runs === null ? "—" : String(s.runs24)}
             note={s.live ? `${s.live} live now` : "none live"}
             className="border-b border-r border-line lg:border-b-0"
@@ -248,6 +249,7 @@ export default function OverviewPage() {
                 </div>
                 <DataTable<Run>
                   label="Failed runs"
+                  fixed
                   loading={loading}
                   rows={s.failures.slice(0, 8)}
                   rowKey={(r) => r.id}
@@ -261,11 +263,16 @@ export default function OverviewPage() {
                       header: "Run",
                       render: (r) => (
                         <div className="min-w-0">
-                          <p className="flex items-center gap-2">
+                          <p className="flex min-w-0 items-center gap-2 truncate">
                             <span className="font-mono text-[12.5px] text-fg">{r.agentName}</span>
                             <span className="font-mono text-[11.5px] text-fg-3">{r.id.slice(0, 8)}</span>
                           </p>
-                          {r.error?.message && <p className="mt-0.5 max-w-[min(46ch,52vw)] truncate text-[12px] text-fg-3">{r.error.message}</p>}
+                          {r.error && (
+                            <p className="density-detail mt-0.5 truncate text-[12px] text-fg-3" title={r.error.message}>
+                              <span className="text-bad">{errorLabel(r.error.code)}</span>
+                              {r.error.message ? `: ${r.error.message}` : ""}
+                            </p>
+                          )}
                         </div>
                       ),
                     },
@@ -273,12 +280,14 @@ export default function OverviewPage() {
                       key: "when",
                       header: "When",
                       hideOnMobile: true,
+                      width: 130,
                       className: "whitespace-nowrap text-fg-3",
                       render: (r) => (Number.isFinite(ts(r.createdAt)) ? formatDistanceToNowStrict(ts(r.createdAt), { addSuffix: true }) : "—"),
                     },
                     {
                       key: "why",
-                      header: "",
+                      header: "Explain",
+                      width: 96,
                       align: "right",
                       render: (r) => (
                         <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} className="inline-block text-left">
@@ -325,6 +334,20 @@ export default function OverviewPage() {
   );
 }
 
+/** Short human label for a run error code ("llm_error" → "Model call failed"). */
+function errorLabel(code?: string): string {
+  const known: Record<string, string> = {
+    llm_error: "Model call failed",
+    budget_exceeded: "Over budget",
+    timeout: "Timed out",
+    step_timeout: "Step timed out",
+    tool_error: "Tool failed",
+    connector_error: "Connector failed",
+  };
+  if (!code) return "Failed";
+  return known[code] ?? code.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
 function Stat({
   label, value, note, href, tone, className,
 }: {
@@ -341,7 +364,7 @@ function Stat({
       {value === null ? (
         <Skeleton className="mt-1.5 h-7 w-16" />
       ) : (
-        <p className={clsx("num mt-0.5 text-[26px] font-semibold leading-tight tracking-[-0.02em]", tone === "bad" ? "text-bad" : "text-fg")}>{value}</p>
+        <p className={clsx("num mt-0.5 font-display text-[28px] font-semibold leading-tight tracking-[-0.02em]", tone === "bad" ? "text-bad" : "text-fg")}>{value}</p>
       )}
       <p className="mt-0.5 truncate text-[12px] text-fg-3">{note}</p>
     </Link>
@@ -388,7 +411,8 @@ function RunStrip({ buckets }: { buckets: Bucket[] }) {
   if (total === 0) return <p className="py-8 text-center text-[13px] text-fg-3">No runs in the last 24 hours.</p>;
   const failed = buckets.reduce((n, b) => n + b.fail, 0);
   return (
-    <figure className="mt-3">
+    <figure className="relative mt-3 pt-4">
+      <p className="absolute right-0 top-0 text-[11.5px] text-fg-3" aria-hidden>peak {max} per 30 min</p>
       <div
         className="flex h-20 items-end gap-[2px] border-b border-line"
         role="img"
@@ -410,7 +434,7 @@ function RunStrip({ buckets }: { buckets: Bucket[] }) {
                   <div className="bg-accent" style={{ flexGrow: b.ok }} />
                 </div>
               ) : (
-                <div className="h-[2px] rounded-full bg-raised" />
+                <div className="h-px bg-line-strong" />
               )}
             </div>
           );

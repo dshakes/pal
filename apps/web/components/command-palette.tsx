@@ -95,7 +95,7 @@ export function CommandPalette() {
       onOpenChange={setOpen}
       label="Ask PAL or search"
       loop
-      overlayClassName="v3-overlay fixed inset-0 z-[100] bg-black/55"
+      overlayClassName="v3-overlay fixed inset-0 z-[100] bg-black/70 md:bg-black/55"
       contentClassName="v3-pop fixed left-1/2 top-[12vh] z-[101] w-[calc(100%-2rem)] max-w-[620px] -translate-x-1/2 overflow-hidden rounded-[14px] border border-line bg-panel shadow-[var(--elev-4)] outline-none"
     >
       <Dialog.Title className="sr-only">Ask PAL or search</Dialog.Title>

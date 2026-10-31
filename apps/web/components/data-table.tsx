@@ -40,6 +40,8 @@ interface DataTableProps<T> {
   loading?: boolean;
   /** Accessible name for the table. */
   label?: string;
+  /** Fixed layout: columns with `width` keep it, the rest share what's left, so long cells truncate instead of widening the table. */
+  fixed?: boolean;
   defaultSort?: { key: string; dir: "asc" | "desc" };
   emptyIcon?: typeof Inbox;
   emptyTitle?: string;
@@ -58,6 +60,7 @@ export function DataTable<T>({
   rowActions,
   loading = false,
   label,
+  fixed = false,
   defaultSort,
   emptyIcon: EmptyIcon = Inbox,
   emptyTitle = "Nothing here yet",
@@ -110,7 +113,7 @@ export function DataTable<T>({
   return (
     <div className="overflow-hidden rounded-[12px] border border-line bg-panel">
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left" aria-label={label} aria-busy={loading || undefined}>
+        <table className={clsx("w-full border-collapse text-left", fixed && "table-fixed")} aria-label={label} aria-busy={loading || undefined}>
           <thead className="sticky top-0 z-10 bg-panel">
             <tr>
               {columns.map((col) => {

@@ -15,7 +15,7 @@ type Size = "sm" | "md" | "lg";
 // without touching this file.
 const VARIANT: Record<Variant, string> = {
   primary:
-    "bg-accent text-on-accent hover:bg-accent-strong shadow-[var(--elev-1)]",
+    "bg-action text-on-action hover:bg-action/90 shadow-[var(--elev-1)]",
   secondary:
     "border border-line-strong bg-panel text-fg hover:bg-hover",
   ghost:

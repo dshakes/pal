@@ -117,7 +117,7 @@ export function ConfirmModal({
             disabled={confirming}
             className={clsx(
               "rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50",
-              tone === "danger" ? "bg-bad text-canvas hover:opacity-90" : "bg-accent-strong text-on-accent hover:bg-accent",
+              tone === "danger" ? "bg-bad text-canvas hover:opacity-90" : "bg-action text-on-action hover:bg-action/90",
             )}
           >
             {confirming ? "Working…" : confirmLabel}
@@ -141,11 +141,11 @@ export function ModalField({
 }) {
   return (
     <div>
-      <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+      <label className="mb-1.5 block text-xs font-medium text-fg-2">
         {label}
       </label>
       {children}
-      {hint && <p className="mt-1 text-[12px] text-zinc-600">{hint}</p>}
+      {hint && <p className="mt-1 text-[12px] text-fg-3">{hint}</p>}
     </div>
   );
 }

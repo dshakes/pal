@@ -7,7 +7,7 @@
 // are <html> data-attributes as well (see lib/display-prefs).
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, BookOpen, LogOut, Search, Settings, Sparkles, User } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
@@ -26,7 +26,8 @@ import { useAuth } from "@/lib/auth";
 import { useModels } from "@/lib/model-context";
 import { openAsk } from "@/lib/ask-events";
 import { ROLE_LABEL, toRole } from "@/lib/rbac";
-import { MODE_HOME, MODE_LABEL } from "@/lib/workspace-nav";
+import { MODE_HOME, MODE_LABEL, currentNavLabel } from "@/lib/workspace-nav";
+import { SpaceDot } from "@/components/org-switcher";
 import { useWorkspaceMode } from "@/lib/use-workspace-mode";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -51,12 +52,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <DemoModeBanner />
             <KioskTour />
             <ProviderBanner />
-            <main id="main" className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              <div className="page-enter flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
-            </main>
+            {/* Page + the docked agent panel (≥1024px it reflows the page instead of covering it). */}
+            <div className="flex min-h-0 flex-1">
+              <main id="main" className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                <div className="page-enter flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
+              </main>
+              <AgentSurface />
+            </div>
           </div>
           <CommandPalette />
-          <AgentSurface />
           <MobileNav />
           <KeyboardShortcuts />
         </div>
@@ -70,6 +74,7 @@ function Topbar() {
   const { user, logout, isDemoMode } = useAuth();
   const { mode } = useWorkspaceMode();
   const surface = useAgentSurfaceToggle();
+  const here = currentNavLabel(usePathname() ?? "/", mode);
 
   const signOut = async () => {
     await logout();
@@ -85,19 +90,33 @@ function Topbar() {
         <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[11.5px] font-medium text-accent">{MODE_LABEL[mode]}</span>
       </Link>
 
+      {/* Desktop: where you are — space, then page. */}
+      <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-2 text-[13.5px] md:flex">
+        <Link href={MODE_HOME[mode]} className="focus-ring flex items-center gap-2 rounded px-0.5 text-fg-2 hover:text-fg">
+          <SpaceDot mode={mode} />
+          {MODE_LABEL[mode]}
+        </Link>
+        {here && (
+          <>
+            <span aria-hidden className="text-fg-3">/</span>
+            <span aria-current="page" className="truncate font-medium text-fg">{here}</span>
+          </>
+        )}
+      </nav>
+
       <button
         type="button"
         onClick={() => openAsk()}
         aria-label="Search or ask PAL"
         aria-keyshortcuts="Meta+K"
-        className="focus-ring ml-auto flex h-8 w-8 items-center justify-center gap-2 rounded-lg border border-line bg-panel text-fg-3 transition-colors hover:border-line-strong hover:text-fg md:ml-0 md:w-full md:max-w-[440px] md:justify-start md:px-2.5"
+        className="focus-ring ml-auto flex h-8 w-8 items-center justify-center gap-2 rounded-lg border border-line bg-panel text-fg-3 transition-colors hover:border-line-strong hover:text-fg md:w-[300px] md:justify-start md:px-2.5 lg:w-[360px]"
       >
         <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="hidden flex-1 truncate text-left text-[13px] md:inline">Search or ask PAL</span>
         <span className="hidden md:inline-flex"><Kbd>⌘K</Kbd></span>
       </button>
 
-      <div className="flex shrink-0 items-center gap-1 md:ml-auto">
+      <div className="flex shrink-0 items-center gap-1">
         <Tooltip label={<span className="flex items-center gap-1.5">Agent panel <Kbd>⌘\</Kbd></span>}>
           <button
             type="button"

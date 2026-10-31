@@ -21,15 +21,15 @@ export function PageHeader({
   return (
     <div
       className={clsx(
-        // Solid, flat header — opaque so scrolling content doesn't bleed through.
-        "relative isolate border-b border-line bg-canvas px-4 py-5 md:px-8",
+        // Flat, borderless title block on the canvas; the topbar carries the breadcrumb.
+        "relative isolate bg-canvas px-4 pb-1 pt-6 md:px-8",
         className,
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.02em] text-fg">
+            <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em] text-fg">
               {title}
             </h1>
             {badge}

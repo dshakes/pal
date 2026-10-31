@@ -30,7 +30,7 @@ export function AskBar({ placeholder, examples }: { placeholder: string; example
           type="submit"
           aria-label="Send to PAL"
           disabled={q.trim().length < 2}
-          className="focus-ring flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-strong text-on-accent transition-opacity disabled:opacity-30"
+          className="focus-ring flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-action text-on-action transition-opacity disabled:opacity-30"
         >
           <ArrowUp className="h-4 w-4" />
         </button>

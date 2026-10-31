@@ -145,7 +145,11 @@ export default function AgentsPage() {
           <HealthDot health={r.health} />
           <div className="min-w-0">
             <p className="truncate font-mono text-[13px] font-medium text-fg">{r.agent.name}</p>
-            {r.agent.description && <p className="hidden max-w-[52ch] truncate text-[12px] text-fg-3 sm:block">{r.agent.description}</p>}
+            {r.agent.description && <p className="density-detail hidden max-w-[60ch] truncate text-[12px] text-fg-3 sm:block">{r.agent.description}</p>}
+            <p className="mt-0.5 text-[12px] text-fg-3 sm:hidden">
+              {r.last ? `${statusWord(r.last.status)} ${formatDistanceToNowStrict(ts(r.last.createdAt), { addSuffix: true })}` : "Never run"}
+              {r.runs24 ? `, ${r.runs24} today` : ""}
+            </p>
           </div>
         </div>
       ),
@@ -153,6 +157,7 @@ export default function AgentsPage() {
     {
       key: "last",
       header: "Last run",
+      hideOnMobile: true,
       sortable: true,
       sortFn: (a, b) => (ts(a.last?.createdAt) || 0) - (ts(b.last?.createdAt) || 0),
       className: "whitespace-nowrap",
@@ -168,7 +173,7 @@ export default function AgentsPage() {
     },
     {
       key: "runs24",
-      header: "Runs, 24h",
+      header: "Runs (24h)",
       align: "right",
       hideOnMobile: true,
       sortable: true,
@@ -177,9 +182,9 @@ export default function AgentsPage() {
     },
     {
       key: "success",
-      header: "Success, 24h",
+      header: "Success (24h)",
       align: "right",
-      hideOnMobile: true,
+      className: "whitespace-nowrap",
       sortable: true,
       sortFn: (a, b) => (a.success24 ?? -1) - (b.success24 ?? -1),
       render: (r) =>
@@ -219,7 +224,7 @@ export default function AgentsPage() {
         }
       />
 
-      <div className="mx-auto w-full max-w-[1200px] space-y-3 px-4 py-5 md:px-8">
+      <div className="mx-auto w-full max-w-[1200px] space-y-3 px-4 pb-8 pt-4 md:px-8">
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
           <div role="radiogroup" aria-label="Filter by health" className="flex gap-0.5 overflow-x-auto rounded-lg border border-line bg-panel p-0.5">
             {(["all", "failing", "healthy", "idle"] as Filter[]).map((f) => (
@@ -236,7 +241,7 @@ export default function AgentsPage() {
               >
                 {f === "failing" && counts.failing > 0 && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-bad" />}
                 {FILTER_LABEL[f]}
-                <span className="num text-fg-3">{counts[f]}</span>
+                {!loading && <span className="num text-fg-3">{counts[f]}</span>}
               </button>
             ))}
           </div>

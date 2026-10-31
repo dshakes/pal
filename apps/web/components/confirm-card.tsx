@@ -48,7 +48,7 @@ export function ConfirmCard({
           disabled={working || disabled}
           className={clsx(
             "focus-ring inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium disabled:opacity-50",
-            tone === "danger" ? "bg-bad text-canvas hover:opacity-90" : "bg-accent-strong text-on-accent hover:bg-accent",
+            tone === "danger" ? "bg-bad text-canvas hover:opacity-90" : "bg-action text-on-action hover:bg-action/90",
           )}
         >
           {working && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}

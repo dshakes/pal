@@ -53,24 +53,6 @@ export function MenuSeparator() {
   return <DropdownMenu.Separator className="my-1 h-px bg-line" />;
 }
 
-export const MenuRadioGroup = DropdownMenu.RadioGroup;
-
-export function MenuRadioItem({ value, children }: { value: string; children: ReactNode }) {
-  return (
-    <DropdownMenu.RadioItem
-      value={value}
-      className="flex h-[var(--control-h)] cursor-default select-none items-center gap-2.5 rounded-md px-2 text-[13px] text-fg-2 outline-none data-[highlighted]:bg-hover data-[highlighted]:text-fg data-[state=checked]:text-fg"
-    >
-      <span className="flex h-3.5 w-3.5 items-center justify-center">
-        <DropdownMenu.ItemIndicator>
-          <span className="block h-1.5 w-1.5 rounded-full bg-accent" />
-        </DropdownMenu.ItemIndicator>
-      </span>
-      {children}
-    </DropdownMenu.RadioItem>
-  );
-}
-
 // ── Popover ─────────────────────────────────────────────────────────────────
 
 export const Popover = PopoverPrimitive.Root;
