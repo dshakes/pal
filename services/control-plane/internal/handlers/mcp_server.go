@@ -302,7 +302,8 @@ func (h *MCPHandler) mcpServerTools(ctx context.Context, c *PalClaims) ([]palMCP
 	if !HasScope(c, ScopeRunsExecute) {
 		return out, nil
 	}
-	input := map[string]any{"description": "Input for the agent: a message string or a JSON object."}
+	input := map[string]any{"description": "Input for the agent: a message string or a JSON object.",
+		"anyOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "object"}}}
 	wait := map[string]any{"type": "integer", "minimum": 0, "maximum": int(mcpRunWaitMax / time.Second), "description": "Seconds to wait for completion (default 60)."}
 	out = append(out, palMCPTool{name: "run_agent",
 		def: palToolDef("run_agent", "Run agent", "Start a run of a PAL agent and wait for its result.",

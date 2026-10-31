@@ -76,6 +76,7 @@ dashboard — not yet as CLI subcommands.`,
 	root.AddCommand(newDevCommand())
 	root.AddCommand(newDemoCommand())
 	root.AddCommand(newHooksCommand())
+	root.AddCommand(newMCPCommand())
 
 	// Auth commands.
 	root.AddCommand(newLoginCommand())

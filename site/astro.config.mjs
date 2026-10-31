@@ -152,6 +152,7 @@ export default defineConfig({
             { slug: 'docs/runtime/quickstart', label: 'Headless agent quickstart' },
             { slug: 'docs/runtime/invocation', label: 'Invoke an agent' },
             { slug: 'docs/build/connectors', label: 'Connectors' },
+            { slug: 'docs/build/mcp', label: 'MCP' },
             { slug: 'docs/build/channels', label: 'Channels' },
             { slug: 'docs/build/knowledge', label: 'Knowledge and handoff' },
             { slug: 'docs/build/approvals', label: 'Approvals' },

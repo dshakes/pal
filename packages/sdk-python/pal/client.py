@@ -1109,12 +1109,15 @@ class PalClient:
             slug: str,
             config: dict[str, Any] | None = None,
         ) -> None:
-            """Attach an MCP server to an agent."""
+            """Attach an MCP server (catalog or tenant) to an agent.
+
+            ``config={"vmId": ...}`` is required for stdio catalog servers.
+            """
             await self._c._request(
                 "POST",
                 f"/v1/agents/{agent_name}/mcp-servers",
                 body={
-                    "slug": slug,
+                    "serverSlug": slug,
                     "config": config or {},
                 },
             )
@@ -1127,6 +1130,76 @@ class PalClient:
             """List MCP servers attached to an agent."""
             data = await self._c._request("GET", f"/v1/agents/{agent_name}/mcp-servers")
             return data or []
+
+        async def list_attachment_tools(self, agent_name: str, slug: str) -> dict[str, Any]:
+            """Live tools/list of an attached server (also a connection test)."""
+            data = await self._c._request("GET", f"/v1/agents/{agent_name}/mcp-servers/{slug}/tools")
+            return data or {}
+
+        async def create_server(
+            self,
+            slug: str,
+            url: str,
+            auth_type: str,
+            *,
+            name: str | None = None,
+            description: str | None = None,
+        ) -> dict[str, Any]:
+            """Register a tenant (BYO) remote MCP server; auth_type: none|bearer|oauth."""
+            body: dict[str, Any] = {"slug": slug, "url": url, "authType": auth_type}
+            if name:
+                body["name"] = name
+            if description:
+                body["description"] = description
+            data = await self._c._request("POST", "/v1/mcp/tenant-servers", body=body)
+            return data or {}
+
+        async def list_tenant_servers(self) -> list[dict[str, Any]]:
+            """List tenant-registered MCP servers."""
+            data = await self._c._request("GET", "/v1/mcp/tenant-servers")
+            return data or []
+
+        async def delete_server(self, slug: str) -> None:
+            """Remove a tenant-registered MCP server."""
+            await self._c._request("DELETE", f"/v1/mcp/tenant-servers/{slug}")
+
+        async def list_credentials(self) -> list[dict[str, Any]]:
+            """List stored credential metadata (secrets are never returned)."""
+            data = await self._c._request("GET", "/v1/mcp/credentials")
+            return data or []
+
+        async def put_bearer(self, slug: str, token: str) -> dict[str, Any]:
+            """Store a static bearer token for an MCP server."""
+            data = await self._c._request("PUT", f"/v1/mcp/credentials/{slug}", body={"token": token})
+            return data or {}
+
+        async def delete_credential(self, slug: str) -> None:
+            """Remove the stored credential for an MCP server."""
+            await self._c._request("DELETE", f"/v1/mcp/credentials/{slug}")
+
+        async def oauth_start(
+            self,
+            server_slug: str,
+            *,
+            scope: str | None = None,
+            client_id: str | None = None,
+            client_secret: str | None = None,
+        ) -> dict[str, Any]:
+            """Begin OAuth 2.1 (PKCE); returns {authorizationUrl, redirectUri, expiresAt}."""
+            body: dict[str, Any] = {"serverSlug": server_slug}
+            if scope:
+                body["scope"] = scope
+            if client_id:
+                body["clientId"] = client_id
+            if client_secret:
+                body["clientSecret"] = client_secret
+            data = await self._c._request("POST", "/v1/mcp/oauth/start", body=body)
+            return data or {}
+
+        async def oauth_callback(self, code: str, state: str) -> dict[str, Any]:
+            """Complete OAuth with the code/state the authorization server returned."""
+            data = await self._c._request("POST", "/v1/mcp/oauth/callback", body={"code": code, "state": state})
+            return data or {}
 
     # ------------------------------------------------------------------
     # receipts namespace

@@ -353,7 +353,7 @@ export default function ConnectorsPage() {
 
     setMcpSaving(true);
     try {
-      await api.attachMcpServer(mcpForm.agentName, { slug: mcpForm.slug });
+      await api.attachMcpServer(mcpForm.agentName, { serverSlug: mcpForm.slug });
       setShowMcpModal(false);
       setMcpForm({ agentName: "", slug: "" });
       setMcpErrors({});

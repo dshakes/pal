@@ -760,6 +760,43 @@ export interface McpServer {
   installsCount: number;
 }
 
+export interface McpTenantServer {
+  slug: string;
+  name: string;
+  description: string;
+  url: string;
+  authType: string;
+  createdAt: string;
+}
+
+export interface McpCredential {
+  serverSlug: string;
+  kind: "bearer" | "oauth";
+  scope?: string;
+  issuer?: string;
+  expiresAt?: string;
+  updatedAt: string;
+}
+
+export interface McpOAuthStart {
+  authorizationUrl: string;
+  redirectUri: string;
+  expiresAt: string;
+}
+
+export interface McpTool {
+  name: string;
+  toolName?: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  allowedByPolicy?: boolean;
+}
+
+export interface McpToolsResult {
+  server: string;
+  tools: McpTool[];
+}
+
 export interface McpAttachment {
   serverSlug: string;
   serverName: string;

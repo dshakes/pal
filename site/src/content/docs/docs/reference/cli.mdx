@@ -208,6 +208,22 @@ pal hooks update <trigger-id> [--enable | --disable] [--template JSON | --clear-
 pal hooks delete <trigger-id>
 ```
 
+## mcp
+
+Manage MCP servers: browse the catalog, register your own remote server, attach servers to agents, and store their credentials. Tokens are read from stdin and never echoed; `pal mcp creds` shows metadata only. stdio catalog servers need `--vm` (a running sandbox VM id).
+
+```bash
+pal mcp servers
+pal mcp add <slug> --url https://host/mcp --auth none|bearer|oauth [--name NAME]
+pal mcp remove <slug>
+pal mcp attach <agent> <slug> [--vm <vmId>]
+pal mcp detach <agent> <slug>
+pal mcp tools <agent> <slug>
+pal mcp token <slug> < token.txt
+pal mcp login <slug> [--scope S] [--client-id ID] [--no-wait]
+pal mcp creds
+```
+
 ## infra
 
 Generate Terraform for the data plane on AWS, GCP or Azure (EKS, GKE, AKS). Only `install` does real work: it writes the Terraform files and prints the next steps (`terraform init && plan && apply`); it does not provision anything. It needs `--tenant-id` (or `PAL_TENANT_ID`).

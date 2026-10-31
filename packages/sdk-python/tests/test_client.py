@@ -391,7 +391,7 @@ class TestMCP:
         assert req.method == "POST"
         assert req.url.path == "/v1/agents/my-agent/mcp-servers"
         body = json.loads(req.content)
-        assert body["slug"] == "my-mcp"
+        assert body["serverSlug"] == "my-mcp"
 
     async def test_detach_deletes(self):
         t = _MockTransport(status=204)
@@ -400,6 +400,61 @@ class TestMCP:
         req = _last(t)
         assert req.method == "DELETE"
         assert req.url.path == "/v1/agents/my-agent/mcp-servers/my-mcp"
+
+    async def test_tenant_servers(self):
+        t = _MockTransport(body={"slug": "acme"})
+        c = _client(t)
+        await c.mcp.create_server("acme", "https://x.test/mcp", "bearer", name="Acme")
+        req = _last(t)
+        assert req.method == "POST"
+        assert req.url.path == "/v1/mcp/tenant-servers"
+        assert json.loads(req.content) == {
+            "slug": "acme",
+            "url": "https://x.test/mcp",
+            "authType": "bearer",
+            "name": "Acme",
+        }
+        t = _MockTransport(body=[{"slug": "acme"}])
+        c = _client(t)
+        assert (await c.mcp.list_tenant_servers())[0]["slug"] == "acme"
+        t = _MockTransport(status=204)
+        c = _client(t)
+        await c.mcp.delete_server("acme")
+        assert _last(t).method == "DELETE"
+        assert _last(t).url.path == "/v1/mcp/tenant-servers/acme"
+
+    async def test_credentials(self):
+        t = _MockTransport(body={"status": "stored", "kind": "bearer"})
+        c = _client(t)
+        await c.mcp.put_bearer("acme", "s3cret")
+        req = _last(t)
+        assert req.method == "PUT"
+        assert req.url.path == "/v1/mcp/credentials/acme"
+        assert json.loads(req.content) == {"token": "s3cret"}
+        t = _MockTransport(body=[{"serverSlug": "acme", "kind": "bearer"}])
+        c = _client(t)
+        assert (await c.mcp.list_credentials())[0]["kind"] == "bearer"
+        assert _last(t).url.path == "/v1/mcp/credentials"
+        t = _MockTransport(status=204)
+        c = _client(t)
+        await c.mcp.delete_credential("acme")
+        assert _last(t).method == "DELETE"
+
+    async def test_oauth_and_tools(self):
+        t = _MockTransport(body={"authorizationUrl": "https://as.test/a"})
+        c = _client(t)
+        out = await c.mcp.oauth_start("acme", scope="read")
+        assert out["authorizationUrl"] == "https://as.test/a"
+        assert _last(t).url.path == "/v1/mcp/oauth/start"
+        assert json.loads(_last(t).content) == {"serverSlug": "acme", "scope": "read"}
+        await c.mcp.oauth_callback("c", "s")
+        assert _last(t).url.path == "/v1/mcp/oauth/callback"
+        assert json.loads(_last(t).content) == {"code": "c", "state": "s"}
+        t = _MockTransport(body={"server": "acme", "tools": []})
+        c = _client(t)
+        res = await c.mcp.list_attachment_tools("my-agent", "acme")
+        assert res["server"] == "acme"
+        assert _last(t).url.path == "/v1/agents/my-agent/mcp-servers/acme/tools"
 
 
 # ---------------------------------------------------------------------------

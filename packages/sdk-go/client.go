@@ -880,13 +880,130 @@ func (c *Client) ListMCPServers(ctx context.Context) ([]MCPServer, error) {
 // AttachMCPServer wires an MCP server to an agent with optional config.
 func (c *Client) AttachMCPServer(ctx context.Context, agentName, slug string, config map[string]any) error {
 	return c.do(ctx, http.MethodPost, "/v1/agents/"+agentName+"/mcp-servers", map[string]any{
-		"slug": slug, "config": config,
+		"serverSlug": slug, "config": config,
 	}, nil)
 }
 
 // DetachMCPServer removes a previously attached MCP server from an agent.
 func (c *Client) DetachMCPServer(ctx context.Context, agentName, slug string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/agents/"+agentName+"/mcp-servers/"+slug, nil, nil)
+}
+
+// MCPTenantServer is a tenant-registered (BYO) remote MCP server.
+type MCPTenantServer struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url"`
+	AuthType    string `json:"authType"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+}
+
+// MCPTenantServerSpec is the request to register a tenant MCP server.
+// AuthType is "none", "bearer" or "oauth".
+type MCPTenantServerSpec struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url"`
+	AuthType    string `json:"authType"`
+}
+
+// MCPCredential is credential metadata; the secret itself is never returned.
+type MCPCredential struct {
+	ServerSlug string `json:"serverSlug"`
+	Kind       string `json:"kind"`
+	Scope      string `json:"scope,omitempty"`
+	Issuer     string `json:"issuer,omitempty"`
+	ExpiresAt  string `json:"expiresAt,omitempty"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
+// MCPOAuthStartRequest begins an OAuth 2.1 (PKCE) flow for a server.
+type MCPOAuthStartRequest struct {
+	ServerSlug   string `json:"serverSlug"`
+	Scope        string `json:"scope,omitempty"`
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+}
+
+// MCPOAuthStart is the authorization URL the user must open.
+type MCPOAuthStart struct {
+	AuthorizationURL string `json:"authorizationUrl"`
+	RedirectURI      string `json:"redirectUri"`
+	ExpiresAt        string `json:"expiresAt"`
+}
+
+// MCPTool is one tool advertised by an attached MCP server.
+type MCPTool struct {
+	Name            string         `json:"name"`
+	ToolName        string         `json:"toolName,omitempty"`
+	Description     string         `json:"description"`
+	InputSchema     map[string]any `json:"inputSchema,omitempty"`
+	AllowedByPolicy *bool          `json:"allowedByPolicy,omitempty"`
+}
+
+// MCPToolsResult is the live tools/list of an attached server.
+type MCPToolsResult struct {
+	Server string    `json:"server"`
+	Tools  []MCPTool `json:"tools"`
+}
+
+// CreateMCPTenantServer registers a remote MCP server for the tenant.
+func (c *Client) CreateMCPTenantServer(ctx context.Context, spec MCPTenantServerSpec) (*MCPTenantServer, error) {
+	var out MCPTenantServer
+	err := c.do(ctx, http.MethodPost, "/v1/mcp/tenant-servers", spec, &out)
+	return &out, err
+}
+
+// ListMCPTenantServers lists the tenant's registered MCP servers.
+func (c *Client) ListMCPTenantServers(ctx context.Context) ([]MCPTenantServer, error) {
+	var out []MCPTenantServer
+	err := c.do(ctx, http.MethodGet, "/v1/mcp/tenant-servers", nil, &out)
+	return out, err
+}
+
+// DeleteMCPTenantServer removes a tenant-registered MCP server.
+func (c *Client) DeleteMCPTenantServer(ctx context.Context, slug string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/mcp/tenant-servers/"+slug, nil, nil)
+}
+
+// ListMCPCredentials lists stored MCP credential metadata (never secrets).
+func (c *Client) ListMCPCredentials(ctx context.Context) ([]MCPCredential, error) {
+	var out []MCPCredential
+	err := c.do(ctx, http.MethodGet, "/v1/mcp/credentials", nil, &out)
+	return out, err
+}
+
+// PutMCPBearer stores a static bearer token for an MCP server.
+func (c *Client) PutMCPBearer(ctx context.Context, slug, token string) error {
+	return c.do(ctx, http.MethodPut, "/v1/mcp/credentials/"+slug, map[string]string{"token": token}, nil)
+}
+
+// DeleteMCPCredential removes the stored credential for an MCP server.
+func (c *Client) DeleteMCPCredential(ctx context.Context, slug string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/mcp/credentials/"+slug, nil, nil)
+}
+
+// MCPOAuthStart begins the OAuth flow and returns the URL to open.
+func (c *Client) MCPOAuthStart(ctx context.Context, req MCPOAuthStartRequest) (*MCPOAuthStart, error) {
+	var out MCPOAuthStart
+	err := c.do(ctx, http.MethodPost, "/v1/mcp/oauth/start", req, &out)
+	return &out, err
+}
+
+// MCPOAuthCallback completes the OAuth flow with the code and state the
+// authorization server redirected back with.
+func (c *Client) MCPOAuthCallback(ctx context.Context, code, state string) error {
+	return c.do(ctx, http.MethodPost, "/v1/mcp/oauth/callback", map[string]string{"code": code, "state": state}, nil)
+}
+
+// ListMCPAttachmentTools runs a live tools/list against an attached server
+// (doubles as a connection test).
+func (c *Client) ListMCPAttachmentTools(ctx context.Context, agentName, slug string) (*MCPToolsResult, error) {
+	var out MCPToolsResult
+	err := c.do(ctx, http.MethodGet, "/v1/agents/"+agentName+"/mcp-servers/"+slug+"/tools", nil, &out)
+	return &out, err
 }
 
 // ---------- Verifiable receipts ----------

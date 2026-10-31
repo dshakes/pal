@@ -1,0 +1,112 @@
+---
+title: MCP
+description: Give agents tools from Model Context Protocol servers, and use PAL itself as an MCP server.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+PAL speaks the [Model Context Protocol](https://modelcontextprotocol.io/specification/2025-06-18) (revision **2025-06-18**) in both directions:
+
+- **As a client**: an agent can call the tools of MCP servers attached to it.
+- **As a server**: any Streamable-HTTP MCP client (Claude Desktop, the MCP Inspector, your own code) can list your agents, read runs, and run agents through PAL.
+
+The design is in [ADR 0058](repo:/blob/master/docs/adr/0058-mcp-client-and-server.md).
+
+## Attach a server to an agent
+
+Two kinds of server can be attached:
+
+| Kind | Where it runs | How to add |
+| --- | --- | --- |
+| **Remote** (Streamable HTTP) | Its own host | Register it once: `pal mcp add <slug> --url https://… --auth none\|bearer\|oauth`, or **Settings → MCP** |
+| **stdio** (catalog entries such as `filesystem`, `fetch`, `git`) | **Only inside one of your sandbox VMs** — never on a PAL host | Attach with the id of a running VM: `pal mcp attach <agent> <slug> --vm <vmId>` |
+
+```bash
+pal mcp add docs --url https://mcp.example.com/mcp --auth oauth
+pal mcp attach researcher docs
+pal mcp tools researcher docs      # live tools/list — doubles as a connection test
+```
+
+Tools show up in the agent's tool loop as `mcp__<slug>__<tool>`.
+
+### Allow it in the agent's policy
+
+New agents are default-deny ([agent identity and policy](repo:/blob/master/docs/adr/0055-agent-identity-and-policy.md)). An agent sees and can call an MCP tool only when **both** hold:
+
+- `mcpServers` contains the server (`"docs"`, every tool) or the tool (`"docs.search"`, or a glob such as `"github.list_*"`);
+- for a remote server, `egressHosts` contains its host (`"mcp.example.com"`).
+
+```json
+{ "mode": "enforce", "mcpServers": ["docs.search"], "egressHosts": ["mcp.example.com"] }
+```
+
+Every call is checked, audited, and counted toward `budget.maxToolCallsPerRun`. A denied call returns `agent_policy_denied` and writes a `policy_denied` event on the run.
+
+## Credentials
+
+Servers that need authorization take one credential per workspace. PAL never returns it, never logs it, and stores it encrypted with `PAL_CREDENTIAL_KEY`.
+
+- **OAuth 2.1** (`--auth oauth`): `pal mcp login <slug>` (or **Connect with OAuth** in Settings → MCP). PAL discovers the server's authorization server (RFC 9728 / RFC 8414), registers itself (RFC 7591) unless you pass `--client-id`, and runs the authorization-code flow with PKCE and the `resource` indicator (RFC 8707), so the token is bound to that server. Refresh is automatic.
+- **Static bearer** (`--auth bearer`, e.g. a personal access token issued for that server): `pal mcp token <slug>` reads it from stdin.
+
+Changing a server's URL deletes its stored credential. PAL sends a server only the credential stored for it — your PAL token is never forwarded.
+
+<Aside type="caution">
+Tool descriptions and results come from a third party. PAL labels both as untrusted data before the model sees them and caps their size, but a tool's output can still be wrong or adversarial. Grant tools, not whole servers, when you can.
+</Aside>
+
+### Network rules
+
+In production, remote servers must use `https`; loopback, link-local (cloud metadata) and multicast addresses are refused, and private ranges are refused unless `PAL_MCP_ALLOW_PRIVATE=1` (for servers inside your VPC). The check happens when the connection is made, and redirects are not followed.
+
+## What the run records
+
+Each MCP call adds a `tool_call` event to the run journal with the tool, the argument **names** and a SHA-256 of the arguments — never the values — plus status, duration and result size.
+
+## PAL as an MCP server
+
+Endpoint: `POST https://<your PAL API>/mcp` (Streamable HTTP, stateless).
+
+1. Create an API key with the `mcp` scope plus the scopes for the tools you want (Settings → API keys).
+2. Point your client at the endpoint with `Authorization: Bearer <key>`.
+
+| Tool | Needs scope | Does |
+| --- | --- | --- |
+| `list_agents` | `agents:read` | Lists the workspace's agents |
+| `get_run` | `runs:read` | Status, output and cost of a run |
+| `run_agent` | `runs:execute` | Runs an agent and waits up to 120 s |
+| `agent_<name>` | `runs:execute` | One tool per agent labelled `mcp=expose` |
+
+`tools/list` only returns the tools your key may call. Runs go through the normal run path, so budgets and the agent's policy apply.
+
+Keys without the `mcp` scope — including older unrestricted keys — and dashboard sessions are refused with `401` and a `WWW-Authenticate` header pointing at `/.well-known/oauth-protected-resource/mcp`.
+
+<Aside>
+PAL issues API keys, not OAuth tokens. Clients that insist on an OAuth flow need an external authorization server configured with `PAL_MCP_AUTHORIZATION_SERVERS`; otherwise supply the key as a header.
+</Aside>
+
+## Environment
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PAL_MCP_ALLOW_PRIVATE` | off | `1` lets remote MCP servers live on private (RFC 1918 / ULA / CGNAT) addresses in prod. Loopback and metadata addresses stay refused. |
+| `PAL_MCP_OAUTH_REDIRECT_URL` | `${PAL_DASHBOARD_URL}/settings/mcp/callback` | OAuth redirect URI PAL registers with MCP authorization servers. |
+| `PAL_MCP_AUTHORIZATION_SERVERS` | unset | Comma-separated issuers advertised in `/.well-known/oauth-protected-resource/mcp`. |
+| `PAL_MCP_ALLOWED_ORIGINS` | `PAL_DASHBOARD_URL` | Browser origins allowed to call `/mcp` (DNS-rebinding defence). |
+
+## API
+
+| Method | Path | Scope |
+| --- | --- | --- |
+| `GET` | `/v1/mcp/servers` | public catalog |
+| `POST` / `GET` | `/v1/mcp/tenant-servers` | `connectors:write` / `connectors:read` |
+| `DELETE` | `/v1/mcp/tenant-servers/{slug}` | `connectors:write` |
+| `POST` / `GET` | `/v1/agents/{name}/mcp-servers` | `agents:write` / `agents:read` |
+| `DELETE` | `/v1/agents/{name}/mcp-servers/{slug}` | `agents:write` |
+| `GET` | `/v1/agents/{name}/mcp-servers/{slug}/tools` | `agents:read` |
+| `GET` | `/v1/mcp/credentials` | `connectors:read` |
+| `PUT` / `DELETE` | `/v1/mcp/credentials/{slug}` | `connectors:write` |
+| `POST` | `/v1/mcp/oauth/start`, `/v1/mcp/oauth/callback` | `connectors:write` |
+| `POST` | `/mcp` | API key with `mcp` |
