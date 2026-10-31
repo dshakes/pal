@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { formatDistanceToNowStrict } from "date-fns";
-import { AlertCircle, Bot, Play, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { AlertCircle, Bot, MessageSquare, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAgents, useRuns } from "@/lib/hooks";
 import type { Agent, Run } from "@/lib/types";
@@ -269,7 +269,7 @@ export default function AgentsPage() {
           onRowClick={(r) => router.push(`/agents/${encodeURIComponent(r.agent.name)}`)}
           columns={columns}
           rowActions={[
-            { label: "Run", icon: Play, onClick: (r) => router.push(`/agents/${encodeURIComponent(r.agent.name)}?tab=build&autorun=true`) },
+            { label: "Test", icon: MessageSquare, onClick: (r) => router.push(`/agents/${encodeURIComponent(r.agent.name)}?tab=test`) },
             ...(canWrite ? [{ label: "Delete", icon: Trash2, variant: "danger" as const, onClick: (r: Row) => setConfirmDelete(r.agent) }] : []),
           ]}
           emptyIcon={Bot}

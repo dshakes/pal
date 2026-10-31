@@ -5,11 +5,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import {
-  ArrowLeft,
   Play,
-  Settings,
-  Hammer,
-  Calendar,
   Loader2,
   Save,
   MessageSquare,
@@ -78,8 +74,16 @@ import { type MemoryEntry, getAgentMemory, addMemoryEntry, removeMemoryEntry, me
 import { getAgentInstructions, saveAgentInstructions, mergeInstructionsAndPrompt } from "@/lib/agent-instructions";
 import { type CodeLanguage, runCode, extractCodeBlocks } from "@/lib/code-runner";
 import { AgentLoop } from "@/components/agent-loop";
-import { AgentAvatar } from "@/components/agent-avatar";
 import { AGENT_CATALOG } from "@/lib/agent-catalog";
+import NextLink from "next/link";
+import { runtimeApi } from "@/lib/runtime-api";
+import { formatDistanceToNowStrict } from "date-fns";
+import { Button } from "@/components/button";
+import { ConfirmModal } from "@/components/modal";
+import { RoleGate } from "@/components/role-gate";
+import { useAgentSurface } from "@/components/agent-surface";
+import { resolveTab, type AgentTab } from "@/lib/lifecycle";
+import { DebugPanel, EvalsPanel, GatePanel, LifecycleRail, PromotePanel } from "./lifecycle";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -139,21 +143,30 @@ function ModelSelect({ value, onChange, className }: { value: string; onChange: 
   );
 }
 
-// ---------------------------------------------------------------------------
-// HeaderStat — one chip in the header's dense glass summary row
-// ---------------------------------------------------------------------------
-
-function HeaderStat({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone?: "warn" }) {
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <div className={clsx("flex h-6 w-6 items-center justify-center rounded-md", tone === "warn" ? "bg-amber-500/10" : "bg-white/[0.05]")}>
-        {icon}
-      </div>
-      <div className="leading-tight">
-        <p className="text-sm font-semibold tabular-nums text-zinc-100">{value}</p>
-        <p className="mc-micro-label">{label}</p>
-      </div>
+    <div className="flex items-baseline gap-1.5">
+      <dt className="text-fg-3">{label}</dt>
+      <dd className="num text-fg-2">{children}</dd>
     </div>
+  );
+}
+
+/** Health from the last run, said in words next to the name. */
+function AgentHealth({ last }: { last?: Run }) {
+  const state = !last ? "idle" : last.status === "failed" ? "bad" : last.status === "running" || last.status === "queued" ? "live" : "ok";
+  const label = { idle: "Never run", bad: "Last run failed", live: "Running", ok: "Healthy" }[state];
+  return (
+    <span className={clsx(
+      "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium",
+      state === "bad" && "bg-bad-soft text-bad",
+      state === "ok" && "bg-ok-soft text-ok",
+      state === "live" && "bg-accent-soft text-accent",
+      state === "idle" && "bg-raised text-fg-3",
+    )}>
+      <span aria-hidden className={clsx("h-1.5 w-1.5 rounded-full", state === "bad" && "bg-bad", state === "ok" && "bg-ok", state === "live" && "bg-accent", state === "idle" && "bg-fg-3")} />
+      {label}
+    </span>
   );
 }
 
@@ -162,17 +175,6 @@ function HeaderStat({ icon, label, value, tone }: { icon: React.ReactNode; label
 // ---------------------------------------------------------------------------
 
 const RUNS_PER_PAGE = 10;
-
-// In-page tabs (toggle the active view without leaving page.tsx).
-const tabs = [
-  { key: "build", label: "Build", icon: Hammer },
-  { key: "chat", label: "Chat", icon: MessageSquare },
-  { key: "runs", label: "Runs", icon: Play },
-  { key: "schedule", label: "Schedule", icon: Calendar },
-  { key: "security", label: "Security", icon: Shield },
-  { key: "settings", label: "Settings", icon: Settings },
-] as const;
-type TabKey = (typeof tabs)[number]["key"];
 
 // Route tabs (link to sub-pages, /agents/[name]/channels etc.). Rendered
 // alongside the in-page tabs as a single visual strip. Kept separate so
@@ -253,8 +255,28 @@ export default function AgentDetailPage() {
     (setupStatus?.missing.connectors.length ?? 0) +
     (setupStatus?.missing.surfaces.length ?? 0);
 
-  const initialTab = (searchParams.get("tab") as TabKey) || "build";
-  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [activeTab, setActiveTab] = useState<AgentTab>(() => resolveTab(searchParams.get("tab")));
+  // Keep ?tab= in the URL so a tab is linkable and survives reload.
+  const selectTab = useCallback((t: AgentTab) => {
+    setActiveTab(t);
+    const q = new URLSearchParams(window.location.search);
+    q.set("tab", t);
+    router.replace(`?${q.toString()}`, { scroll: false });
+  }, [router]);
+
+  // Where the frozen versions are live (sandbox / staging / prod), for the header.
+  const [envSummary, setEnvSummary] = useState<string | null>(null);
+  useEffect(() => {
+    let off = false;
+    runtimeApi.get<{ environments?: Array<{ env: string; version: string; status: string; canaryPct?: number }> }>(`/v1/agents/${encodeURIComponent(name)}/environments`)
+      .then((e) => {
+        if (off) return;
+        const live = (e.environments ?? []).filter((x) => x.status === "active" || x.status === "canary");
+        setEnvSummary(live.length ? live.map((x) => `${x.env} ${x.version}${x.status === "canary" ? ` (canary ${x.canaryPct ?? 0}%)` : ""}`).join(", ") : null);
+      })
+      .catch(() => { /* no environments yet: header just omits it */ });
+    return () => { off = true; };
+  }, [name]);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -1107,6 +1129,18 @@ export default function AgentDetailPage() {
   const succeededRuns = agentRuns.filter((r) => r.status === "succeeded").length;
   const totalCost = agentRuns.reduce((sum, r) => sum + r.costUsd, 0);
 
+  const failedRuns = agentRuns.filter((r) => r.status === "failed");
+  useAgentSurface({
+    page: `Agent ${name} (${activeTab} tab)`,
+    facts: [
+      `agent ${name}${agent?.description ? `: ${agent.description}` : ""}`,
+      `${agentRuns.length} runs, ${failedRuns.length} failed, ${formatCost(totalCost)} spent`,
+      envSummary ? `live in ${envSummary}` : "not promoted to any environment yet",
+    ],
+    suggestions: failedRuns.length ? ["Why did my last run fail?"] : ["Open runs"],
+    explain: failedRuns.slice(0, 5).map((r) => ({ id: r.id, label: `Run ${r.id.slice(0, 8)} failed`, sub: r.error?.message, request: { kind: "run" as const, runId: r.id } })),
+  });
+
   if (agentLoading) return <AgentDetailSkeleton />;
   if (agentError || !agent) return (
     <div className="flex flex-1 items-center justify-center">
@@ -1120,123 +1154,65 @@ export default function AgentDetailPage() {
     </div>
   );
 
+  const routeLinks = routeTabs.map((t) => ({ label: t.label, href: `/agents/${encodeURIComponent(name)}${t.suffix}` }));
+  const last = agentRuns[0];
+  const live = agentRuns.filter((r) => r.status === "running" || r.status === "queued").length;
+
   return (
     <div className="flex flex-1 flex-col overflow-auto">
-      {/* Header — mission-control treatment: ambient aurora behind, dense
-          glass summary row below (matches app/(dashboard)/agents/page.tsx). */}
-      <div className="relative shrink-0 overflow-hidden border-b border-zinc-800">
-        <div aria-hidden className="mc-aurora" />
-        <div className="relative z-10 px-8 py-5">
-          <button
-            onClick={() => router.push("/agents")}
-            className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:text-zinc-300"
-          >
-            <ArrowLeft className="h-3 w-3" /> All agents
-          </button>
-
-          <div className="flex items-start gap-4">
-            <AgentAvatar name={agent.name} status={agentRuns[0]?.status} size="lg" />
-            <div className="min-w-0 flex-1">
-              {/* Name + status pill */}
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-xl font-semibold leading-tight text-zinc-100">{agent.name}</h1>
-                <span className={clsx(
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
-                  agent.status === "active" ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-500/10 text-zinc-400",
-                )}>
-                  <span className={clsx("h-1.5 w-1.5 rounded-full", agent.status === "active" ? "bg-emerald-400" : "bg-zinc-500")} />
-                  {agent.status === "active" ? "Active" : "Idle"}
-                </span>
-              </div>
-
-              {/* Description */}
-              {agent.description && (
-                <p className="mt-1 text-xs leading-relaxed text-zinc-500">{agent.description}</p>
-              )}
+      {/* Header (v3): who the agent is, how it's doing, and its lifecycle rail. */}
+      <div className="shrink-0 px-4 pt-6 md:px-8">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="font-mono text-[24px] font-semibold leading-tight tracking-[-0.02em] text-fg">{agent.name}</h1>
+              <AgentHealth last={last} />
             </div>
+            {agent.description && <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-fg-3">{agent.description}</p>}
+            <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[12.5px]">
+              <Fact label="Runs">{healthStats.total}{live ? `, ${live} live` : ""}</Fact>
+              <Fact label="Success">{healthStats.total ? `${healthStats.successRate}%` : "—"}</Fact>
+              <Fact label="Spend">{formatCost(totalCost)}</Fact>
+              <Fact label="Last run">{last ? formatDistanceToNowStrict(new Date(last.createdAt), { addSuffix: true }) : "never"}</Fact>
+              {envSummary && <Fact label="Live in">{envSummary}</Fact>}
+            </dl>
           </div>
-
-          {/* Summary row — dense glass strip, real run/cost data only */}
-          <div className="mc-glass mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-white/[0.07] bg-white/[0.024] px-4 py-3 backdrop-blur-xl">
-            {(() => {
-              const entry = AGENT_CATALOG[name];
-              if (!entry) return null;
-              const eLabels: Record<string, string> = { scheduled: "Scheduled", bridge: "Bridge", reactive: "Reactive" };
-              const eColors: Record<string, string> = {
-                scheduled: "text-sky-300 bg-sky-500/10 border border-sky-500/20",
-                bridge:    "text-violet-300 bg-violet-500/10 border border-violet-500/20",
-                reactive:  "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20",
-              };
-              return (
-                <div className="flex items-center gap-2 text-[12px] text-zinc-500">
-                  <span className={clsx("rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide", eColors[entry.execModel ?? "scheduled"])}>
-                    {eLabels[entry.execModel ?? "scheduled"]}
-                  </span>
-                  <span>{entry.cadence}</span>
-                </div>
-              );
-            })()}
-            {healthStats.total > 0 ? (
-              <>
-                <HeaderStat icon={<Play className="h-3.5 w-3.5 text-zinc-400" />} label="Runs" value={String(healthStats.total)} />
-                <HeaderStat
-                  icon={<TrendingUp className={clsx("h-3.5 w-3.5", healthStats.successRate >= 80 ? "text-emerald-400" : "text-amber-400")} />}
-                  label="Success"
-                  value={`${healthStats.successRate}%`}
-                  tone={healthStats.successRate >= 80 ? undefined : "warn"}
-                />
-                <HeaderStat icon={<DollarSign className="h-3.5 w-3.5 text-emerald-400" />} label="Cost" value={`$${totalCost.toFixed(4)}`} />
-              </>
-            ) : (
-              <span className="text-[12px] text-zinc-600">No runs yet</span>
-            )}
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="secondary" size="md" icon={<MessageSquare className="h-3.5 w-3.5" />} onClick={() => selectTab("test")}>
+              Test
+            </Button>
+            <RoleGate cap="agents:write">
+              <Button variant="ghost" size="md" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => setShowDeleteConfirm(true)} aria-label="Delete agent">
+                <span className="hidden sm:inline">Delete</span>
+              </Button>
+            </RoleGate>
           </div>
-
-          {/* Tab strip */}
-          <div className="mt-5 flex flex-wrap items-center gap-1">
-            {tabs.map((tab) => (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={clsx("inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors", activeTab === tab.key ? "bg-surface-3 text-zinc-100" : "text-zinc-500 hover:bg-surface-2 hover:text-zinc-300")}>
-                <tab.icon className="h-3.5 w-3.5" /> {tab.label}
-              </button>
-            ))}
-            {/* Route tabs — link to sub-pages instead of toggling in-place. */}
-            {routeTabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => router.push(`/agents/${encodeURIComponent(name)}${tab.suffix}`)}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-500 transition-colors hover:bg-surface-2 hover:text-zinc-300"
-              >
-                <tab.icon className="h-3.5 w-3.5" /> {tab.label}
-              </button>
-            ))}
-          </div>
+        </div>
+        <div className="mt-5">
+          <LifecycleRail active={activeTab} onSelect={selectTab} routes={routeLinks} />
         </div>
       </div>
 
-      {/* Setup gate banner — only shown when the template-derived
-          requirements aren't satisfied. Linking to /setup keeps a single
-          place to finish wiring instead of scattering Connect buttons. */}
+      {/* Setup gate banner: template-derived requirements that aren't met yet. */}
       {!setupReady && setupStatus && (
-        <div className="border-b border-amber-500/20 bg-amber-500/[0.06] px-8 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-xs text-amber-300">
-              <span className="font-semibold">Setup needed.</span>{" "}
-              {missingCount} item{missingCount === 1 ? "" : "s"} left before
-              this agent can run reliably.
-            </p>
-            <button
-              onClick={() => router.push(`/agents/${encodeURIComponent(name)}/setup`)}
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-500/20"
-            >
-              Finish setup →
-            </button>
-          </div>
+        <div className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-warn/40 bg-warn-soft px-4 py-3 md:mx-8">
+          <p className="text-[13px] text-warn">
+            <span className="font-semibold">Setup needed.</span> {missingCount} item{missingCount === 1 ? "" : "s"} left before this agent can run reliably.
+          </p>
+          <NextLink href={`/agents/${encodeURIComponent(name)}/setup`} className="focus-ring rounded-md border border-warn/40 px-3 py-1 text-[12.5px] font-medium text-warn hover:bg-warn/10">
+            Finish setup
+          </NextLink>
         </div>
       )}
 
-      <div className="flex-1 p-8">
-        {/* BUILD TAB */}
-        {activeTab === "build" && (
+      <div id="agent-tabpanel" role="tabpanel" aria-labelledby={`agent-tab-${activeTab}`} className="flex-1 px-4 py-6 md:px-8">
+        {activeTab === "evals" && <EvalsPanel agentName={name} />}
+        {activeTab === "gate" && <GatePanel agentName={name} />}
+        {activeTab === "promote" && <PromotePanel agentName={name} />}
+        {activeTab === "debug" && <DebugPanel runs={agentRuns} loading={runsLoading} />}
+
+        {/* DESIGN (was Build) */}
+        {activeTab === "design" && (
           <div className="space-y-6">
             {/* Personal-suite catalog card — only for known agents */}
             {(() => {
@@ -1430,7 +1406,7 @@ export default function AgentDetailPage() {
               <div className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
                 <h4 className="mb-2 text-xs font-medium text-zinc-500">Model</h4>
                 <p className="text-sm font-medium text-zinc-200">{settingsModel === "auto" ? "Auto (recommended)" : settingsModel}</p>
-                <button onClick={() => setActiveTab("settings")} className="mt-2 text-[12px] text-indigo-400 hover:text-indigo-300">Change</button>
+                <button onClick={() => selectTab("settings")} className="mt-2 text-[12px] text-indigo-400 hover:text-indigo-300">Change</button>
               </div>
               <div className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
                 <h4 className="mb-2 text-xs font-medium text-zinc-500">Connectors</h4>
@@ -1557,7 +1533,7 @@ export default function AgentDetailPage() {
                 on the Chat tab; this card just nudges the user there so we
                 don't ship two near-identical chat surfaces. */}
             <button
-              onClick={() => setActiveTab("chat")}
+              onClick={() => selectTab("test")}
               className="group flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-surface-1 p-5 text-left transition-colors hover:border-pal-500/30 hover:bg-surface-2"
             >
               <div className="flex items-center gap-3">
@@ -1625,7 +1601,7 @@ export default function AgentDetailPage() {
         )}
 
         {/* CHAT TAB — Session-backed (Gap 1) with mid-execution steering (Gap 3) */}
-        {activeTab === "chat" && (
+        {activeTab === "test" && (
           <div className="flex h-[calc(100vh-260px)] flex-col">
             {/* Chat header with session status */}
             <div className="mb-3 flex items-center justify-between">
@@ -1818,7 +1794,7 @@ export default function AgentDetailPage() {
         )}
 
         {/* RUNS TAB */}
-        {activeTab === "runs" && (
+        {activeTab === "observe" && (
           <div className="space-y-4">
             <div className="flex items-center gap-3 flex-wrap">
               <button
@@ -2434,23 +2410,16 @@ export default function AgentDetailPage() {
         )}
       </div>
 
-      {/* Delete Modal */}
-      {showDeleteConfirm && (
-        <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="modal-content w-full max-w-sm rounded-2xl border border-zinc-800 bg-surface-1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-5">
-              <h3 className="text-lg font-semibold text-zinc-100">Delete agent</h3>
-              <p className="mt-2 text-sm text-zinc-400">Are you sure you want to delete <span className="font-medium text-zinc-200">{name}</span>? This cannot be undone.</p>
-            </div>
-            <div className="flex items-center justify-end gap-3 border-t border-zinc-800 px-6 py-4">
-              <button onClick={() => setShowDeleteConfirm(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200">Cancel</button>
-              <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-400 disabled:opacity-50">
-                {deleting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting...</> : <><Trash2 className="h-3.5 w-3.5" /> Delete</>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        open={showDeleteConfirm}
+        title={`Delete ${name}?`}
+        description={`This removes the agent and its versions (${agentRuns.length} runs, ${formatCost(totalCost)} spent stay in history). This can’t be undone.`}
+        confirmLabel="Delete agent"
+        tone="danger"
+        confirming={deleting}
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }

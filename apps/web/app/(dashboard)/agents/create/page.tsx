@@ -33,7 +33,7 @@ const TEMPLATES = [
 
 function ModelSelect({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={clsx("rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50", className)}>
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={clsx("rounded-lg border border-line bg-surface-0 px-3 py-2 text-sm text-fg outline-none focus:border-pal-500/50", className)}>
       <option value="auto">Auto (recommended)</option>
       <optgroup label="Anthropic">
         <option value="reasoning-frontier">Reasoning Frontier -- Claude Opus 4</option>
@@ -53,7 +53,7 @@ function ModelSelect({ value, onChange, className }: { value: string; onChange: 
 }
 
 export default function CreatePageWrapper() {
-  return (<Suspense fallback={<div className="flex flex-1 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-zinc-600" /></div>}><CreatePage /></Suspense>);
+  return (<Suspense fallback={<div className="flex flex-1 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-fg-3" /></div>}><CreatePage /></Suspense>);
 }
 
 function CreatePage() {
@@ -174,14 +174,14 @@ function CreatePage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
-      <div className="border-b border-zinc-800 bg-surface-1 px-8 py-5">
-        <button onClick={() => step === "choose" ? router.push("/agents") : setStep(step === "test" ? "configure" : "choose")} className="mb-3 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"><ArrowLeft className="h-3 w-3" /> {step === "choose" ? "Back to Agents" : "Back"}</button>
-        <h1 className="text-lg font-semibold text-zinc-100">Create Agent</h1>
+      <div className="border-b border-line bg-surface-1 px-8 py-5">
+        <button onClick={() => step === "choose" ? router.push("/agents") : setStep(step === "test" ? "configure" : "choose")} className="mb-3 inline-flex items-center gap-1 text-xs text-fg-3 hover:text-fg-2"><ArrowLeft className="h-3 w-3" /> {step === "choose" ? "Back to Agents" : "Back"}</button>
+        <h1 className="text-lg font-semibold text-fg">Create Agent</h1>
         <div className="mt-4 flex items-center gap-2 text-xs">
           {(["Choose", "Configure", "Test & Deploy"] as const).map((label, i) => (
             <div key={label} className="flex items-center gap-2">
-              {i > 0 && <div className={clsx("h-px w-8", stepIdx >= i ? "bg-indigo-500" : "bg-zinc-700")} />}
-              <span className={clsx("rounded-lg px-3 py-1.5 font-medium", stepIdx === i ? "bg-indigo-500/10 text-indigo-400" : stepIdx > i ? "text-zinc-300" : "text-zinc-600")}>{i + 1}. {label}</span>
+              {i > 0 && <div className={clsx("h-px w-8", stepIdx >= i ? "bg-accent" : "bg-line-strong")} />}
+              <span className={clsx("rounded-lg px-3 py-1.5 font-medium", stepIdx === i ? "bg-accent-soft text-accent" : stepIdx > i ? "text-fg-2" : "text-fg-3")}>{i + 1}. {label}</span>
             </div>
           ))}
         </div>
@@ -196,11 +196,11 @@ function CreatePage() {
             <OneClickTemplates />
 
             <div className="my-8 flex items-center gap-3">
-              <span className="h-px flex-1 bg-zinc-800" />
-              <span className="text-[12px] uppercase tracking-wider text-zinc-600">
+              <span className="h-px flex-1 bg-raised" />
+              <span className="text-[12px] uppercase tracking-wider text-fg-3">
                 or build your own
               </span>
-              <span className="h-px flex-1 bg-zinc-800" />
+              <span className="h-px flex-1 bg-raised" />
             </div>
 
             {/* Two fallback paths. Both end in the same Configure step;
@@ -209,14 +209,14 @@ function CreatePage() {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <button
                 onClick={() => { setPath("manual"); setStep("configure"); }}
-                className="group flex items-start gap-4 rounded-xl border border-zinc-800 bg-surface-1 p-5 text-left transition-colors hover:border-zinc-700 hover:bg-surface-2"
+                className="group flex items-start gap-4 rounded-xl border border-line bg-surface-1 p-5 text-left transition-colors hover:border-line-strong hover:bg-surface-2"
               >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-3">
-                  <FileText className="h-5 w-5 text-zinc-400" />
+                  <FileText className="h-5 w-5 text-fg-2" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-zinc-100">Custom (blank)</h3>
-                  <p className="mt-1 text-xs text-zinc-500">
+                  <h3 className="text-sm font-semibold text-fg">Custom (blank)</h3>
+                  <p className="mt-1 text-xs text-fg-3">
                     Configure name, prompt, model, and connectors yourself.
                   </p>
                 </div>
@@ -226,16 +226,16 @@ function CreatePage() {
                 className={clsx(
                   "group flex items-start gap-4 rounded-xl border p-5 text-left transition-colors",
                   path === "ai"
-                    ? "border-indigo-500/40 bg-indigo-500/5"
-                    : "border-zinc-800 bg-surface-1 hover:border-zinc-700 hover:bg-surface-2",
+                    ? "border-accent bg-accent-soft"
+                    : "border-line bg-surface-1 hover:border-line-strong hover:bg-surface-2",
                 )}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10">
-                  <Sparkles className="h-5 w-5 text-indigo-400" />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft">
+                  <Sparkles className="h-5 w-5 text-accent" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-zinc-100">Describe with AI</h3>
-                  <p className="mt-1 text-xs text-zinc-500">
+                  <h3 className="text-sm font-semibold text-fg">Describe with AI</h3>
+                  <p className="mt-1 text-xs text-fg-3">
                     Tell PAL what you want; it drafts the agent for you.
                   </p>
                 </div>
@@ -245,10 +245,10 @@ function CreatePage() {
             {/* AI textarea reveals inline below the cards — no separate
                 screen, no path switch. */}
             {path === "ai" && (
-              <div className="mt-6 space-y-3 rounded-xl border border-indigo-500/20 bg-indigo-500/[0.03] p-5">
+              <div className="mt-6 space-y-3 rounded-xl border border-accent bg-accent-soft p-5">
                 {!aiDescription && (
-                  <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-zinc-500">
-                    <span className="text-zinc-600">Try:</span>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-fg-3">
+                    <span className="text-fg-3">Try:</span>
                     {[
                       "Reply to my WhatsApp DMs as me — casual, brief",
                       "Triage my GitHub issues each morning and draft responses",
@@ -258,7 +258,7 @@ function CreatePage() {
                       <button
                         key={suggestion}
                         onClick={() => setAiDescription(suggestion)}
-                        className="rounded-full border border-zinc-800 bg-surface-1 px-2.5 py-1 text-left text-[12px] text-zinc-400 transition-colors hover:border-indigo-500/40 hover:bg-indigo-500/5 hover:text-indigo-300"
+                        className="rounded-full border border-line bg-surface-1 px-2.5 py-1 text-left text-[12px] text-fg-2 transition-colors hover:border-accent hover:opacity-90/5 hover:text-accent"
                       >
                         {suggestion}
                       </button>
@@ -270,7 +270,7 @@ function CreatePage() {
                   onChange={(e) => setAiDescription(e.target.value)}
                   rows={3}
                   placeholder="Describe what your agent should do..."
-                  className="w-full resize-none rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full resize-none rounded-lg border border-line bg-surface-0 px-3 py-2.5 text-sm text-fg placeholder:text-fg-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent"
                   autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleAiGenerate(); }}
                 />
@@ -278,7 +278,7 @@ function CreatePage() {
                 <button
                   onClick={handleAiGenerate}
                   disabled={!aiDescription.trim() || aiGenerating}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-action px-4 py-2.5 text-sm font-medium text-on-action transition-colors hover:opacity-90 disabled:opacity-50"
                 >
                   {aiGenerating ? (
                     <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
@@ -294,18 +294,18 @@ function CreatePage() {
         {step === "configure" && (
           <div className="mx-auto max-w-2xl space-y-5">
             {/* Basic Info */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Basic Info</h3>
+            <div className="rounded-xl border border-line bg-surface-1 p-5 space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-3">Basic Info</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <div className="mb-1 flex items-center justify-between"><label className="text-xs font-medium text-zinc-400">Name</label><AiAssistButton mode="name" value={name} onChange={setName} placeholder="e.g., build me a support bot" /></div>
-                  <input type="text" value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="my-agent" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50" />
+                  <div className="mb-1 flex items-center justify-between"><label className="text-xs font-medium text-fg-2">Name</label><AiAssistButton mode="name" value={name} onChange={setName} placeholder="e.g., build me a support bot" /></div>
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="my-agent" className="w-full rounded-lg border border-line bg-surface-0 px-3 py-2 text-sm text-fg outline-none focus:border-pal-500/50" />
                 </div>
-                <div><label className="mb-1 block text-xs font-medium text-zinc-400">Model</label><ModelSelect value={model} onChange={setModel} className="w-full" /></div>
+                <div><label className="mb-1 block text-xs font-medium text-fg-2">Model</label><ModelSelect value={model} onChange={setModel} className="w-full" /></div>
               </div>
               <div>
-                <div className="mb-1 flex items-center justify-between"><label className="text-xs font-medium text-zinc-400">Description</label><AiAssistButton mode="description" value={description} onChange={setDescription} context={name} /></div>
-                <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this agent do?" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50" />
+                <div className="mb-1 flex items-center justify-between"><label className="text-xs font-medium text-fg-2">Description</label><AiAssistButton mode="description" value={description} onChange={setDescription} context={name} /></div>
+                <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this agent do?" className="w-full rounded-lg border border-line bg-surface-0 px-3 py-2 text-sm text-fg outline-none focus:border-pal-500/50" />
               </div>
             </div>
 
@@ -314,7 +314,7 @@ function CreatePage() {
               <div className="flex items-center justify-between">
                 <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-teal-400"><ClipboardList className="h-3.5 w-3.5" /> Instructions</h3>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-zinc-600">Goals, scope, constraints</span>
+                  <span className="text-[11px] text-fg-3">Goals, scope, constraints</span>
                   <button disabled={generatingInstructions} onClick={async () => {
                     if (!name && !description) { toast.info("Add a name or description first"); return; }
                     setGeneratingInstructions(true);
@@ -327,23 +327,23 @@ function CreatePage() {
                   }} className="inline-flex items-center gap-1 rounded-md bg-teal-500/10 px-2 py-0.5 text-[11px] font-medium text-teal-400 hover:bg-teal-500/20 disabled:opacity-50">{generatingInstructions ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />} {generatingInstructions ? "Generating..." : "Generate"}</button>
                 </div>
               </div>
-              <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder="Define the agent's purpose, goals, and constraints..." className="w-full resize-y rounded-lg border border-zinc-800 bg-surface-0 p-3 text-sm leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-teal-500/30" />
+              <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder="Define the agent's purpose, goals, and constraints..." className="w-full resize-y rounded-lg border border-line bg-surface-0 p-3 text-sm leading-relaxed text-fg-2 placeholder:text-fg-3 outline-none focus:border-teal-500/30" />
             </div>
 
             {/* System Prompt — HOW the agent behaves */}
-            <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/[0.02] p-5 space-y-2">
+            <div className="rounded-xl border border-accent bg-accent-soft p-5 space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400"><FileText className="h-3.5 w-3.5" /> System Prompt</h3>
+                <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-accent"><FileText className="h-3.5 w-3.5" /> System Prompt</h3>
                 <button onClick={handleGeneratePrompt} disabled={generatingPrompt} className="inline-flex items-center gap-1 rounded-md bg-pal-500/10 px-2 py-1 text-[12px] font-medium text-pal-400 hover:bg-pal-500/20 disabled:opacity-50">{generatingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Generate</button>
               </div>
-              <span className="text-[11px] text-zinc-600">Personality, tone, output format</span>
-              <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={5} spellCheck={false} placeholder="You are a helpful assistant that..." className="w-full resize-y rounded-lg border border-zinc-800 bg-surface-0 p-3 font-mono text-sm leading-relaxed text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-indigo-500/30" />
+              <span className="text-[11px] text-fg-3">Personality, tone, output format</span>
+              <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={5} spellCheck={false} placeholder="You are a helpful assistant that..." className="w-full resize-y rounded-lg border border-line bg-surface-0 p-3 font-mono text-sm leading-relaxed text-fg-2 placeholder:text-fg-3 outline-none focus:border-accent" />
             </div>
 
             {/* Connectors — only show connected ones */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-3">
+            <div className="rounded-xl border border-line bg-surface-1 p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Connectors</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-3">Connectors</h3>
                 <a href="/connectors" className="text-[11px] text-pal-400 hover:text-pal-300">+ Connect more</a>
               </div>
               {(() => {
@@ -351,20 +351,20 @@ function CreatePage() {
                 const connected = Object.entries(stored).filter(([, v]: [string, any]) => v.installed).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1));
                 if (connected.length === 0) {
                   return (
-                    <div className="rounded-lg border border-dashed border-zinc-700 py-4 text-center">
-                      <p className="text-xs text-zinc-500">No connectors configured yet</p>
+                    <div className="rounded-lg border border-dashed border-line-strong py-4 text-center">
+                      <p className="text-xs text-fg-3">No connectors configured yet</p>
                       <a href="/connectors" className="mt-1 inline-block text-[12px] text-pal-400 hover:text-pal-300">Go to Connectors to set up Gmail, Slack, GitHub, etc.</a>
                     </div>
                   );
                 }
                 return (
                   <div>
-                    <p className="text-[11px] text-zinc-600 mb-2">Select which connected services this agent can use</p>
+                    <p className="text-[11px] text-fg-3 mb-2">Select which connected services this agent can use</p>
                     <div className="flex flex-wrap gap-2">
                       {connected.map(c => (
                         <button key={c} onClick={() => setSelectedConnectors(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])}
-                          className={clsx("rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-all", selectedConnectors.includes(c) ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400" : "border-zinc-700 text-zinc-400 hover:border-zinc-500")}>
-                          <span className={clsx("mr-1.5 inline-block h-1.5 w-1.5 rounded-full", selectedConnectors.includes(c) ? "bg-emerald-400" : "bg-zinc-600")} />
+                          className={clsx("rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-all", selectedConnectors.includes(c) ? "border-ok bg-ok-soft text-ok" : "border-line-strong text-fg-2 hover:border-line-strong")}>
+                          <span className={clsx("mr-1.5 inline-block h-1.5 w-1.5 rounded-full", selectedConnectors.includes(c) ? "bg-ok" : "bg-fg-3")} />
                           {c}
                         </button>
                       ))}
@@ -377,37 +377,37 @@ function CreatePage() {
             {/* Environment + Privacy + Guardrails — compact row */}
             <div className="grid grid-cols-3 gap-4">
               {/* Environment */}
-              <div className="rounded-xl border border-zinc-800 bg-surface-1 p-4 space-y-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Environment</h3>
-                <select value={environment.runtime} onChange={(e) => setEnvironment({...environment, runtime: e.target.value})} className="w-full rounded border border-zinc-800 bg-surface-0 px-2 py-1 text-[12px] text-zinc-300 outline-none">
+              <div className="rounded-xl border border-line bg-surface-1 p-4 space-y-2">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">Environment</h3>
+                <select value={environment.runtime} onChange={(e) => setEnvironment({...environment, runtime: e.target.value})} className="w-full rounded border border-line bg-surface-0 px-2 py-1 text-[12px] text-fg-2 outline-none">
                   <option value="node22">Node.js 22</option><option value="python312">Python 3.12</option><option value="custom">Custom</option>
                 </select>
-                <select value={environment.memory} onChange={(e) => setEnvironment({...environment, memory: e.target.value})} className="w-full rounded border border-zinc-800 bg-surface-0 px-2 py-1 text-[12px] text-zinc-300 outline-none">
+                <select value={environment.memory} onChange={(e) => setEnvironment({...environment, memory: e.target.value})} className="w-full rounded border border-line bg-surface-0 px-2 py-1 text-[12px] text-fg-2 outline-none">
                   <option value="256mb">256 MB</option><option value="512mb">512 MB</option><option value="1gb">1 GB</option><option value="2gb">2 GB</option>
                 </select>
               </div>
               {/* Privacy */}
-              <div className="rounded-xl border border-zinc-800 bg-surface-1 p-4 space-y-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Privacy</h3>
+              <div className="rounded-xl border border-line bg-surface-1 p-4 space-y-2">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">Privacy</h3>
                 {PRIVACY_LEVELS.map(lv => (
-                  <label key={lv.value} className={clsx("flex items-center gap-2 rounded px-2 py-1 text-[12px] cursor-pointer", privacy === lv.value ? "text-pal-400 bg-pal-500/5" : "text-zinc-500 hover:text-zinc-300")}>
+                  <label key={lv.value} className={clsx("flex items-center gap-2 rounded px-2 py-1 text-[12px] cursor-pointer", privacy === lv.value ? "text-pal-400 bg-pal-500/5" : "text-fg-3 hover:text-fg-2")}>
                     <input type="radio" name="priv" value={lv.value} checked={privacy === lv.value} onChange={(e) => setPrivacy(e.target.value)} className="accent-pal-500 h-3 w-3" />
                     {lv.badge}{lv.label}
                   </label>
                 ))}
               </div>
               {/* Guardrails */}
-              <div className="rounded-xl border border-zinc-800 bg-surface-1 p-4 space-y-2">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Guardrails</h3>
-                <label className="flex items-center gap-2 text-[12px] text-zinc-400 cursor-pointer"><input type="checkbox" checked={guardrails.contentFilter} onChange={(e) => setGuardrails({...guardrails, contentFilter: e.target.checked})} className="accent-pal-500 h-3 w-3" /> Content filter</label>
-                <label className="flex items-center gap-2 text-[12px] text-zinc-400 cursor-pointer"><input type="checkbox" checked={guardrails.blockPII} onChange={(e) => setGuardrails({...guardrails, blockPII: e.target.checked})} className="accent-pal-500 h-3 w-3" /> Block PII</label>
-                <input type="text" value={guardrails.blockedTopics} onChange={(e) => setGuardrails({...guardrails, blockedTopics: e.target.value})} placeholder="Blocked topics..." className="w-full rounded border border-zinc-800 bg-surface-0 px-2 py-1 text-[11px] text-zinc-300 outline-none" />
+              <div className="rounded-xl border border-line bg-surface-1 p-4 space-y-2">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-fg-3">Guardrails</h3>
+                <label className="flex items-center gap-2 text-[12px] text-fg-2 cursor-pointer"><input type="checkbox" checked={guardrails.contentFilter} onChange={(e) => setGuardrails({...guardrails, contentFilter: e.target.checked})} className="accent-pal-500 h-3 w-3" /> Content filter</label>
+                <label className="flex items-center gap-2 text-[12px] text-fg-2 cursor-pointer"><input type="checkbox" checked={guardrails.blockPII} onChange={(e) => setGuardrails({...guardrails, blockPII: e.target.checked})} className="accent-pal-500 h-3 w-3" /> Block PII</label>
+                <input type="text" value={guardrails.blockedTopics} onChange={(e) => setGuardrails({...guardrails, blockedTopics: e.target.value})} placeholder="Blocked topics..." className="w-full rounded border border-line bg-surface-0 px-2 py-1 text-[11px] text-fg-2 outline-none" />
               </div>
             </div>
 
             <div className="flex items-center justify-between pt-2">
-              <button onClick={() => setStep("choose")} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-surface-3"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
-              <button onClick={() => setStep("test")} disabled={!name.trim()} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50">Test & Deploy <ArrowRight className="h-3.5 w-3.5" /></button>
+              <button onClick={() => setStep("choose")} className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-4 py-2 text-sm font-medium text-fg-2 hover:bg-surface-3"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
+              <button onClick={() => setStep("test")} disabled={!name.trim()} className="inline-flex items-center gap-2 rounded-lg bg-action px-5 py-2.5 text-sm font-semibold text-on-action hover:opacity-90 disabled:opacity-50">Test & Deploy <ArrowRight className="h-3.5 w-3.5" /></button>
             </div>
           </div>
         )}
@@ -415,49 +415,49 @@ function CreatePage() {
         {step === "test" && (
           <div className="mx-auto max-w-2xl space-y-6">
             {/* Agent Summary */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Agent Summary</h3>
+            <div className="rounded-xl border border-line bg-surface-1 p-5 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-3">Agent Summary</h3>
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div><span className="text-zinc-500">Name:</span> <span className="text-zinc-200 font-medium">{name}</span></div>
-                <div><span className="text-zinc-500">Model:</span> <span className="text-zinc-200">{model === "auto" ? "Auto (recommended)" : model}</span></div>
-                <div className="col-span-2"><span className="text-zinc-500">Description:</span> <span className="text-zinc-300">{description || "—"}</span></div>
-                {instructions && <div className="col-span-2"><span className="text-zinc-500">Instructions:</span> <span className="text-zinc-400 text-[12px]">{instructions.slice(0, 100)}{instructions.length > 100 ? "..." : ""}</span></div>}
-                {selectedConnectors.length > 0 && <div className="col-span-2"><span className="text-zinc-500">Connectors:</span> <span className="text-zinc-300">{selectedConnectors.join(", ")}</span></div>}
-                <div><span className="text-zinc-500">Privacy:</span> <span className="text-zinc-300">{PRIVACY_LEVELS.find(l => l.value === privacy)?.label}</span></div>
-                <div><span className="text-zinc-500">Guardrails:</span> <span className="text-zinc-300">{[guardrails.contentFilter && "Content filter", guardrails.blockPII && "PII blocking"].filter(Boolean).join(", ") || "None"}</span></div>
+                <div><span className="text-fg-3">Name:</span> <span className="text-fg font-medium">{name}</span></div>
+                <div><span className="text-fg-3">Model:</span> <span className="text-fg">{model === "auto" ? "Auto (recommended)" : model}</span></div>
+                <div className="col-span-2"><span className="text-fg-3">Description:</span> <span className="text-fg-2">{description || "—"}</span></div>
+                {instructions && <div className="col-span-2"><span className="text-fg-3">Instructions:</span> <span className="text-fg-2 text-[12px]">{instructions.slice(0, 100)}{instructions.length > 100 ? "..." : ""}</span></div>}
+                {selectedConnectors.length > 0 && <div className="col-span-2"><span className="text-fg-3">Connectors:</span> <span className="text-fg-2">{selectedConnectors.join(", ")}</span></div>}
+                <div><span className="text-fg-3">Privacy:</span> <span className="text-fg-2">{PRIVACY_LEVELS.find(l => l.value === privacy)?.label}</span></div>
+                <div><span className="text-fg-3">Guardrails:</span> <span className="text-fg-2">{[guardrails.contentFilter && "Content filter", guardrails.blockPII && "PII blocking"].filter(Boolean).join(", ") || "None"}</span></div>
               </div>
             </div>
 
             {/* Quick Test — optional */}
-            <div className="rounded-xl border border-dashed border-zinc-700 bg-surface-1/50 p-5">
+            <div className="rounded-xl border border-dashed border-line-strong bg-surface-1/50 p-5">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-400"><Play className="h-4 w-4 text-zinc-500" /> Quick Test <span className="text-[11px] text-zinc-600">(optional)</span></h3>
+                <h3 className="flex items-center gap-2 text-sm font-medium text-fg-2"><Play className="h-4 w-4 text-fg-3" /> Quick Test <span className="text-[11px] text-fg-3">(optional)</span></h3>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-zinc-600">Model:</span>
+                  <span className="text-[11px] text-fg-3">Model:</span>
                   <ModelSelect value={testModel} onChange={setTestModel} className="h-7 w-44 text-[12px]" />
                 </div>
               </div>
-              <p className="text-[12px] text-zinc-600 mb-3">Skip this step or type a message to verify your agent works. You can always test later.</p>
+              <p className="text-[12px] text-fg-3 mb-3">Skip this step or type a message to verify your agent works. You can always test later.</p>
               <textarea value={testInput} onChange={(e) => setTestInput(e.target.value)} rows={2}
                 placeholder={description ? `e.g., "${description.slice(0, 60)}${description.length > 60 ? "..." : ""}"` : "Type a test message (or skip and create the agent directly)"}
-                className="w-full resize-none rounded-lg border border-zinc-800 bg-surface-0 p-3 text-sm text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-pal-500/50" />
+                className="w-full resize-none rounded-lg border border-line bg-surface-0 p-3 text-sm text-fg-2 placeholder:text-fg-3 outline-none focus:border-pal-500/50" />
               <div className="mt-2 flex items-center gap-2">
-                {testRunning ? (<button onClick={() => { setTestRunning(false); setTestDone(true); }} className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-red-500"><Square className="h-3 w-3" /> Stop</button>
-                ) : (<button onClick={handleTestRun} disabled={!testInput.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3.5 py-1.5 text-xs font-medium text-zinc-300 hover:bg-surface-3 disabled:opacity-50"><Play className="h-3 w-3" /> Run Test</button>)}
+                {testRunning ? (<button onClick={() => { setTestRunning(false); setTestDone(true); }} className="inline-flex items-center gap-1.5 rounded-lg bg-bad px-3.5 py-1.5 text-xs font-medium text-white hover:opacity-90"><Square className="h-3 w-3" /> Stop</button>
+                ) : (<button onClick={handleTestRun} disabled={!testInput.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3.5 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-3 disabled:opacity-50"><Play className="h-3 w-3" /> Run Test</button>)}
               </div>
               {(testOutput || testRunning || testError) && (
-                <div className="mt-3 rounded-lg border border-zinc-800 bg-surface-0">
-                  {testError ? (<div className="p-3"><div className="flex items-center gap-2 text-xs font-medium text-red-400"><AlertCircle className="h-3 w-3" /> Error</div><p className="mt-1 text-xs text-red-300/70">{testError}</p></div>
-                  ) : (<div ref={testRef} className="max-h-48 overflow-auto p-3"><div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{testOutput}{testRunning && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-pal-400" />}</div></div>)}
-                  {testDone && !testError && (<div className="border-t border-zinc-800 px-3 py-2"><span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-400"><CheckCircle2 className="h-3 w-3" /> Test passed</span></div>)}
+                <div className="mt-3 rounded-lg border border-line bg-surface-0">
+                  {testError ? (<div className="p-3"><div className="flex items-center gap-2 text-xs font-medium text-bad"><AlertCircle className="h-3 w-3" /> Error</div><p className="mt-1 text-xs text-bad/70">{testError}</p></div>
+                  ) : (<div ref={testRef} className="max-h-48 overflow-auto p-3"><div className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{testOutput}{testRunning && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-pal-400" />}</div></div>)}
+                  {testDone && !testError && (<div className="border-t border-line px-3 py-2"><span className="inline-flex items-center gap-1 text-[12px] font-medium text-ok"><CheckCircle2 className="h-3 w-3" /> Test passed</span></div>)}
                 </div>
               )}
             </div>
 
             {/* Actions */}
             <div className="flex items-center justify-between">
-              <button onClick={() => setStep("configure")} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-surface-3"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
-              <button onClick={handleCreate} disabled={creating || !name.trim()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
+              <button onClick={() => setStep("configure")} className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-4 py-2 text-sm font-medium text-fg-2 hover:bg-surface-3"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
+              <button onClick={handleCreate} disabled={creating || !name.trim()} className="inline-flex items-center gap-2 rounded-lg bg-ok px-6 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50">
                 {creating ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating...</> : <><Save className="h-4 w-4" /> Create Agent</>}
               </button>
             </div>
