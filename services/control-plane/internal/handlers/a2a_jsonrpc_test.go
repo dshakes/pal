@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -484,5 +485,30 @@ func TestRLSA2AResubscribe_CompletedTaskSendsArtifact(t *testing.T) {
 	if rr.Header().Get("Content-Type") != "text/event-stream" || !strings.Contains(body, `"artifact-update"`) ||
 		!strings.Contains(body, `"final":true`) || strings.Index(body, "artifact-update") > strings.Index(body, `"final":true`) {
 		t.Fatalf("resubscribe of a completed task: %s", body)
+	}
+}
+
+// Over the per-caller cap, a blocking send returns immediately instead of holding.
+func TestA2AWaitTask_RespectsStreamCap(t *testing.T) {
+	var rel []func()
+	for i := 0; i < a2aMaxStreamsPerCaller; i++ {
+		r, _ := acquireA2AStream("capped")
+		rel = append(rel, r)
+	}
+	defer func() {
+		for _, r := range rel {
+			r()
+		}
+	}()
+	in := a2aTask{ID: "x", Status: a2aTaskStatus{State: "working"}}
+	done := make(chan a2aTask, 1)
+	go func() { done <- (&A2AHandler{}).waitTask(context.Background(), a2aCall{callerID: "capped"}, in) }()
+	select {
+	case got := <-done:
+		if got.Status.State != "working" {
+			t.Fatalf("got %+v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("blocking send over the cap must not hold the connection")
 	}
 }

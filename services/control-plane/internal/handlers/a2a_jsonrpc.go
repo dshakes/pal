@@ -788,7 +788,14 @@ func runErrorText(raw []byte) string {
 	return "agent run failed"
 }
 
+// waitTask holds a blocking message/send; it shares the per-caller stream cap
+// (over the cap it returns the task as-is, i.e. non-blocking).
 func (h *A2AHandler) waitTask(ctx context.Context, call a2aCall, t a2aTask) a2aTask {
+	release, ok := acquireA2AStream(call.callerID)
+	if !ok {
+		return t
+	}
+	defer release()
 	deadline := time.Now().Add(a2aBlockingWait)
 	for !a2aTerminal(t.Status.State) && time.Now().Before(deadline) {
 		select {
