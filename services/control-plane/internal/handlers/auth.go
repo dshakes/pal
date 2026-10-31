@@ -228,11 +228,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create user.
+	// Create user. The first user of a new tenant is always the owner.
 	var userID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, password_hash, email_verified_at)
-		VALUES ($1, $2, $3, 'local', $4, $5, NULL)
+		INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, password_hash, role, email_verified_at)
+		VALUES ($1, $2, $3, 'local', $4, $5, 'owner', NULL)
 		RETURNING id
 	`, tenantID, req.Email, req.Name, req.Email, string(hash)).Scan(&userID)
 	if err != nil {
@@ -355,7 +355,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// across all tenants; the tenant context is the OUTPUT of this lookup.
 	err := h.srv.Pool.QueryRow(ctx, `
 		SELECT u.id, u.tenant_id, u.display_name, u.password_hash,
-			COALESCE((SELECT 'owner' FROM tenants WHERE id = u.tenant_id LIMIT 1), 'member'),
+			u.role,
 			u.email_verified_at
 		FROM users u
 		WHERE u.email = $1
@@ -664,8 +664,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// rls-exempt: pre-auth OAuth callback — resolves or creates the tenant from
 	// the verified OAuth email across all tenants; no tenant context exists yet.
 	err = h.srv.Pool.QueryRow(ctx, `
-		SELECT u.id, u.tenant_id, u.display_name,
-			COALESCE((SELECT 'owner' FROM tenants WHERE id = u.tenant_id LIMIT 1), 'member')
+		SELECT u.id, u.tenant_id, u.display_name, u.role
 		FROM users u WHERE u.email = $1 LIMIT 1
 	`, email).Scan(&userID, &tenantID, &name, &role)
 
@@ -699,9 +698,10 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// The first user of a new tenant is always the owner.
 		txErr = tx.QueryRow(ctx, `
-			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, email_verified_at)
-			VALUES ($1, $2, $3, $4, $5, now())
+			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, role, email_verified_at)
+			VALUES ($1, $2, $3, $4, $5, 'owner', now())
 			RETURNING id
 		`, tenantID, email, displayName, providerName, email).Scan(&userID) // provider-verified email
 		if txErr != nil {
