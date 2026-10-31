@@ -1,11 +1,12 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef } from "react";
+// Modal on Radix Dialog: focus trap + return, Escape, scroll-lock, portal and
+// aria wiring come from Radix (they were hand-rolled here before v3). The
+// public API is unchanged so every existing caller keeps working.
+import { type ReactNode } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import clsx from "clsx";
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface ModalProps {
   open: boolean;
@@ -33,101 +34,39 @@ export function Modal({
   footer,
   size = "md",
 }: ModalProps) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const previouslyFocused = useRef<HTMLElement | null>(null);
-
-  // Escape + scroll-lock.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [open, onClose]);
-
-  // Focus trap: move focus in on open, restore it on close, keep Tab inside.
-  useEffect(() => {
-    if (!open) return;
-    previouslyFocused.current = document.activeElement as HTMLElement | null;
-
-    const node = contentRef.current;
-    const focusables = () =>
-      node ? Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)) : [];
-    const first = focusables()[0];
-    (first ?? node)?.focus();
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Tab" || !node) return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const firstEl = items[0];
-      const lastEl = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === firstEl) {
-        e.preventDefault();
-        lastEl.focus();
-      } else if (!e.shiftKey && document.activeElement === lastEl) {
-        e.preventDefault();
-        firstEl.focus();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      previouslyFocused.current?.focus();
-    };
-  }, [open]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        ref={contentRef}
-        className={clsx(
-          "modal-content w-full rounded-2xl border border-zinc-800 bg-surface-1 shadow-2xl",
-          SIZES[size],
-        )}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-4">
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-tight text-zinc-100">
-              {title}
-            </h2>
-            {description && (
-              <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-                {description}
-              </p>
-            )}
+    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="v3-overlay fixed inset-0 z-50 bg-black/60" />
+        <Dialog.Content
+          className={clsx(
+            "v3-pop fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[14px] border border-line bg-panel shadow-[var(--elev-4)] outline-none",
+            SIZES[size],
+          )}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-line px-6 py-4">
+            <div className="min-w-0">
+              <Dialog.Title className="text-lg font-semibold tracking-tight text-fg">{title}</Dialog.Title>
+              {description ? (
+                <Dialog.Description className="mt-0.5 text-xs leading-relaxed text-fg-3">{description}</Dialog.Description>
+              ) : (
+                <Dialog.Description className="sr-only">{title}</Dialog.Description>
+              )}
+            </div>
+            <Dialog.Close
+              className="focus-ring rounded-lg p-1 text-fg-3 transition-colors hover:bg-hover hover:text-fg"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </Dialog.Close>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-300"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="px-6 py-5">{children}</div>
-        {footer && (
-          <div className="flex items-center justify-end gap-3 border-t border-zinc-800 px-6 py-4">
-            {footer}
-          </div>
-        )}
-      </div>
-    </div>
+          <div className="px-6 py-5">{children}</div>
+          {footer && (
+            <div className="flex items-center justify-end gap-3 border-t border-line px-6 py-4">{footer}</div>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -168,7 +107,7 @@ export function ConfirmModal({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+            className="rounded-lg border border-line-strong px-3 py-1.5 text-xs text-fg-2 hover:bg-hover"
           >
             {cancelLabel}
           </button>
@@ -177,8 +116,8 @@ export function ConfirmModal({
             onClick={onConfirm}
             disabled={confirming}
             className={clsx(
-              "rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50",
-              tone === "danger" ? "bg-rose-500 hover:bg-rose-400" : "bg-pal-500 hover:bg-pal-400",
+              "rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50",
+              tone === "danger" ? "bg-bad text-canvas hover:opacity-90" : "bg-action text-on-action hover:bg-action/90",
             )}
           >
             {confirming ? "Working…" : confirmLabel}
@@ -202,11 +141,11 @@ export function ModalField({
 }) {
   return (
     <div>
-      <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+      <label className="mb-1.5 block text-xs font-medium text-fg-2">
         {label}
       </label>
       {children}
-      {hint && <p className="mt-1 text-[12px] text-zinc-600">{hint}</p>}
+      {hint && <p className="mt-1 text-[12px] text-fg-3">{hint}</p>}
     </div>
   );
 }

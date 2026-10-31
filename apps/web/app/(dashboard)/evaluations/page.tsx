@@ -25,7 +25,7 @@ import { HeaderSkeleton, Skeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { LineChart, type LineSeries } from "@/components/charts/line-chart";
-import type { Run, Agent } from "@/lib/mock-data";
+import type { Run, Agent } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers

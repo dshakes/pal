@@ -9,7 +9,7 @@
 // + zero coupling to a persisted color field on the agent record.
 
 import clsx from "clsx";
-import type { RunStatus } from "@/lib/mock-data";
+import type { RunStatus } from "@/lib/types";
 
 // Curated palette — eight accents that read well on dark surfaces and
 // distinguish from each other at a glance. Stays in sync with the

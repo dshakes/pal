@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api, type RunFilters, notifySimulated } from "@/lib/api";
 // Types only — every hook below treats the API as the single source of truth.
 // On failure we surface an explicit error / empty state, never mock data.
-import type { Agent, Run, StreamEvent, ApiKey, AgentVersion } from "@/lib/mock-data";
+import type { Agent, Run, StreamEvent, ApiKey, AgentVersion } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // useSafeData pattern — every hook returns { data, loading, error, isDemo }

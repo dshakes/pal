@@ -155,6 +155,11 @@ jobs:
       - name: eslint (dashboard)
         run: cd apps/web && npm ci && npx eslint .
 
+      - name: no-literal-color check (dashboard)
+        # Tokens only for foreground/chrome (dashboard v3); ratchet baseline in
+        # apps/web/scripts/literal-colors-baseline.json.
+        run: cd apps/web && node scripts/check-literal-colors.mjs
+
       # ---- Terraform (infra/terraform: EKS / GKE / AKS data plane) ----------
       # Credential-free: validate + `terraform test`, whose plans run against
       # mocked providers (tests/plan.tftest.hcl). Nothing is applied.

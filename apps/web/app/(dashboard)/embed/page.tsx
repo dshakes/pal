@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/page-header";
 import { useToast } from "@/components/toast";
 import { api } from "@/lib/api";
 import { usePublicUrls } from "@/lib/public-url";
-import type { Agent } from "@/lib/mock-data";
+import type { Agent } from "@/lib/types";
 
 type Theme = "dark" | "light";
 type Position = "bottom-right" | "bottom-left";

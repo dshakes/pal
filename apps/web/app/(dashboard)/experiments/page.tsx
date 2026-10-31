@@ -24,7 +24,7 @@ import { Button } from "@/components/button";
 import { Modal, ModalField } from "@/components/modal";
 import { EmptyState } from "@/components/empty-state";
 import { ExperimentsIllustration } from "@/components/illustrations";
-import type { Agent } from "@/lib/mock-data";
+import type { Agent } from "@/lib/types";
 
 function emptyDraft(agentName: string): ExperimentInput {
   return {

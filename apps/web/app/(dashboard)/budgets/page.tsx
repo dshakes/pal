@@ -21,7 +21,7 @@ import { ConfirmModal, Modal, ModalField } from "@/components/modal";
 import { EmptyState } from "@/components/empty-state";
 import { BudgetsIllustration } from "@/components/illustrations";
 import { AgentAvatar } from "@/components/agent-avatar";
-import type { Agent } from "@/lib/mock-data";
+import type { Agent } from "@/lib/types";
 
 interface DraftBudget extends BudgetInput {
   toolLimitsText: string;
