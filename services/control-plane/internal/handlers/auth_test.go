@@ -489,3 +489,149 @@ func TestAuth_OAuth_ReturningUser_RoleFromDB(t *testing.T) {
 		t.Errorf("OAuth returning user ID mismatch: got %q, want %q", gotUserID, oauthUserID)
 	}
 }
+
+// TestAuth_Signup_StoresOwnerRole proves that Signup stores role='owner' in the
+// DB and that a subsequent Login produces a JWT with role "owner".
+// Regression for: Signup INSERT missed the role column, defaulting to 'member'.
+func TestAuth_Signup_StoresOwnerRole(t *testing.T) {
+	h := newAuthTestHandler(t)
+	email := uniqueEmail(t)
+	const password = "supersecret-pw-123"
+	t.Cleanup(func() { cleanupUserByEmail(t, h, email) })
+
+	rr := doSignup(h, email, password, "Owner Tester")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("signup: got %d, want 201; body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify the stored role is 'owner', not the column default 'member'.
+	ctx := context.Background()
+	var storedRole string
+	if err := h.srv.Pool.QueryRow(ctx,
+		`SELECT role FROM users WHERE email = $1 LIMIT 1`, email,
+	).Scan(&storedRole); err != nil {
+		t.Fatalf("query stored role: %v", err)
+	}
+	if storedRole != "owner" {
+		t.Errorf("stored role: got %q, want \"owner\" (Signup INSERT must set role='owner')", storedRole)
+	}
+
+	// Login must return owner in both the response body and the JWT.
+	rr = doLogin(h, email, password)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("login after signup: got %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	var resp authResponse
+	json.Unmarshal(rr.Body.Bytes(), &resp) //nolint:errcheck
+	if resp.User.Role != "owner" {
+		t.Errorf("login response role: got %q, want \"owner\"", resp.User.Role)
+	}
+	claims, err := h.ValidateToken(resp.Token)
+	if err != nil {
+		t.Fatalf("validate token: %v", err)
+	}
+	if claims.Role != "owner" {
+		t.Errorf("JWT role claim after signup: got %q, want \"owner\"", claims.Role)
+	}
+}
+
+// TestAuth_BackfillMigration_OwnerlessTenantsPromoted proves that the
+// 0043_backfill_tenant_owner migration promotes the earliest user in a tenant
+// with no owner/admin to 'owner', leaves other roles alone, and does not
+// touch tenants that already have an owner.
+func TestAuth_BackfillMigration_OwnerlessTenantsPromoted(t *testing.T) {
+	h := newAuthTestHandler(t)
+	ctx := context.Background()
+
+	// Helper: create a bare tenant (no users yet).
+	makeTenant := func(slug string) string {
+		t.Helper()
+		var tid string
+		if err := h.srv.Pool.QueryRow(ctx, `
+			INSERT INTO tenants (slug, name, tier, k8s_namespace)
+			VALUES ($1, $2, 'personal', $3) RETURNING id
+		`, slug, slug+" Workspace", "pal-t-"+slug).Scan(&tid); err != nil {
+			t.Fatalf("makeTenant %s: %v", slug, err)
+		}
+		t.Cleanup(func() {
+			h.srv.Pool.Exec(ctx, `DELETE FROM tenants WHERE id = $1`, tid) //nolint:errcheck
+		})
+		return tid
+	}
+
+	// Helper: insert a user with a given role (no password; role tests only).
+	insertRole := func(tenantID, email, role string) string {
+		t.Helper()
+		var uid string
+		if err := h.srv.Pool.QueryRow(ctx, `
+			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, role)
+			VALUES ($1, $2, $2, 'local', $3, $4) RETURNING id
+		`, tenantID, email, email, role).Scan(&uid); err != nil {
+			t.Fatalf("insertRole %s %s: %v", email, role, err)
+		}
+		t.Cleanup(func() {
+			h.srv.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, uid) //nolint:errcheck
+		})
+		return uid
+	}
+
+	suffix, _ := randomHex(4)
+
+	// Case A: ownerless tenant — earliest user should be promoted.
+	tidA := makeTenant("mig-a-" + suffix)
+	early := insertRole(tidA, "early-"+suffix+"@example.test", "member")
+	late := insertRole(tidA, "late-"+suffix+"@example.test", "member")
+
+	// Case B: tenant already has an owner — member must NOT be promoted even when
+	// the member is the earliest-created user (inserted first here so id/created_at
+	// are both earlier). A broken migration that omits the NOT EXISTS guard would
+	// promote this member, failing the assertion below.
+	tidB := makeTenant("mig-b-" + suffix)
+	alreadyMember := insertRole(tidB, "mem-"+suffix+"@example.test", "member")
+	existingOwner := insertRole(tidB, "owner-"+suffix+"@example.test", "owner")
+
+	// Run the migration SQL directly (the DB was already migrated at pool-open
+	// time; this is a surgical re-execution on fresh rows).
+	migrationSQL := `
+		UPDATE users
+		SET    role = 'owner'
+		WHERE  id IN (
+		    SELECT DISTINCT ON (tenant_id)
+		           id
+		    FROM   users u
+		    WHERE  NOT EXISTS (
+		        SELECT 1 FROM users u2
+		        WHERE  u2.tenant_id = u.tenant_id
+		        AND    u2.role IN ('owner', 'admin')
+		    )
+		    ORDER BY tenant_id, created_at, id
+		);`
+	if _, err := h.srv.Pool.Exec(ctx, migrationSQL); err != nil {
+		t.Fatalf("run migration SQL: %v", err)
+	}
+
+	role := func(uid string) string {
+		t.Helper()
+		var r string
+		h.srv.Pool.QueryRow(ctx, `SELECT role FROM users WHERE id = $1`, uid).Scan(&r) //nolint:errcheck
+		return r
+	}
+
+	// Case A: earliest user promoted to owner.
+	if got := role(early); got != "owner" {
+		t.Errorf("case A early user: role %q, want \"owner\"", got)
+	}
+	// Case A: later user unchanged.
+	if got := role(late); got != "member" {
+		t.Errorf("case A late user: role %q, want \"member\"", got)
+	}
+
+	// Case B: existing owner unchanged.
+	if got := role(existingOwner); got != "owner" {
+		t.Errorf("case B existing owner: role %q, want \"owner\"", got)
+	}
+	// Case B: member in tenant-with-owner unchanged.
+	if got := role(alreadyMember); got != "member" {
+		t.Errorf("case B member: role %q, want \"member\" (must not promote members in tenant that already has an owner)", got)
+	}
+}

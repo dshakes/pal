@@ -228,11 +228,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create user.
+	// Create user. The first user of a new tenant is always the owner.
 	var userID string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, password_hash, email_verified_at)
-		VALUES ($1, $2, $3, 'local', $4, $5, NULL)
+		INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, password_hash, role, email_verified_at)
+		VALUES ($1, $2, $3, 'local', $4, $5, 'owner', NULL)
 		RETURNING id
 	`, tenantID, req.Email, req.Name, req.Email, string(hash)).Scan(&userID)
 	if err != nil {
@@ -698,9 +698,10 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// The first user of a new tenant is always the owner.
 		txErr = tx.QueryRow(ctx, `
-			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, email_verified_at)
-			VALUES ($1, $2, $3, $4, $5, now())
+			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, role, email_verified_at)
+			VALUES ($1, $2, $3, $4, $5, 'owner', now())
 			RETURNING id
 		`, tenantID, email, displayName, providerName, email).Scan(&userID) // provider-verified email
 		if txErr != nil {
