@@ -207,7 +207,7 @@ import {
 import { extname } from "path";
 import {
   parseCenterCommand, parseActionReply, buildBrief, buildPlate, buildAgents, summarizeAgentRuns, mergeBridgeLoopStatus, buildDomain, buildDid, buildNews, buildNewsAsk, buildReadlist, buildQuietAck,
-  selectTopDrops, buildTopDropPush, buildNewsDigest,
+  selectTopDrops, buildTopDropPush, buildNewsDigest, newsProactiveEnabled,
   type CenterCommand, type ParsedAction, type BriefItem, type DraftWaiting, type AgentStat, type AgentRunRow, type NewsItemLite, type NewsAskResult,
 } from "@pal/bridge-core/command-center";
 import {
@@ -1797,8 +1797,7 @@ export class WhatsAppSession {
   private energyNudgedDate = ""; // YYYY-MM-DD — set after sending, reset on new date
   private readonly energyNudgeFile = join(palStateDir(), "whatsapp-energy-nudge.json");
   // Proactive "top AI drops" — push only high-signal NEW news. ON by default.
-  private static readonly NEWS_PROACTIVE_ENABLED =
-    !["off", "0", "false"].includes((process.env.PAL_NEWS_PROACTIVE ?? "on").toLowerCase());
+  private static readonly NEWS_PROACTIVE_ENABLED = newsProactiveEnabled();
   private static readonly NEWS_PROACTIVE_INTERVAL_MS = 12 * 60_000; // ~12 min — near-real-time major-release alerts
   private newsTimer: ReturnType<typeof setInterval> | null = null;
   private newsPushed = new Set<string>();
@@ -2028,7 +2027,7 @@ export class WhatsAppSession {
     }
     // Restore an in-flight "quiet [Nh]" window across restarts.
     try { this.proactiveMuteUntil = parseInt(readFileSync(this.proactiveMuteFile, "utf8").trim(), 10) || 0; } catch { /* none */ }
-    // Proactive AI top-drops (ON by default; PAL_NEWS_PROACTIVE=off to silence).
+    // Proactive AI top-drops (OPT-IN, default OFF: PAL_NEWS_PROACTIVE=on).
     if (WhatsAppSession.NEWS_PROACTIVE_ENABLED) {
       this.newsNeedsSeed = !existsSync(this.newsPushedFile);
       try {

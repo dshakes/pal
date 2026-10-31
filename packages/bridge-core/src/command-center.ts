@@ -812,6 +812,12 @@ export function buildReadlist(entries: ReadlistEntry[]): CenterView {
 /** Pick the new, high-signal items worth interrupting the owner for. Pure:
  *  filter by score >= threshold, drop anything already pushed, take the top N.
  *  Conservative by design — proactive news must never become a firehose. */
+/** Proactive AI-news pushes (top drops + daily digest) message the owner unprompted, so they are
+ *  OPT-IN: only PAL_NEWS_PROACTIVE=on/1/true enables them. Unset means OFF. */
+export function newsProactiveEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return ["on", "1", "true"].includes((env.PAL_NEWS_PROACTIVE ?? "").trim().toLowerCase());
+}
+
 export function selectTopDrops(
   items: NewsItemLite[],
   pushed: ReadonlySet<string>,

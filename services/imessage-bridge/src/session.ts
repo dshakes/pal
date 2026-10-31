@@ -460,7 +460,7 @@ import {
 } from "@pal/bridge-core/doc-ingest";
 import {
   parseCenterCommand, parseActionReply, buildBrief, buildPlate, buildAgents, summarizeAgentRuns, mergeBridgeLoopStatus, buildDomain, buildDid, buildNews, buildNewsAsk, buildReadlist, buildQuietAck,
-  selectTopDrops, buildTopDropPush, buildNewsDigest,
+  selectTopDrops, buildTopDropPush, buildNewsDigest, newsProactiveEnabled,
   type CenterCommand, type ParsedAction, type BriefItem, type DraftWaiting, type AgentStat, type AgentRunRow, type NewsItemLite, type NewsAskResult,
 } from "@pal/bridge-core/command-center";
 import {
@@ -1130,9 +1130,8 @@ export class IMessageSession {
   private commuteDriveFired = false;
 
   // Proactive "top AI drops": push only high-signal news, deduped, quiet-hours
-  // aware. ON by default (the owner asked for proactive news); PAL_NEWS_PROACTIVE=off to silence.
-  private static readonly NEWS_PROACTIVE_ENABLED =
-    !["off", "0", "false"].includes((process.env.PAL_NEWS_PROACTIVE ?? "on").toLowerCase());
+  // aware. OPT-IN (default OFF): PAL_NEWS_PROACTIVE=on to enable; it messages the owner unprompted.
+  private static readonly NEWS_PROACTIVE_ENABLED = newsProactiveEnabled();
   private static readonly NEWS_PROACTIVE_INTERVAL_MS = 12 * 60_000; // ~12 min — near-real-time major-release alerts
   private newsTimer: ReturnType<typeof setInterval> | null = null;
   private newsPushed = new Set<string>();
@@ -1934,7 +1933,7 @@ export class IMessageSession {
     const t = setInterval(() => void this.runNewsProactiveTick(), IMessageSession.NEWS_PROACTIVE_INTERVAL_MS);
     t.unref?.();
     this.newsTimer = t;
-    this.logger.info("proactive AI news enabled (top drops only; PAL_NEWS_PROACTIVE=off to silence)");
+    this.logger.info("proactive AI news enabled (top drops only; opt-in via PAL_NEWS_PROACTIVE=on)");
   }
 
   /** Push only high-signal NEW AI news to self-chat. Deduped + quiet-hours aware. */

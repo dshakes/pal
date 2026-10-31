@@ -428,6 +428,49 @@ func fetchSource(ctx context.Context, src newsSource, get newsHTTPGetFn) ([]news
 	}
 }
 
+// ---------- opt-in + single-runner guard ----------
+
+// newsRadarEnabled reports whether the external-feed radar may run at all.
+// Default OFF (PAL_NEWS_RADAR=1/true/on): a fresh install, or an agent created
+// by hand, must never fetch third-party feeds on its own.
+func newsRadarEnabled() bool { return envOn("PAL_NEWS_RADAR") }
+
+// newsRadarLockKey is the Postgres advisory-lock key for the radar sweep (one
+// sweep at a time across all API instances; the lock is per-database).
+const newsRadarLockKey int64 = 0x70616c6e72 // "palnr"
+
+// runNewsRadarGuarded wraps runNewsRadar with the opt-in flag and a
+// session-level advisory lock so only one API instance sweeps at a time.
+// skipped is "" when the sweep ran, else "disabled" | "another_runner".
+func runNewsRadarGuarded(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	logger *zap.Logger,
+	tenantID, runID string,
+	completeFn researchCompleteFn,
+	httpGet newsHTTPGetFn,
+) (scanned, newN, sourcesOK, sourcesFailed int, skipped string) {
+	if !newsRadarEnabled() {
+		return 0, 0, 0, 0, "disabled"
+	}
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		logger.Warn("news-radar: cannot acquire lock conn; skipping sweep", zap.Error(err))
+		return 0, 0, 0, 0, "another_runner"
+	}
+	defer conn.Release()
+	var got bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, newsRadarLockKey).Scan(&got); err != nil || !got {
+		return 0, 0, 0, 0, "another_runner"
+	}
+	// Unlock on the same session; a detached ctx so a cancelled run still releases.
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, newsRadarLockKey)
+	}()
+	scanned, newN, sourcesOK, sourcesFailed = runNewsRadar(ctx, pool, logger, tenantID, runID, completeFn, httpGet)
+	return
+}
+
 // ---------- runNewsRadar ----------
 
 // runNewsRadar is the loop body for the news_radar role. It is called by
