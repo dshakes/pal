@@ -938,6 +938,10 @@ func main() {
 	runtimeHandler := handlers.NewRuntimeHandler(srv, authHandler)
 	restHandler.SetMicroVMDispatcher(runtimeHandler)      // two-tier run routing (ADR 0022)
 	sessionHandler.SetSessionVMTerminator(runtimeHandler) // session VM teardown on stop/delete
+	// MCP client + server (ADR 0058): stdio MCP servers exec only inside VMs.
+	handlers.SetMCPRuntime(handlers.NewMCPRuntime(srv, runtimeHandler.MCPExec()))
+	mcpHandler.SetREST(restHandler)
+	mcpHandler.RegisterRoutes(httpMux)
 	httpMux.HandleFunc("POST /v1/runtime/schedule", runtimeHandler.Schedule)
 	httpMux.HandleFunc("GET /v1/runtime/vms", runtimeHandler.ListVMs)
 	httpMux.HandleFunc("GET /v1/runtime/vms/{id}", runtimeHandler.GetVM)

@@ -399,6 +399,8 @@ var rlsTenantTables = []string{
 	"batches",
 	// ADR 0055: agent identity + per-agent policy + its audit trail.
 	"agent_identities", "agent_policies", "agent_identity_audit",
+	// ADR 0058: BYO MCP servers, their credentials, pending OAuth flows.
+	"mcp_tenant_servers", "mcp_credentials", "mcp_oauth_pending",
 }
 
 // rlsExemptTables are intentionally NOT under RLS: no single owning tenant_id,

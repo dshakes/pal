@@ -586,8 +586,8 @@ func (z *AgentAuthz) journalDeny(ctx context.Context, runID, stepID string, a ag
 		// rls-exempt: journal_events is an RLS-exempt child table keyed by run_id.
 		tag, err := z.srv.Pool.Exec(context.WithoutCancel(ctx), `
 			INSERT INTO journal_events (run_id, seq, kind, step_id, attempt, payload)
-			SELECT $1, COALESCE((SELECT MAX(seq) FROM journal_events WHERE run_id = $1), 0) + 1, 'policy_denied', $2, 1, $3
-			WHERE EXISTS (SELECT 1 FROM runs WHERE id::text = $1)
+			SELECT $1::uuid, COALESCE((SELECT MAX(seq) FROM journal_events WHERE run_id = $1::uuid), 0) + 1, 'policy_denied', $2, 1, $3
+			WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1::uuid)
 			ON CONFLICT (run_id, seq) DO NOTHING`, runID, stepID, raw)
 		if err != nil || tag.RowsAffected() > 0 {
 			return
@@ -640,6 +640,9 @@ func currentAgentAuthz() *AgentAuthz { return activeAgentAuthz }
 // toolAction maps a tool-loop tool name to the policy action it needs.
 // Connector tools are "<connector>__<action>"; everything else is a tool.
 func toolAction(name string) agentpolicy.Action {
+	if slug, tool, ok := parseMCPToolName(name); ok {
+		return agentpolicy.Action{Kind: agentpolicy.KindMCP, Target: slug, Sub: tool}
+	}
 	if conn, act, ok := strings.Cut(name, "__"); ok && !isPersonalDocsTool(name) {
 		return agentpolicy.Action{Kind: agentpolicy.KindConnector, Target: conn, Sub: act}
 	}

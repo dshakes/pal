@@ -628,6 +628,10 @@ func filterReadOnlyTools(tools []map[string]any) []map[string]any {
 // built-in and proxy to the bridge over loopback — they don't go through
 // the connector_installs gate. Everything else is `<connector>__<action>`.
 func dispatchTool(ctx context.Context, pool *pgxpool.Pool, tenantID, name string, params map[string]any) (any, error) {
+	// MCP tools authorize server+tool and egress themselves (ADR 0058).
+	if slug, tool, ok := parseMCPToolName(name); ok {
+		return dispatchMCPTool(ctx, tenantID, slug, tool, params)
+	}
 	// Per-agent least privilege (ADR 0055): when an agent principal is acting,
 	// every tool the model picks is checked against that agent's policy.
 	if err := principalFrom(ctx).Authorize(ctx, toolAction(name), ""); err != nil {

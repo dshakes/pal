@@ -44,7 +44,7 @@ type Kind string
 const (
 	KindTool       Kind = "tool"        // built-in or runtime tool by name
 	KindConnector  Kind = "connector"   // connector Target, action Sub
-	KindMCP        Kind = "mcp"         // MCP server slug Target, tool Sub
+	KindMCP        Kind = "mcp"         // MCP server slug Target, tool Sub; rule "slug" or "slug.tool"
 	KindEgress     Kind = "egress"      // outbound host (or host pattern) Target
 	KindA2A        Kind = "a2a"         // calling another agent: Target + Aliases
 	KindA2AInbound Kind = "a2a_inbound" // being called: caller ids in Target + Aliases
@@ -134,7 +134,17 @@ func (p Policy) Evaluate(a Action) Decision {
 	case KindTool:
 		return firstMatch(p.Tools, a.Target, MatchGlob, "tool not in policy.tools")
 	case KindMCP:
-		return firstMatch(p.MCPServers, a.Target, MatchGlob, "MCP server not in policy.mcpServers")
+		// A rule names a whole server ("filesystem") or one tool on it
+		// ("filesystem.read_file", "github.list_*"). Glob applies to both.
+		if d := firstMatch(p.MCPServers, a.Target, MatchGlob, ""); d.Allowed {
+			return d
+		}
+		if a.Sub != "" {
+			if d := firstMatch(p.MCPServers, a.Target+"."+a.Sub, MatchGlob, ""); d.Allowed {
+				return d
+			}
+		}
+		return Decision{Reason: "MCP server/tool not in policy.mcpServers"}
 	case KindSecret:
 		return firstMatch(p.Secrets, a.Target, MatchGlob, "secret ref not in policy.secrets")
 	case KindEgress:

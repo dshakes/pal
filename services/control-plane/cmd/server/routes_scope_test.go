@@ -56,6 +56,11 @@ var scopeExempt = map[string]string{
 	"POST /v1/runtime/vms/{id}/fork":         "in-handler runtime scope",
 	"PUT /v1/runtime/vms/{id}/files/content": "in-handler runtime:admin",
 	"PUT /v1/runtime/quota":                  "in-handler owner check",
+
+	// PAL MCP server (ADR 0058): OAuth 2.1 resource-server check in-handler —
+	// only API keys carrying the explicit "mcp" scope, per-tool scopes re-checked.
+	"POST /mcp":   "in-handler MCP resource-server auth (explicit mcp scope)",
+	"DELETE /mcp": "in-handler MCP resource-server auth; answers 405 (stateless server)",
 }
 
 // getExempt lists the GET routes that legitimately carry no WithScope, each
@@ -106,6 +111,11 @@ var getExempt = map[string]string{
 	// Public verification key for agent tokens (ADR 0055): a JWKS, like
 	// /.well-known/pal-receipts — public by design, only the active key.
 	"GET /.well-known/pal-agent-keys/{agentId}": "public JWKS for agent-token verification (ADR 0055)",
+
+	// MCP (ADR 0058).
+	"GET /mcp": "in-handler MCP resource-server auth; answers 405 (no server stream)",
+	"GET /.well-known/oauth-protected-resource":     "public RFC 9728 metadata",
+	"GET /.well-known/oauth-protected-resource/mcp": "public RFC 9728 metadata",
 }
 
 var routeRE = regexp.MustCompile(`HandleFunc\("((?:POST|PUT|PATCH|DELETE) [^"]+)",\s*(.*)$`)
