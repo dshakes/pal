@@ -787,6 +787,7 @@ class PalAPI {
     const url = `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`;
     const token = this._token;
     const connect = async (attempt: number): Promise<void> => {
+      const seqAtStart = lastSeq;
       try {
         const res = await fetch(url, {
           headers: { Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -810,9 +811,11 @@ class PalAPI {
       } catch {
         // Network blip mid-run: reconnect with backoff; the seq dedupe makes
         // the server's full replay a no-op. Abort (close) ends it for good.
-        if (ctrl.signal.aborted || attempt >= 5) return;
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-        if (!ctrl.signal.aborted) await connect(attempt + 1);
+        // A connection that delivered events earns a fresh retry budget.
+        const next = lastSeq > seqAtStart ? 0 : attempt + 1;
+        if (ctrl.signal.aborted || next > 5) return;
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** Math.max(0, next - 1)));
+        if (!ctrl.signal.aborted) await connect(next);
       }
     };
     void connect(0);

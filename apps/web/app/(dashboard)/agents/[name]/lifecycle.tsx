@@ -73,15 +73,19 @@ export function LifecycleRail({
     );
   };
   return (
-    <div className="flex items-end gap-1 overflow-x-auto border-b border-line" role="tablist" aria-label="Agent lifecycle" onKeyDown={onKey}>
-      {LIFECYCLE.map((t, i) => tab(t.key, t.label, i + 1, t.hint))}
-      <span aria-hidden className="mx-2 mb-2.5 h-5 w-px shrink-0 bg-line" />
-      {CONFIG.map((t) => tab(t.key, t.label))}
-      {routes.map((r) => (
-        <Link key={r.href} href={r.href} className="focus-ring shrink-0 rounded-md px-2.5 pb-2 pt-1.5 text-[13.5px] font-medium text-fg-3 hover:text-fg">
-          {r.label}
-        </Link>
-      ))}
+    <div className="flex items-end gap-1 overflow-x-auto border-b border-line">
+      <div className="flex shrink-0 items-end gap-1" role="tablist" aria-label="Agent lifecycle" onKeyDown={onKey}>
+        {LIFECYCLE.map((t, i) => tab(t.key, t.label, i + 1, t.hint))}
+        <span aria-hidden className="mx-2 mb-2.5 h-5 w-px shrink-0 bg-line" />
+        {CONFIG.map((t) => tab(t.key, t.label))}
+      </div>
+      <nav aria-label="Agent pages" className="flex shrink-0 items-end gap-1">
+        {routes.map((r) => (
+          <Link key={r.href} href={r.href} className="focus-ring shrink-0 rounded-md px-2.5 pb-2 pt-1.5 text-[13.5px] font-medium text-fg-3 hover:text-fg">
+            {r.label}
+          </Link>
+        ))}
+      </nav>
     </div>
   );
 }

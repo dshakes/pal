@@ -210,13 +210,25 @@ export default function RunsPage() {
 
       <div className="mx-auto w-full max-w-[1200px] space-y-3 px-4 pb-8 pt-4 md:px-8">
         <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
-          <div role="radiogroup" aria-label="Filter by status" className="flex gap-0.5 overflow-x-auto rounded-lg border border-line bg-panel p-0.5">
+          <div
+            role="radiogroup"
+            aria-label="Filter by status"
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+              e.preventDefault();
+              const i = STATUS_FILTERS.findIndex(([v]) => v === status);
+              const n = (i + (e.key === "ArrowRight" ? 1 : -1) + STATUS_FILTERS.length) % STATUS_FILTERS.length;
+              setStatus(STATUS_FILTERS[n][0]);
+              (e.currentTarget.children[n] as HTMLElement | undefined)?.focus();
+            }}
+            className="flex gap-0.5 overflow-x-auto rounded-lg border border-line bg-panel p-0.5">
             {STATUS_FILTERS.map(([v, l]) => (
               <button
                 key={v}
                 type="button"
                 role="radio"
                 aria-checked={status === v}
+                tabIndex={status === v ? 0 : -1}
                 onClick={() => setStatus(v)}
                 className={clsx(
                   "focus-ring flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] transition-colors",

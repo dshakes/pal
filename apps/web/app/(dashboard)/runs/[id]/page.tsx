@@ -54,14 +54,10 @@ export default function RunDetailPage() {
   const [copied, setCopied] = useState(false);
 
   // The SSE stream carries steps; the run row carries status and cost. Re-read
-  // the row when a new event lands so both move together, and every 4s while
-  // in flight (a run waiting on a human emits nothing until it resumes).
+  // the row every 4s while in flight (a run waiting on a human emits nothing
+  // until it resumes).
   const terminal = run ? TERMINAL.has(run.status) : false;
   const runId = run?.id;
-  useEffect(() => {
-    if (!terminal && events.length > 0) void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh on each new event only
-  }, [events.length]);
   useEffect(() => {
     if (terminal || !runId) return;
     const t = setInterval(() => void refresh(), 4000);
