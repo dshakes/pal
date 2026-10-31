@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -592,20 +593,12 @@ func TestAuth_BackfillMigration_OwnerlessTenantsPromoted(t *testing.T) {
 
 	// Run the migration SQL directly (the DB was already migrated at pool-open
 	// time; this is a surgical re-execution on fresh rows).
-	migrationSQL := `
-		UPDATE users
-		SET    role = 'owner'
-		WHERE  id IN (
-		    SELECT DISTINCT ON (tenant_id)
-		           id
-		    FROM   users u
-		    WHERE  NOT EXISTS (
-		        SELECT 1 FROM users u2
-		        WHERE  u2.tenant_id = u.tenant_id
-		        AND    u2.role IN ('owner', 'admin')
-		    )
-		    ORDER BY tenant_id, created_at, id
-		);`
+	// Load the REAL migration file so the test cannot drift from what ships.
+	sqlBytes, err := os.ReadFile("../db/migrations/0043_backfill_tenant_owner.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	migrationSQL := string(sqlBytes)
 	if _, err := h.srv.Pool.Exec(ctx, migrationSQL); err != nil {
 		t.Fatalf("run migration SQL: %v", err)
 	}
