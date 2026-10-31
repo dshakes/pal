@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { RunStatus } from "@/lib/mock-data";
+import type { RunStatus } from "@/lib/types";
 
 const statusConfig: Record<
   RunStatus,

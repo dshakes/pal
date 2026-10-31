@@ -36,7 +36,10 @@ const SHORTCUTS: ShortcutDef[] = [
   { combo: "g v", description: "Runtime: Sandboxes", group: "Navigate", goToKey: "v", href: "/runtime" },
   { combo: "g s", description: "Settings", group: "Navigate", goToKey: "s", href: "/settings" },
   { combo: "g n", description: "New agent", group: "Navigate", goToKey: "n", href: "/agents/create" },
-  { combo: "⌘K", description: "Ask PAL / command bar", group: "Action" },
+  { combo: "g e", description: "Runtime: Evals", group: "Navigate", goToKey: "e", href: "/eval-suites" },
+  { combo: "g d", description: "Runtime: Deployments", group: "Navigate", goToKey: "d", href: "/deployments" },
+  { combo: "⌘K", description: "Search or ask PAL", group: "Action" },
+  { combo: "⌘\\", description: "Toggle the agent panel", group: "Action" },
   { combo: "?", description: "Show this cheat sheet", group: "Help" },
   { combo: "Esc", description: "Close dialogs / cheat sheet", group: "Help" },
 ];

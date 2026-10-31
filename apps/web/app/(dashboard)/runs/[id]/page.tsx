@@ -20,7 +20,7 @@ import clsx from "clsx";
 import { api } from "@/lib/api";
 import { useRun, useRunEvents } from "@/lib/hooks";
 import { useToast } from "@/components/toast";
-import { formatCost, formatTokens, formatDuration } from "@/lib/mock-data";
+import { formatCost, formatTokens, formatDuration } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
 import { JsonViewer } from "@/components/json-viewer";
 import { RunDetailSkeleton } from "@/components/skeleton";

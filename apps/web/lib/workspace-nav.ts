@@ -106,8 +106,8 @@ export const MOBILE_PRIMARY: Record<WorkspaceMode, NavItem[]> = {
   runtime: [NAV.runtime[0].items[0], NAV.runtime[0].items[1], NAV.runtime[0].items[2]],
 };
 
-const PAL_PREFIXES = ["/brief", "/personal", "/automations", "/voice", "/pal"];
-const RUNTIME_PREFIXES = [
+export const PAL_PREFIXES = ["/brief", "/personal", "/automations", "/voice", "/pal"];
+export const RUNTIME_PREFIXES = [
   "/overview", "/agents", "/runs", "/incidents", "/inbox", "/runtime", "/deployments", "/eval-suites",
   "/evaluations", "/experiments", "/budgets", "/connectors", "/surfaces", "/embed", "/marketplace",
 ];
@@ -171,4 +171,11 @@ export function chooseLanding(f: LandingFacts): string {
   if (f.agentCount > 0) return MODE_HOME.runtime;
   if (f.onboardingStarted) return "/onboarding";
   return "/welcome";
+}
+
+/** The label for where you are, for the topbar breadcrumb ("Runtime / Agents"). */
+export function currentNavLabel(pathname: string, mode: WorkspaceMode): string | null {
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) return "Settings";
+  const items = allNavItems(mode);
+  return items.find((i) => isNavActive(i, pathname, items))?.label ?? null;
 }

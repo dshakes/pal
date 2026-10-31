@@ -35,8 +35,8 @@ import {
   Clock,
 } from "lucide-react";
 import clsx from "clsx";
-import type { StreamEvent } from "@/lib/mock-data";
-import { formatCost, formatTokens } from "@/lib/mock-data";
+import type { StreamEvent } from "@/lib/types";
+import { formatCost, formatTokens } from "@/lib/format";
 import {
   buildTimeline,
   eventAtCursor,

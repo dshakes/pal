@@ -58,3 +58,11 @@ test("chooseLanding", () => {
   assert.equal(chooseLanding({ storedMode: "pal", onboardingStarted: false, agentCount: 5 }), "/brief");
   assert.equal(chooseLanding({ storedMode: "runtime", onboardingStarted: false, agentCount: 0 }), "/overview");
 });
+
+test("currentNavLabel: breadcrumb label for the active item", async () => {
+  const { currentNavLabel } = await import("./workspace-nav.ts");
+  assert.equal(currentNavLabel("/agents/x", "runtime"), "Agents");
+  assert.equal(currentNavLabel("/personal/drafts", "pal"), "Holds");
+  assert.equal(currentNavLabel("/settings/keys", "pal"), "Settings");
+  assert.equal(currentNavLabel("/nowhere", "runtime"), null);
+});
