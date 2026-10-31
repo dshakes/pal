@@ -355,7 +355,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// across all tenants; the tenant context is the OUTPUT of this lookup.
 	err := h.srv.Pool.QueryRow(ctx, `
 		SELECT u.id, u.tenant_id, u.display_name, u.password_hash,
-			COALESCE((SELECT 'owner' FROM tenants WHERE id = u.tenant_id LIMIT 1), 'member'),
+			u.role,
 			u.email_verified_at
 		FROM users u
 		WHERE u.email = $1
@@ -664,8 +664,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// rls-exempt: pre-auth OAuth callback — resolves or creates the tenant from
 	// the verified OAuth email across all tenants; no tenant context exists yet.
 	err = h.srv.Pool.QueryRow(ctx, `
-		SELECT u.id, u.tenant_id, u.display_name,
-			COALESCE((SELECT 'owner' FROM tenants WHERE id = u.tenant_id LIMIT 1), 'member')
+		SELECT u.id, u.tenant_id, u.display_name, u.role
 		FROM users u WHERE u.email = $1 LIMIT 1
 	`, email).Scan(&userID, &tenantID, &name, &role)
 
