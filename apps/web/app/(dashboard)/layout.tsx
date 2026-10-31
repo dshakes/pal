@@ -16,6 +16,7 @@ import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { PalMark } from "@/components/pal-mark";
 import { useAuth } from "@/lib/auth";
 import { useModels } from "@/lib/model-context";
+import { shouldShowProviderBanner } from "@/lib/model-banner";
 import { openAsk } from "@/lib/ask-events";
 import { MODE_HOME, MODE_LABEL } from "@/lib/workspace-nav";
 import { useWorkspaceMode } from "@/lib/use-workspace-mode";
@@ -23,7 +24,10 @@ import { useWorkspaceMode } from "@/lib/use-workspace-mode";
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout, isDemoMode } = useAuth();
-  const { isConfigured, loading: modelsLoading } = useModels();
+  const { isConfigured, loading: modelsLoading, loaded: modelsLoaded, refresh: refreshModels } = useModels();
+  // ModelProvider mounts at the app root, before sign-in: re-fetch once the dashboard is reached
+  // so the pre-login (401) empty result doesn't linger as "no keys".
+  useEffect(() => { refreshModels(); }, [refreshModels]);
   const { mode } = useWorkspaceMode();
   const kiosk = useKioskSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -143,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <DemoModeBanner />
         <KioskTour />
 
-        {!kiosk && !modelsLoading && !isConfigured && (
+        {shouldShowProviderBanner({ kiosk: !!kiosk, loading: modelsLoading, loaded: modelsLoaded, isConfigured }) && (
           <div className="flex items-center gap-3 border-b border-amber-500/20 bg-amber-500/5 px-4 py-2.5 md:px-6">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
             <p className="text-sm text-amber-300">Add a model provider key to turn on PAL’s AI features.</p>

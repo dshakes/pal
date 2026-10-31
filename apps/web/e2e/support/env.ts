@@ -21,8 +21,18 @@ export const REPO_ROOT = path.resolve(__dirname, "../../../..");
 export const CP_DIR = path.join(REPO_ROOT, "services/control-plane");
 export const LLM_RULES = path.resolve(__dirname, "../fixtures/llm-rules.json");
 
-// Postgres admin URL used to create/drop the throwaway DB; Redis db index for rate limits.
-export const PG_ADMIN_URL = process.env.E2E_PG_ADMIN_URL ?? "postgres://pal:pal@localhost:5432/postgres?sslmode=disable";
+// Postgres admin URL used to create/drop the throwaway DB; Redis for rate limits.
+// No defaults: a default pointed at the shared :5432/:6379 cluster that backs a live
+// machine. Start private containers (e.g. -p 55511:5432, -p 56511:6379) and set both.
+function required(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} is required: point e2e at a PRIVATE Postgres/Redis, never the shared :5432/:6379 (see apps/web/e2e/README or CLAUDE.md).`);
+  return v;
+}
+export const PG_ADMIN_URL = required("E2E_PG_ADMIN_URL");
 export const REDIS_HOST = process.env.E2E_REDIS_HOST ?? "127.0.0.1";
-export const REDIS_PORT = Number(process.env.E2E_REDIS_PORT ?? 6379);
+export const REDIS_PORT = Number(required("E2E_REDIS_PORT"));
 export const REDIS_DB = Number(process.env.E2E_REDIS_DB ?? 13);
+if (/:5432\//.test(PG_ADMIN_URL) || REDIS_PORT === 6379) {
+  throw new Error("e2e refuses the shared Postgres :5432 / Redis :6379 ports; use a private container.");
+}

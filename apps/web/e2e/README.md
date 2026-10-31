@@ -14,8 +14,8 @@ Prereqs: Go, `psql`, and a reachable Postgres + Redis (`make dev-infra` provides
 
 | Piece | Where |
 | --- | --- |
-| Postgres DB `pal_e2e_<pid>` | created via `E2E_PG_ADMIN_URL` (default `pal:pal@localhost:5432/postgres`), dropped at the end |
-| Redis | db index `E2E_REDIS_DB` (default 13), flushed before and after so `/auth/*` rate limits (10 sign-ups/IP/hour) never leak between runs |
+| Postgres DB `pal_e2e_<pid>` | created via `E2E_PG_ADMIN_URL` (REQUIRED, no default; must be a private instance, the shared `:5432` is refused), dropped at the end |
+| Redis | on `E2E_REDIS_PORT` (REQUIRED; shared `:6379` is refused), db index `E2E_REDIS_DB` (default 13), flushed before and after so `/auth/*` rate limits (10 sign-ups/IP/hour) never leak between runs |
 | llm-replay | `:9412`, rules in `fixtures/llm-rules.json` |
 | control-plane | HTTP `:8411`, gRPC `:50411`, metrics `:9411`; `PAL_CORS_ORIGINS` = the dashboard origin (without it every API call fails CORS); `PAL_MAILER=log`; `PAL_LLM_BASEURL_*` -> llm-replay |
 | dashboard (`next dev`) | `:3411` with `NEXT_PUBLIC_API_URL` / `PAL_API_URL` -> the control-plane |

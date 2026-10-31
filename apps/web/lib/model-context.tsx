@@ -67,6 +67,8 @@ export interface ModelContextValue {
   isConfigured: boolean;
   /** True while the initial fetch is in-flight. */
   loading: boolean;
+  /** True only when the providers API answered the last fetch (so "none configured" is a fact, not a guess). */
+  loaded: boolean;
   /** Available models based on configured providers. */
   availableModels: ModelOption[];
   /** Set the default model preference. */
@@ -93,17 +95,20 @@ export function ModelProvider({ children }: { children: ReactNode }) {
   const [providers, setProviders] = useState<ConfiguredProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [defaultModel, setDefaultModel] = useState("auto");
+  const [loaded, setLoaded] = useState(false);
 
   const fetchProviders = useCallback(async () => {
     try {
       const data = await api.listLlmProviders();
+      setLoaded(Array.isArray(data));
       if (data && data.length > 0) {
         setProviders(data);
         setLoading(false);
         return;
       }
     } catch {
-      // API unavailable — fall through to localStorage
+      // API unavailable (e.g. 401 before sign-in) — we do NOT know; stay not-loaded
+      setLoaded(false);
     }
     // Fallback: read from localStorage (Settings page saves here)
     try {
@@ -157,6 +162,7 @@ export function ModelProvider({ children }: { children: ReactNode }) {
     defaultModel,
     isConfigured,
     loading,
+    loaded,
     availableModels,
     setDefaultModel,
     refresh,
