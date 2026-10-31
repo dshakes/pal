@@ -32,13 +32,17 @@ func (p DialPolicy) Allowed(ip net.IP) bool {
 		return false
 	case ip.IsLoopback():
 		return p.AllowLoopback
-	case ip.IsPrivate(), cgnat.Contains(ip):
+	case ip.IsPrivate(), cgnat.Contains(ip), nat64.Contains(ip):
 		return p.AllowPrivate
 	}
 	return true
 }
 
-var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+var (
+	cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+	// nat64 (64:ff9b::/96) can reach any IPv4 address, internal ones included.
+	nat64 = &net.IPNet{IP: net.ParseIP("64:ff9b::"), Mask: net.CIDRMask(96, 128)}
+)
 
 // CheckURL validates an MCP server / OAuth endpoint URL statically. The
 // address check proper happens at dial time (DNS-rebinding safe).

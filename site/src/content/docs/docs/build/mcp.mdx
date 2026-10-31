@@ -84,7 +84,7 @@ Endpoint: `POST https://<your PAL API>/mcp` (Streamable HTTP, stateless).
 Keys without the `mcp` scope — including older unrestricted keys — and dashboard sessions are refused with `401` and a `WWW-Authenticate` header pointing at `/.well-known/oauth-protected-resource/mcp`.
 
 <Aside>
-PAL issues API keys, not OAuth tokens. Clients that insist on an OAuth flow need an external authorization server configured with `PAL_MCP_AUTHORIZATION_SERVERS`; otherwise supply the key as a header.
+PAL issues API keys, not OAuth tokens, so the metadata lists no authorization server. Clients that insist on an OAuth flow cannot connect yet; supply the key as a header. In production the metadata's `resource` comes from `PAL_PUBLIC_BASE_URL` (required for this endpoint), never from the request's Host header.
 </Aside>
 
 ## Environment
@@ -93,7 +93,7 @@ PAL issues API keys, not OAuth tokens. Clients that insist on an OAuth flow need
 | --- | --- | --- |
 | `PAL_MCP_ALLOW_PRIVATE` | off | `1` lets remote MCP servers live on private (RFC 1918 / ULA / CGNAT) addresses in prod. Loopback and metadata addresses stay refused. |
 | `PAL_MCP_OAUTH_REDIRECT_URL` | `${PAL_DASHBOARD_URL}/settings/mcp/callback` | OAuth redirect URI PAL registers with MCP authorization servers. |
-| `PAL_MCP_AUTHORIZATION_SERVERS` | unset | Comma-separated issuers advertised in `/.well-known/oauth-protected-resource/mcp`. |
+| `PAL_PUBLIC_BASE_URL` | request host (dev only) | Public API origin; the `/mcp` resource identifier. Required in prod for the metadata endpoint. |
 | `PAL_MCP_ALLOWED_ORIGINS` | `PAL_DASHBOARD_URL` | Browser origins allowed to call `/mcp` (DNS-rebinding defence). |
 
 ## API

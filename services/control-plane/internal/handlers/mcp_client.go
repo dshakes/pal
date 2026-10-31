@@ -48,6 +48,7 @@ const (
 	mcpCallTimeout     = 60 * time.Second
 	mcpListTimeout     = 15 * time.Second
 	mcpToolCacheTTL    = 2 * time.Minute
+	mcpToolCacheMax    = 4096
 	mcpMaxResultChars  = 64 << 10
 	mcpMaxDescChars    = 1024
 	mcpMaxSchemaBytes  = 16 << 10
@@ -350,7 +351,19 @@ func (m *MCPRuntime) listTools(ctx context.Context, tenantID string, ref mcpServ
 		return nil, err
 	}
 	m.mu.Lock()
-	m.cache[key] = mcpCacheEntry{tools: tools, until: time.Now().Add(mcpToolCacheTTL)}
+	now := time.Now()
+	if len(m.cache) >= mcpToolCacheMax {
+		// ponytail: sweep on insert; a size-bounded LRU if this ever shows up in profiles.
+		for k, e := range m.cache {
+			if now.After(e.until) {
+				delete(m.cache, k)
+			}
+		}
+		if len(m.cache) >= mcpToolCacheMax {
+			m.cache = map[string]mcpCacheEntry{}
+		}
+	}
+	m.cache[key] = mcpCacheEntry{tools: tools, until: now.Add(mcpToolCacheTTL)}
 	m.mu.Unlock()
 	return tools, nil
 }

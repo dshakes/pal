@@ -50,30 +50,43 @@ const (
 
 var mcpServerVersions = []string{"2025-06-18", "2025-03-26"}
 
-// mcpBaseURL is the externally visible origin of this control-plane.
-func mcpBaseURL(r *http.Request) string { return derivePublicURL(r) }
+// mcpBaseURL is the externally visible origin of this control-plane. It is
+// the RFC 9728 resource identifier, so in prod it must come from
+// PAL_PUBLIC_BASE_URL — never from a (spoofable) Host / X-Forwarded-Host
+// header. ok=false means "not configured" (prod only).
+func mcpBaseURL(r *http.Request) (string, bool) {
+	if v := strings.TrimRight(strings.TrimSpace(os.Getenv("PAL_PUBLIC_BASE_URL")), "/"); v != "" {
+		return v, true
+	}
+	if isProd() {
+		return "", false
+	}
+	return derivePublicURL(r), true
+}
 
 // ProtectedResourceMetadata serves RFC 9728 metadata for /mcp.
 func (h *MCPHandler) ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
-	base := mcpBaseURL(r)
-	doc := map[string]any{
+	base, ok := mcpBaseURL(r)
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "PAL_PUBLIC_BASE_URL is not configured"})
+		return
+	}
+	// No authorization_servers: PAL accepts its own API keys (explicit "mcp"
+	// scope), not tokens from an external AS (ADR 0058).
+	w.Header().Set("Cache-Control", "max-age=300")
+	writeJSON(w, http.StatusOK, map[string]any{
 		"resource":                 base + "/mcp",
 		"bearer_methods_supported": []string{"header"},
 		"scopes_supported":         []string{ScopeMCP, ScopeAgentsRead, ScopeRunsRead, ScopeRunsExecute},
 		"resource_name":            "PAL",
-		"resource_documentation":   base + "/docs/mcp",
-	}
-	// PAL issues API keys itself; an external OAuth 2.1 authorization server
-	// that mints PAL-audience tokens is configured explicitly (ADR 0058).
-	if as := strings.TrimSpace(os.Getenv("PAL_MCP_AUTHORIZATION_SERVERS")); as != "" {
-		doc["authorization_servers"] = strings.Split(as, ",")
-	}
-	w.Header().Set("Cache-Control", "max-age=300")
-	writeJSON(w, http.StatusOK, doc)
+	})
 }
 
 func (h *MCPHandler) mcpChallenge(w http.ResponseWriter, r *http.Request, status int, oauthErr, desc string) {
-	v := fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource/mcp", scope="%s"`, mcpBaseURL(r), ScopeMCP)
+	v := fmt.Sprintf(`Bearer scope="%s"`, ScopeMCP)
+	if base, ok := mcpBaseURL(r); ok {
+		v = fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource/mcp", scope="%s"`, base, ScopeMCP)
+	}
 	if oauthErr != "" {
 		v += fmt.Sprintf(`, error="%s", error_description="%s"`, oauthErr, desc)
 	}

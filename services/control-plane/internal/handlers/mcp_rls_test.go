@@ -333,6 +333,12 @@ func TestRLSMCPOAuth_FlowAndCrossTenantState(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("cross-tenant state redeemed: %d %s", rr.Code, rr.Body)
 	}
+	// Another user of the SAME tenant cannot complete it either (bound to the initiator).
+	rr = m.do(t, m.auth.WithScope(ScopeConnectorsWrite, m.h.OAuthCallback), "POST", "/v1/mcp/oauth/callback",
+		m.ownerToken(t, tenant, "owner"), map[string]any{"code": "c", "state": state}, nil, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("other user redeemed the state: %d %s", rr.Code, rr.Body)
+	}
 	rr = m.do(t, m.auth.WithScope(ScopeConnectorsWrite, m.h.OAuthCallback), "POST", "/v1/mcp/oauth/callback", owner,
 		map[string]any{"code": "the-code", "state": state}, nil, nil)
 	if rr.Code != 200 {
@@ -464,8 +470,24 @@ func TestRLSMCPServer_AuthScopesAndTransportRules(t *testing.T) {
 	// Protected-resource metadata.
 	rec = httptest.NewRecorder()
 	m.h.ProtectedResourceMetadata(rec, httptest.NewRequest("GET", "http://pal.test/.well-known/oauth-protected-resource/mcp", nil))
-	if !strings.Contains(rec.Body.String(), `"resource":"http://pal.test/mcp"`) {
+	if !strings.Contains(rec.Body.String(), `"resource":"http://pal.test/mcp"`) || strings.Contains(rec.Body.String(), "authorization_servers") {
 		t.Fatalf("PRM: %s", rec.Body)
+	}
+	// Prod: the resource identifier never comes from the Host header.
+	t.Setenv("PAL_ENV", "production")
+	rec = httptest.NewRecorder()
+	m.h.ProtectedResourceMetadata(rec, httptest.NewRequest("GET", "http://evil.test/.well-known/oauth-protected-resource/mcp", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("prod PRM without PAL_PUBLIC_BASE_URL: %d %s", rec.Code, rec.Body)
+	}
+	if rr := m.rpc(t, "", list, nil); rr.Code != 401 || strings.Contains(rr.Header().Get("WWW-Authenticate"), "resource_metadata") {
+		t.Fatalf("prod challenge leaked a Host-derived resource_metadata: %q", rr.Header().Get("WWW-Authenticate"))
+	}
+	t.Setenv("PAL_PUBLIC_BASE_URL", "https://api.pal.example")
+	rec = httptest.NewRecorder()
+	m.h.ProtectedResourceMetadata(rec, httptest.NewRequest("GET", "http://evil.test/.well-known/oauth-protected-resource/mcp", nil))
+	if !strings.Contains(rec.Body.String(), `"resource":"https://api.pal.example/mcp"`) {
+		t.Fatalf("prod PRM: %s", rec.Body)
 	}
 	_ = fmt.Sprint
 }

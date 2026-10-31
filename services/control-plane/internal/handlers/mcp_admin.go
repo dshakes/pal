@@ -354,7 +354,6 @@ func (h *MCPHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
-	claims := claimsFromCtx(r.Context())
 	var b struct {
 		ServerSlug   string `json:"serverSlug"`
 		Scope        string `json:"scope"`
@@ -432,10 +431,7 @@ func (h *MCPHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 	asRaw, _ := json.Marshal(as)
 	expires := time.Now().Add(mcpOAuthPendingTTL)
-	createdBy := ""
-	if claims != nil {
-		createdBy = claims.Subject
-	}
+	createdBy := callerSubject(r)
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `DELETE FROM mcp_oauth_pending WHERE tenant_id = $1 AND expires_at < now()`, tenantID); e != nil {
 			return e
@@ -482,9 +478,9 @@ func (h *MCPHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	)
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `DELETE FROM mcp_oauth_pending
-			WHERE state_hash = $1 AND tenant_id = $2 AND expires_at > now()
+			WHERE state_hash = $1 AND tenant_id = $2 AND expires_at > now() AND created_by = $3
 			RETURNING server_slug, secret, client_id, issuer, resource, redirect_uri, as_metadata, scope`,
-			stateHash(b.State), tenantID).Scan(&slug, &secRaw, &clientID, &issuer, &resource, &redirect, &asRaw, &scope)
+			stateHash(b.State), tenantID, callerSubject(r)).Scan(&slug, &secRaw, &clientID, &issuer, &resource, &redirect, &asRaw, &scope)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		badRequest(w, "unknown or expired authorization state")
@@ -600,4 +596,13 @@ func (h *MCPHandler) ListAttachmentTools(w http.ResponseWriter, r *http.Request)
 		out = append(out, d)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"server": slug, "tools": out})
+}
+
+// callerSubject is the authenticated principal an OAuth flow is bound to: the
+// user id for a session, or the tenant for an API key (keys carry no subject).
+func callerSubject(r *http.Request) string {
+	if c := claimsFromCtx(r.Context()); c != nil && c.Subject != "" {
+		return "user:" + c.Subject
+	}
+	return "key"
 }

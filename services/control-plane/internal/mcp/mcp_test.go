@@ -228,7 +228,7 @@ func TestHTTPResponseIDMismatchRefused(t *testing.T) {
 
 func TestDialPolicy(t *testing.T) {
 	strict := DialPolicy{RequireHTTPS: true}
-	for _, ip := range []string{"169.254.169.254", "127.0.0.1", "10.0.0.1", "100.64.1.1", "::1", "fe80::1", "0.0.0.0", "fd00::1"} {
+	for _, ip := range []string{"169.254.169.254", "127.0.0.1", "10.0.0.1", "100.64.1.1", "::1", "fe80::1", "0.0.0.0", "fd00::1", "::ffff:169.254.169.254", "::ffff:127.0.0.1", "::ffff:10.1.2.3", "64:ff9b::a9fe:a9fe"} {
 		if strict.Allowed(net.ParseIP(ip)) {
 			t.Errorf("strict policy allowed %s", ip)
 		}
@@ -236,7 +236,7 @@ func TestDialPolicy(t *testing.T) {
 	if !strict.Allowed(net.ParseIP("93.184.216.34")) {
 		t.Error("public IP refused")
 	}
-	if devPolicy.Allowed(net.ParseIP("169.254.169.254")) {
+	if devPolicy.Allowed(net.ParseIP("169.254.169.254")) || devPolicy.Allowed(net.ParseIP("::ffff:169.254.169.254")) {
 		t.Error("metadata address must be refused even in dev")
 	}
 	for _, u := range []string{"http://example.com/mcp", "https://user:pw@example.com/", "https://example.com/#x", "ftp://example.com", "https://169.254.169.254/"} {

@@ -108,10 +108,11 @@ PAL is an OAuth 2.1 **resource server**:
   `mcp` (or `admin`). That scope is the audience binding: unrestricted legacy
   keys, REST-only keys and dashboard session JWTs are refused with
   `401 WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp"`.
-- `GET /.well-known/oauth-protected-resource[/mcp]` serves RFC 9728 metadata.
-  `authorization_servers` is listed only when `PAL_MCP_AUTHORIZATION_SERVERS`
-  names an external AS that mints PAL-audience tokens; PAL itself issues API
-  keys, not OAuth tokens (see Consequences).
+- `GET /.well-known/oauth-protected-resource[/mcp]` serves RFC 9728 metadata
+  with no `authorization_servers` (PAL accepts its own API keys, not tokens from
+  an external AS). The `resource` is `PAL_PUBLIC_BASE_URL` + `/mcp`; in prod it is
+  never derived from the Host / X-Forwarded-Host header (unset → 503 and a
+  challenge without `resource_metadata`).
 - `Origin` is validated (DNS rebinding); unsupported `MCP-Protocol-Version` →
   400; JSON-RPC batches → 400 (removed in 2025-06-18).
 - Tools: `list_agents` (`agents:read`), `get_run` (`runs:read`), `run_agent` and
@@ -133,8 +134,11 @@ servers fetch/time/git are added (stdio, VM-only). The dashboard's
 ## Consequences
 
 - PAL has no OAuth authorization server, so MCP clients that insist on OAuth
-  discovery (e.g. the Inspector's interactive mode) need a configured external AS
-  or a manually supplied API key. Building an AS is a separate decision.
+  discovery (e.g. the Inspector's interactive mode) need a manually supplied API
+  key. Building an AS — or accepting an external AS's PAL-audience tokens — is a
+  separate decision.
+- An OAuth flow is bound to the user (or, for API keys, the tenant) that started
+  it; another user of the same tenant cannot complete it.
 - Merge order: golang-migrate applies only versions above the current one. If
   0042 ships before 0040/0041, a database that ran 0042 would skip them;
   merge #408 (0040) first or renumber at merge time.
