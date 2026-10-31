@@ -33,6 +33,15 @@ export function LifecycleRail({
   onSelect: (t: AgentTab) => void;
   routes: Array<{ label: string; href: string }>;
 }) {
+  // On narrow screens the rail scrolls sideways; keep the active tab in view
+  // (horizontal only, so the page itself never jumps).
+  useEffect(() => {
+    const el = document.getElementById(`agent-tab-${active}`);
+    const box = el?.closest(".overflow-x-auto");
+    if (!el || !box) return;
+    const d = el.getBoundingClientRect().left - box.getBoundingClientRect().left;
+    if (d < 0 || d + el.offsetWidth > box.clientWidth) box.scrollLeft += d - 16;
+  }, [active]);
   const order = [...LIFECYCLE, ...CONFIG].map((t) => t.key);
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -194,7 +203,7 @@ function EvalRunsTable({ runs, suites }: { runs: EvalRun[] | null; suites: EvalS
       pageSize={10}
       defaultSort={{ key: "when", dir: "desc" }}
       emptyTitle="No eval runs yet"
-      emptyDescription="Run a suite from the Evals page or with `pal eval run`. Results land here."
+      emptyDescription="Run a suite from the Evals page or with pal eval run. Results land here."
       columns={[
         { key: "suite", header: "Suite", render: (r) => <span className="text-fg">{name(r.suiteId)}</span> },
         {
@@ -262,15 +271,13 @@ export function GatePanel({ agentName }: { agentName: string }) {
               </>
             )}
           </li>
-          {["Policy check", "Prompt-injection scan", "Secret lint"].map((g) => (
-            <li key={g} className="flex items-start gap-3 p-4">
-              <CircleDashed className="mt-0.5 h-4 w-4 text-fg-3" aria-hidden />
-              <div>
-                <p className="text-[13.5px] font-medium text-fg-2">{g}</p>
-                <p className="text-[13px] text-fg-3">Not reported yet. The control plane doesn’t expose a per-version gate result.</p>
-              </div>
-            </li>
-          ))}
+          <li className="flex items-start gap-3 p-4">
+            <CircleDashed className="mt-0.5 h-4 w-4 text-fg-3" aria-hidden />
+            <div>
+              <p className="text-[13.5px] font-medium text-fg-2">Policy check, prompt-injection scan, secret lint</p>
+              <p className="text-[13px] text-fg-3">Not available yet. These checks don’t report a result per version.</p>
+            </div>
+          </li>
         </ul>
       </Section>
       <p className="text-[12.5px] text-fg-3">Promotion still runs its own server-side gates (version, order, budget, evals). They show on the Promote tab when you promote.</p>
@@ -321,7 +328,7 @@ export function DebugPanel({ runs, loading }: { runs: Run[]; loading: boolean })
         )}
       </Section>
       <Missing title="Replay a run against a new version">
-        Re-running a past failure against a candidate version needs the run-replay endpoint (plan §4 gap #4). Until then, use the Test tab with the failing input.
+        Re-running a past failure against a candidate version isn’t available yet. Until it is, use the Test tab with the failing input.
       </Missing>
     </div>
   );

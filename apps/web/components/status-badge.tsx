@@ -7,10 +7,11 @@ import type { RunStatus } from "@/lib/types";
 
 type Tone = "neutral" | "live" | "hold" | "ok" | "bad";
 
-const STATUS: Record<RunStatus, { label: string; tone: Tone }> = {
+const STATUS: Record<RunStatus | "waiting", { label: string; tone: Tone }> = {
   queued: { label: "Queued", tone: "neutral" },
   running: { label: "Running", tone: "live" },
   paused: { label: "Paused", tone: "hold" },
+  waiting: { label: "Waiting", tone: "hold" },
   succeeded: { label: "Succeeded", tone: "ok" },
   failed: { label: "Failed", tone: "bad" },
   cancelled: { label: "Cancelled", tone: "neutral" },
@@ -25,11 +26,11 @@ const TONE: Record<Tone, { pill: string; dot: string }> = {
 };
 
 export function statusLabel(status: string): string {
-  return STATUS[status as RunStatus]?.label ?? "Unknown";
+  return STATUS[status as keyof typeof STATUS]?.label ?? "Unknown";
 }
 
 export function StatusBadge({ status }: { status: RunStatus | string }) {
-  const s = STATUS[status as RunStatus] ?? { label: "Unknown", tone: "neutral" as Tone };
+  const s = STATUS[status as keyof typeof STATUS] ?? { label: "Unknown", tone: "neutral" as Tone };
   const t = TONE[s.tone];
   return (
     <span
