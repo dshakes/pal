@@ -1,5 +1,6 @@
 "use client";
 
+import { createAgentPath } from "@/lib/agent-create";
 import type {
   AgentAuditLog,
   AgentIdentity,
@@ -680,8 +681,8 @@ class PalAPI {
     return this.request<Agent>(`/v1/agents/${encodeURIComponent(name)}`);
   }
 
-  async createAgent(data: CreateAgentInput): Promise<Agent> {
-    return this.request<Agent>("/v1/agents", {
+  async createAgent(data: CreateAgentInput, opts?: { createOnly?: boolean }): Promise<Agent> {
+    return this.request<Agent>(createAgentPath(opts), {
       method: "POST",
       body: JSON.stringify(data),
     });

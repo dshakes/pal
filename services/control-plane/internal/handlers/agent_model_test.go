@@ -615,3 +615,41 @@ func TestInlineRun_AgentNoToolsInstructionSuppressesToolBinding(t *testing.T) {
 		t.Fatalf("control agent lost its tools (test would be vacuous): %.600s", body)
 	}
 }
+
+// ?createOnly=1 (onboarding wizard) must 409 on an existing name and leave it untouched;
+// plain POST /v1/agents keeps its upsert semantics for every other caller.
+func TestCreateAgent_CreateOnlyRefusesExisting(t *testing.T) {
+	pool := openTestPool(t)
+	h := newTwoTierRESTHandler(t, pool)
+	tok := mintTestToken(t, recoveryTestDevTenantID, "00000000-0000-0000-0000-000000000002", "owner")
+	name := fmt.Sprintf("create-only-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM agents WHERE tenant_id = $1 AND name = $2`, recoveryTestDevTenantID, name)
+	})
+	post := func(query, prompt string) *httptest.ResponseRecorder {
+		b, _ := json.Marshal(map[string]any{"name": name, "systemPrompt": prompt})
+		req := httptest.NewRequest(http.MethodPost, "/v1/agents"+query, bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.CreateAgent(w, req)
+		return w
+	}
+	prompt := func() string {
+		var p string
+		_ = pool.QueryRow(context.Background(), `SELECT COALESCE(system_prompt,'') FROM agents WHERE tenant_id = $1 AND name = $2`, recoveryTestDevTenantID, name).Scan(&p)
+		return p
+	}
+	if w := post("?createOnly=1", "ORIGINAL"); w.Code != http.StatusCreated {
+		t.Fatalf("first createOnly: HTTP %d %s", w.Code, w.Body.String())
+	}
+	w := post("?createOnly=1", "OVERWRITE")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "agent_exists") {
+		t.Fatalf("second createOnly: HTTP %d %s, want 409 agent_exists", w.Code, w.Body.String())
+	}
+	if p := prompt(); p != "ORIGINAL" {
+		t.Fatalf("createOnly overwrote the agent: %q", p)
+	}
+	if w := post("", "UPSERTED"); w.Code >= 300 || prompt() != "UPSERTED" {
+		t.Fatalf("plain POST must still upsert: HTTP %d prompt %q", w.Code, prompt())
+	}
+}

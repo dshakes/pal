@@ -223,6 +223,14 @@ func (h *RESTHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agents)
 }
 
+func envQueryOn(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "on":
+		return true
+	}
+	return false
+}
+
 // CreateAgent handles POST /v1/agents.
 func (h *RESTHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
@@ -258,6 +266,25 @@ func (h *RESTHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	if body.Model != nil {
 		if err := validAgentModel(*body.Model); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	// ?createOnly=1: refuse to upsert over an existing agent (the onboarding wizard
+	// must never overwrite someone's agent). Default POST semantics are unchanged.
+	// ponytail: check-then-create, not atomic; a concurrent same-name create can still win.
+	if envQueryOn(r.URL.Query().Get("createOnly")) {
+		tenantID, _ := middleware.TenantIDFromContext(ctx)
+		var exists bool
+		if err := db.WithTenantConn(ctx, h.srv.TenantPool(), tenantID, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agents WHERE tenant_id = $1 AND name = $2)`, tenantID, body.Name).Scan(&exists)
+		}); err != nil {
+			h.logger().Error("CreateAgent exists check failed", zap.Error(err))
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not check for an existing agent"})
+			return
+		}
+		if exists {
+			writeJSON(w, http.StatusConflict, map[string]string{"code": "agent_exists", "error": fmt.Sprintf("an agent named %q already exists", body.Name)})
 			return
 		}
 	}

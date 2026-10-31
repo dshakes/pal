@@ -296,7 +296,7 @@ export default function OnboardingPage() {
         description: spec.description,
         systemPrompt: spec.systemPrompt,
         model: spec.model || "auto",
-      });
+      }, { createOnly: true }); // never upsert over an existing agent of the same name
     } catch (err) {
       createError = err;
     } finally {
