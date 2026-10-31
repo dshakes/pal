@@ -465,7 +465,10 @@ func runNewsRadarGuarded(
 	}
 	// Unlock on the same session; a detached ctx so a cancelled run still releases.
 	defer func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, newsRadarLockKey)
+		if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, newsRadarLockKey); err != nil {
+			// Never hand a lock-holding session back to the pool: closing it frees the lock.
+			_ = conn.Hijack().Close(context.Background())
+		}
 	}()
 	scanned, newN, sourcesOK, sourcesFailed = runNewsRadar(ctx, pool, logger, tenantID, runID, completeFn, httpGet)
 	return
