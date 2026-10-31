@@ -433,3 +433,56 @@ func TestInlineRun_DoesNotOverwriteCancel(t *testing.T) {
 		t.Fatalf("cancelled run was overwritten: %q %v", st, err)
 	}
 }
+
+func TestA2AStreamCap(t *testing.T) {
+	var rel []func()
+	for i := 0; i < a2aMaxStreamsPerCaller; i++ {
+		r, ok := acquireA2AStream("c1")
+		if !ok {
+			t.Fatalf("stream %d refused under the cap", i)
+		}
+		rel = append(rel, r)
+	}
+	if _, ok := acquireA2AStream("c1"); ok {
+		t.Fatal("stream over the per-caller cap must be refused")
+	}
+	if r, ok := acquireA2AStream("c2"); !ok {
+		t.Fatal("cap is per caller")
+	} else {
+		r()
+	}
+	rel[0]()
+	if r, ok := acquireA2AStream("c1"); !ok {
+		t.Fatal("released slot must be reusable")
+	} else {
+		r()
+	}
+	for _, r := range rel[1:] {
+		r()
+	}
+}
+
+func TestA2ACard_ProdNeedsPublicBaseURL(t *testing.T) {
+	t.Setenv("PAL_ENV", "production")
+	t.Setenv("PAL_PUBLIC_BASE_URL", "")
+	rr := httptest.NewRecorder()
+	(&A2AHandler{}).serveCard(rr, httptest.NewRequest("GET", "/x", nil), "any", "")
+	if rr.Code != http.StatusServiceUnavailable || rr.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("prod card without PAL_PUBLIC_BASE_URL: %d %q", rr.Code, rr.Header().Get("Cache-Control"))
+	}
+}
+
+func TestRLSA2AResubscribe_CompletedTaskSendsArtifact(t *testing.T) {
+	a := newA2AEnv(t)
+	tenant := seedEnforcedTenant(t, a.e, "az-"+uuid.NewString()[:8])
+	ag := a.seedAgent(t, tenant, "pub-"+uuid.NewString()[:6])
+	task := a.seedA2ATask(t, ag, "tenant:"+tenant, "succeeded", "m-r")
+	rr := a.do(t, a.h.JSONRPC, "POST", "/x", a.ownerToken(t, tenant, "owner"),
+		map[string]any{"jsonrpc": "2.0", "id": 7, "method": "tasks/resubscribe", "params": map[string]any{"id": task}},
+		map[string]string{"name": ag.Name}, nil)
+	body := rr.Body.String()
+	if rr.Header().Get("Content-Type") != "text/event-stream" || !strings.Contains(body, `"artifact-update"`) ||
+		!strings.Contains(body, `"final":true`) || strings.Index(body, "artifact-update") > strings.Index(body, `"final":true`) {
+		t.Fatalf("resubscribe of a completed task: %s", body)
+	}
+}

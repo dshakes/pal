@@ -348,7 +348,7 @@ func executeA2ACallTool(ctx context.Context, _ *pgxpool.Pool, _ string, params m
 	// The fence markers cannot be forged from inside the content.
 	content := strings.ReplaceAll(truncate(strings.Join(texts, "\n"), a2aClientMaxOutput), "<<<", "<< <")
 	return map[string]any{
-		"remoteAgent": truncate(card.Name, 200),
+		"remoteAgent": strings.ReplaceAll(truncate(card.Name, 200), "<<<", "<< <"), // card fields are remote input too
 		"endpoint":    endpoint,
 		"taskId":      res.ID,
 		"state":       state,

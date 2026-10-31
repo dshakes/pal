@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -280,6 +281,15 @@ func (h *A2AHandler) loadCardAgent(ctx context.Context, name, callerTenant strin
 }
 
 func (h *A2AHandler) serveCard(w http.ResponseWriter, r *http.Request, name, callerTenant string) {
+	// The card's url is where clients send their credentials, so it must not be
+	// derived from request headers in prod (Host / X-Forwarded-Host poisoning),
+	// and no shared cache may keep it.
+	w.Header().Set("Cache-Control", "no-store")
+	if isProd() && strings.TrimSpace(os.Getenv("PAL_PUBLIC_BASE_URL")) == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"code": "public_base_url_required",
+			"error": "A2A cards need PAL_PUBLIC_BASE_URL in production"})
+		return
+	}
 	a, desc, version, labels, err := h.loadCardAgent(r.Context(), name, callerTenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "agent not found"})
@@ -793,6 +803,32 @@ func (h *A2AHandler) waitTask(ctx context.Context, call a2aCall, t a2aTask) a2aT
 	return t
 }
 
+// a2aMaxStreamsPerCaller caps open SSE streams per caller principal: each one
+// holds a goroutine and polls the runs table for up to a2aBlockingWait.
+// ponytail: per-process counter; a multi-replica deployment allows N×replicas.
+const a2aMaxStreamsPerCaller = 8
+
+var a2aStreams = struct {
+	sync.Mutex
+	n map[string]int
+}{n: map[string]int{}}
+
+func acquireA2AStream(caller string) (func(), bool) {
+	a2aStreams.Lock()
+	defer a2aStreams.Unlock()
+	if a2aStreams.n[caller] >= a2aMaxStreamsPerCaller {
+		return nil, false
+	}
+	a2aStreams.n[caller]++
+	return func() {
+		a2aStreams.Lock()
+		defer a2aStreams.Unlock()
+		if a2aStreams.n[caller]--; a2aStreams.n[caller] <= 0 {
+			delete(a2aStreams.n, caller)
+		}
+	}, true
+}
+
 // streamTask serves message/stream and tasks/resubscribe as SSE (spec §7.2):
 // each event is a JSON-RPC response whose result is the Task (first), then a
 // TaskStatusUpdateEvent per state change, a TaskArtifactUpdateEvent with the
@@ -804,6 +840,13 @@ func (h *A2AHandler) streamTask(w http.ResponseWriter, r *http.Request, id json.
 		writeRPC(w, id, nil, rpcErr(rpcInternal, "streaming unsupported"))
 		return
 	}
+	release, ok := acquireA2AStream(call.callerID)
+	if !ok {
+		writeRPCErr(w, rpcRequest{ID: id, Method: "message/stream"}, &rpcError{Code: rpcInternal,
+			Message: fmt.Sprintf("too many concurrent A2A streams for this caller (max %d)", a2aMaxStreamsPerCaller)})
+		return
+	}
+	defer release()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -819,10 +862,14 @@ func (h *A2AHandler) streamTask(w http.ResponseWriter, r *http.Request, id json.
 	if sendTask {
 		emit(t)
 	} else {
-		emit(statusEvent(t, a2aTerminal(t.Status.State)))
 		if a2aTerminal(t.Status.State) {
+			for _, a := range t.Artifacts {
+				emit(map[string]any{"kind": "artifact-update", "taskId": t.ID, "contextId": t.ContextID, "artifact": a, "lastChunk": true})
+			}
+			emit(statusEvent(t, true))
 			return
 		}
+		emit(statusEvent(t, false))
 	}
 	ctx := r.Context()
 	last := t.Status.State
