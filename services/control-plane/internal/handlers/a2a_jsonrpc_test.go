@@ -270,8 +270,14 @@ func TestRLSA2ATasks_CallerIsolation(t *testing.T) {
 	}
 	// …but a DIFFERENT caller with the same messageId does not get buyer's task.
 	got = a.rpc(t, target.Name, otherTok, nil, "message/send", msg)
-	if res, _ := got["result"].(map[string]any); res != nil && res["id"] == task {
-		t.Fatalf("messageId replay must be per caller: %v", got)
+	if e, _ := got["error"].(map[string]any); e == nil || !strings.Contains(fmt.Sprint(e["message"]), "not wired") {
+		t.Fatalf("messageId replay must be per caller (a new task, which needs the executor): %v", got)
+	}
+	// An AGENT of the owning tenant is not "the owner": it only sees tasks it created.
+	sibling := a.seedAgent(t, seller, "sib-"+uuid.NewString()[:6])
+	sibHdr := map[string]string{AgentTokenHeader: a.mintFor(t, seller, sibling, a.z.auth.SpiffeID(seller, target.ID))}
+	if c := rpcCode(a.rpc(t, target.Name, "", sibHdr, "tasks/get", map[string]any{"id": task})); c != a2aTaskNotFound {
+		t.Fatalf("same-tenant agent must not read another caller's task: %d", c)
 	}
 	// Continuing an existing task is refused explicitly.
 	msg["message"].(map[string]any)["taskId"] = task
@@ -359,6 +365,11 @@ func TestRLSA2ACallTool_Gates(t *testing.T) {
 	}
 	if _, err := executeA2ACallTool(ctx, nil, tenant, params); !errors.Is(err, ErrAgentPolicyDenied) {
 		t.Fatalf("default deny: %v", err)
+	}
+	// A wildcard or PAL-agent-name target is not an opt-in to REMOTE A2A.
+	a.setPolicy(t, ag.ID, agentpolicy.Policy{Mode: agentpolicy.ModeEnforce, A2ATargets: []string{"*", "summarizer"}})
+	if principalAllowsRemoteA2A(ctx) {
+		t.Fatal("'*' / agent-name targets must not advertise a2a_call")
 	}
 	// a2aTargets alone is not enough: the host must be an egress host too.
 	a.setPolicy(t, ag.ID, agentpolicy.Policy{Mode: agentpolicy.ModeEnforce, A2ATargets: []string{"http://127.0.0.1:*"}})
