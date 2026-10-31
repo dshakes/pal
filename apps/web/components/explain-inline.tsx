@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Loader2, Sparkles, X } from "lucide-react";
 import clsx from "clsx";
 import { api, AssistError, type ExplainRequest } from "@/lib/api";
+import { useCan } from "@/components/role-gate";
 
 export function ExplainInline({
   request, label = "Explain", className, size = "sm",
@@ -22,6 +23,8 @@ export function ExplainInline({
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [text, setText] = useState("");
   const [needsKey, setNeedsKey] = useState(false);
+  // Explaining calls the model (spends money), so read-only roles don't get it.
+  const canRun = useCan("runs:execute");
 
   const run = async () => {
     setState("loading");
@@ -35,6 +38,8 @@ export function ExplainInline({
       setState("error");
     }
   };
+
+  if (!canRun) return null;
 
   if (state === "idle" || state === "loading") {
     return (
