@@ -51,6 +51,10 @@ func (h *ObsHandler) RollbackIncident(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w)
 		return
 	}
+	if claims, e := h.auth.validateRequest(r); e != nil || claims.Role == "kiosk" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"}) // same rule as PromotionHandler.Rollback
+		return
+	}
 	id := r.PathValue("id")
 	if !uuidRe.MatchString(id) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "incident not found"})

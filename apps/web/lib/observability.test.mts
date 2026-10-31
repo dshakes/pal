@@ -10,6 +10,8 @@ import {
   kindLabel,
   MIN_BAR_PCT,
   waterfallRows,
+  apiErrorText,
+  wasRolledBack,
   type RunTrace,
   type TraceNode,
 } from "./observability.ts";
@@ -71,4 +73,17 @@ test("labels and budget", () => {
   assert.equal(budgetTone(-0.1), "bad");
   assert.equal(budgetTone(0.4), "warn");
   assert.equal(budgetTone(0.9), "ok");
+});
+
+test("API errors show the server message, not the raw body", () => {
+  const e = new Error('API 409: {"code":"conflict","error":"conflict: prod now serves \\"v1\\""}');
+  assert.equal(apiErrorText(e, "x"), 'prod now serves "v1"');
+  assert.equal(apiErrorText(new Error("network down"), "x"), "network down");
+  assert.equal(apiErrorText(null, "fallback"), "fallback");
+});
+
+test("rollback is detected from the audit timeline", () => {
+  assert.equal(wasRolledBack({ timeline: [{ at: "", actor: "a", action: "opened" }] }), false);
+  assert.equal(wasRolledBack({ timeline: [{ at: "", actor: "a", action: "rollback" }] }), true);
+  assert.equal(wasRolledBack({}), false);
 });

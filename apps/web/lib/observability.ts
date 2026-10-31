@@ -184,3 +184,23 @@ export function budgetPct(remaining: number): number {
 export function budgetTone(remaining: number): Tone {
   return remaining < 0 ? "bad" : remaining < 0.25 ? "bad" : remaining < 0.5 ? "warn" : "ok";
 }
+
+/** request() throws `API <status>: <json body>`; show the server's own message, not the raw body. */
+export function apiErrorText(e: unknown, fallback: string): string {
+  const m = e instanceof Error ? e.message : "";
+  const i = m.indexOf(": {");
+  if (i >= 0) {
+    try {
+      const body = JSON.parse(m.slice(i + 2)) as { error?: unknown };
+      if (typeof body.error === "string" && body.error) return body.error.replace(/^conflict: /, "");
+    } catch {
+      /* fall through */
+    }
+  }
+  return m || fallback;
+}
+
+/** True once a rollback has been recorded on the incident's audit timeline. */
+export function wasRolledBack(i: Pick<Incident, "timeline">): boolean {
+  return (i.timeline ?? []).some((t) => t.action === "rollback");
+}

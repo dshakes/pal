@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Undo2 } from "lucide-react";
 import { api, type Incident } from "@/lib/api";
-import { incidentActions, incidentTone, kindLabel } from "@/lib/observability";
+import { apiErrorText, incidentActions, incidentTone, kindLabel, wasRolledBack } from "@/lib/observability";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/button";
 import { Skeleton } from "@/components/skeleton";
@@ -39,7 +39,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
       setInc(r.incident);
       toast.success(`Prod now serves ${r.rollback.version}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Rollback failed");
+      toast.error(apiErrorText(e, "Rollback failed"));
       void load();
     } finally {
       setBusy(null);
@@ -53,7 +53,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
       setNote("");
       toast.success(action === "acknowledge" ? "Incident acknowledged" : "Incident resolved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
+      toast.error(apiErrorText(e, "Update failed"));
       void load();
     } finally {
       setBusy(null);
@@ -96,7 +96,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
           <ArrowLeft className="h-3 w-3" /> All incidents
         </Link>
 
-        {inc.rollback.suggested && inc.status !== "resolved" && (
+        {inc.rollback.suggested && inc.status !== "resolved" && !wasRolledBack(inc) && (
           <div role="note" className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
             <Undo2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
             <div className="text-sm">
@@ -112,6 +112,12 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
               </Button>
             </div>
           </div>
+        )}
+
+        {wasRolledBack(inc) && (
+          <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-300">
+            Prod was rolled back for this incident. Resolve it once you have confirmed the agent is healthy.
+          </p>
         )}
 
         <section aria-label="Summary" className="rounded-xl border border-zinc-800/60 bg-surface-1 p-4">

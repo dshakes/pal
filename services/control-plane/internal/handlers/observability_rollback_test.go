@@ -39,7 +39,12 @@ func TestObsIncidentRollback_UsesPromotionRollbackAndAudits(t *testing.T) {
 		t.Fatalf("cross-tenant rollback: %d, prod=%s", rr.Code, f.prodVersion())
 	}
 
-	rr := call(f.owner, inc)
+	if rr := call(mintTestToken(t, f.tenant, "kiosk-1", "kiosk"), inc); rr.Code != http.StatusForbidden || f.prodVersion() != "v2" {
+		t.Fatalf("kiosk rollback: %d, prod=%s", rr.Code, f.prodVersion())
+	}
+
+	// API keys behave like promotion's Rollback: any agents:write principal may roll back.
+	rr := call(f.apikey, inc)
 	if rr.Code != 200 || f.prodVersion() != "v1" || f.currentVersion() != "v1" {
 		t.Fatalf("rollback: %d %s prod=%s current=%s", rr.Code, rr.Body, f.prodVersion(), f.currentVersion())
 	}

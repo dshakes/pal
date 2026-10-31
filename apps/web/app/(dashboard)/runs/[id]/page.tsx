@@ -115,15 +115,15 @@ export default function RunDetailPage() {
             Back to Runs
           </button>
         </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="font-mono text-lg font-semibold text-zinc-100">{run.id}</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1 className="break-all font-mono text-lg font-semibold text-zinc-100">{run.id}</h1>
             <StatusBadge status={effectiveStatus} />
             {isRunning && !cancelled && (
               <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* View code: equivalent SDK call to fetch this run, plus a
                 template for creating new runs of the same agent. */}
             <ViewCode title="Get this run from code" snippets={snippetsForGetRun(run.id)} />
@@ -198,11 +198,11 @@ export default function RunDetailPage() {
       </div>
 
       {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-auto md:flex-row md:overflow-hidden">
         {/* Left: Trace waterfall + Output. The waterfall sits above the
             final output so the run reads top→bottom as a story: plan
             (spans + sub-events), then result. */}
-        <div className="flex flex-[2] flex-col overflow-hidden border-r border-zinc-800/40">
+        <div className="flex flex-col border-b border-zinc-800/40 md:flex-[2] md:overflow-hidden md:border-b-0 md:border-r">
           {events.length > 0 && (
             <div className="border-b border-zinc-800/40 p-4">
               <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -297,7 +297,7 @@ export default function RunDetailPage() {
         </div>
 
         {/* Right: Metadata */}
-        <div className="flex w-80 flex-shrink-0 flex-col overflow-auto bg-surface-1/30">
+        <div className="flex w-full flex-shrink-0 flex-col bg-surface-1/30 md:w-80 md:overflow-auto">
           <div className="space-y-7 p-6">
             {/* Run Info */}
             <section>
