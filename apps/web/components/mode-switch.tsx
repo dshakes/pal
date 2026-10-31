@@ -14,8 +14,8 @@ export function ModeSwitch({ compact = false }: { compact?: boolean }) {
   return (
     <div
       role="group"
-      aria-label="Workspace"
-      className="grid grid-cols-2 gap-0.5 rounded-xl border border-zinc-800 bg-surface-0 p-0.5"
+      aria-label="Space"
+      className="grid grid-cols-2 gap-0.5 rounded-lg border border-line bg-canvas p-0.5"
     >
       {(["pal", "runtime"] as WorkspaceMode[]).map((m) => {
         const active = m === mode;
@@ -26,14 +26,14 @@ export function ModeSwitch({ compact = false }: { compact?: boolean }) {
             aria-pressed={active}
             onClick={() => !active && switchTo(m)}
             className={clsx(
-              "flex items-center justify-center gap-1.5 rounded-[10px] px-2 font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pal-400/50",
-              compact ? "py-1.5 text-xs" : "py-1.5 text-[12px]",
-              active ? "bg-surface-3 text-zinc-50 shadow-sm" : "text-zinc-500 hover:text-zinc-200",
+              "focus-ring flex h-7 items-center justify-center gap-1.5 rounded-md px-2 font-medium transition-colors duration-150",
+              compact ? "text-xs" : "text-[12.5px]",
+              active ? "bg-hover text-fg shadow-[var(--elev-1)]" : "text-fg-3 hover:text-fg",
             )}
           >
             <span
               aria-hidden
-              className="h-1.5 w-1.5 rounded-full"
+              className="h-2 w-2 rounded-full"
               style={{ backgroundImage: m === "pal" ? "var(--pal-grad)" : "var(--rt-grad)" }}
             />
             {MODE_LABEL[m]}

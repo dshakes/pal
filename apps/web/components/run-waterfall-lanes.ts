@@ -17,7 +17,7 @@
 // Kept side-effect-free and component-agnostic so the render layer stays thin
 // (and so this is unit-testable without React).
 
-import type { StreamEvent } from "@/lib/mock-data";
+import type { StreamEvent } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Span shape (mirrors the one in run-waterfall.tsx; re-declared here to keep

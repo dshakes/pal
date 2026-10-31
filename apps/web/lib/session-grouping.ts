@@ -7,7 +7,7 @@
 // The runs API already returns `sessionId` and `parentRunId` (camelCase,
 // omitted when empty); grouping happens client-side on the loaded set.
 
-import type { Run, RunStatus } from "./mock-data";
+import type { Run, RunStatus } from "./types";
 
 export interface SessionGroup {
   /** Stable group identity (session id, parent-chain root id, or solo run id). */

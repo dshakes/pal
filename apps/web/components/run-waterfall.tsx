@@ -46,7 +46,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import clsx from "clsx";
-import type { StreamEvent } from "@/lib/mock-data";
+import type { StreamEvent } from "@/lib/types";
 import {
   type Span,
   type Lane,

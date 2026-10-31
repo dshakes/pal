@@ -1,7 +1,7 @@
 // lib/flight-recorder.ts — pure timeline utilities for the flight-recorder UI.
 //
 // Component-agnostic and tested without React. Uses a minimal FlightEvent
-// shape so callers (StreamEvent from @/lib/mock-data) satisfy it structurally,
+// shape so callers (StreamEvent from @/lib/types) satisfy it structurally,
 // and tests can import without @/ path-alias resolution.
 
 /** Minimum event fields the pure helpers require. */

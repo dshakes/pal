@@ -514,7 +514,7 @@ export default function SurfacesPage() {
                 : (config?.connected ?? false);
             const Icon = surface.icon;
             return (
-              <div key={surface.id} className="surface-card card-hover group">
+              <div key={surface.id} className="surface-card group">
                 <div className="flex items-start justify-between">
                   <div className={clsx("flex h-10 w-10 items-center justify-center rounded-xl", surface.iconBg)}>
                     <Icon className={clsx("h-5 w-5", surface.iconColor)} />

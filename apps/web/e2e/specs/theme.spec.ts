@@ -15,14 +15,22 @@ for (const t of ["dark", "light"] as const) {
 
 test("theme toggle flips, persists across reload", async ({ page }) => {
   await signUp(page, uniqueEmail("theme"));
-  await page.goto("/agents"); // the toggle lives in the dashboard top bar; sign-up lands on onboarding
+  await page.goto("/agents"); // display controls live in the dashboard top bar; sign-up lands on onboarding
   expect(await theme(page)).toBe("dark"); // dark is the default
-  await page.getByRole("button", { name: "Switch to light theme" }).click();
+  // v3: theme is one of the display controls (theme / contrast / density).
+  const pickTheme = async (name: "Light" | "Dark") => {
+    await page.getByRole("button", { name: "Display settings" }).click();
+    const prefs = page.getByRole("dialog");
+    await prefs.getByRole("group", { name: "Theme" }).getByText(name, { exact: true }).click();
+    await expect(prefs.getByRole("radio", { name })).toBeChecked();
+    await page.keyboard.press("Escape");
+  };
+  await pickTheme("Light");
   expect(await theme(page)).toBe("light");
   expect(await page.evaluate(() => localStorage.getItem("pal-theme"))).toBe("light");
   await page.reload();
   expect(await theme(page)).toBe("light");
-  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await pickTheme("Dark");
   await page.reload();
   expect(await theme(page)).toBe("dark");
 });

@@ -22,7 +22,7 @@ import type {
   RunStatus,
   StreamEvent,
   ApiKey,
-} from "@/lib/mock-data";
+} from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -837,9 +837,9 @@ class PalAPI {
 
   async getAgentVersions(
     agentName: string,
-  ): Promise<import("@/lib/mock-data").AgentVersion[]> {
+  ): Promise<import("@/lib/types").AgentVersion[]> {
     try {
-      return await this.request<import("@/lib/mock-data").AgentVersion[]>(
+      return await this.request<import("@/lib/types").AgentVersion[]>(
         `/v1/agents/${encodeURIComponent(agentName)}/versions`,
       );
     } catch (err) {
