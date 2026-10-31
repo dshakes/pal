@@ -67,13 +67,15 @@ export function useAgentSurfaceToggle() {
 
 /** Pages call this to describe themselves to the agent. Cleared on unmount. */
 export function useAgentSurface(ctx: PageAgentContext) {
-  const s = useContext(SurfaceContext);
+  // Depend on the (stable) setter and a serialized key, not on the context
+  // value: the value changes whenever ctx does, which would re-run this
+  // effect forever. The key re-runs it only when the page's facts change.
+  const setCtx = useContext(SurfaceContext)?.setCtx;
   const key = JSON.stringify(ctx);
   useEffect(() => {
-    s?.setCtx(JSON.parse(key) as PageAgentContext);
-    return () => s?.setCtx(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+    setCtx?.(JSON.parse(key) as PageAgentContext);
+    return () => setCtx?.(null);
+  }, [key, setCtx]);
 }
 
 export function AgentSurface() {
@@ -254,7 +256,9 @@ export function AgentSurface() {
 }
 
 function useMediaQuery(q: string): boolean {
-  const [m, setM] = useState(false);
+  // Start from the real answer on the client so the first open lands in the
+  // right mode (SSR has no window; the panel renders nothing while closed).
+  const [m, setM] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
   useEffect(() => {
     const mq = window.matchMedia(q);
     const on = () => setM(mq.matches);

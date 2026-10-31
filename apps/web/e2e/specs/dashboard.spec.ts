@@ -70,7 +70,8 @@ test("first sign-in picks a path; sign out ends the session; sign back in", asyn
   await expect(page).toHaveURL(/\/overview/);
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Account menu" }).click();
+  // Sign-out lives in the topbar account menu (v3 shell).
+  await page.getByRole("button", { name: "Account", exact: true }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await page.waitForURL("**/login**");
   // The cookie is gone: a gated route bounces back to sign-in.
@@ -88,21 +89,29 @@ test("mode switch flips home space, nav and accent", async ({ page }) => {
   await signedIn(page);
   await page.goto("/brief");
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Up late/ })).toBeVisible();
-  const shell = page.locator("[data-mode]").first();
-  await expect(shell).toHaveAttribute("data-mode", "pal");
+  // The space lives on <html data-mode> (v3), so portaled UI shares the accent.
+  const html = page.locator("html");
+  const accent = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim());
+  await expect(html).toHaveAttribute("data-mode", "pal");
+  const palAccent = await accent();
   await expect(page.getByRole("navigation", { name: "pal navigation" }).getByRole("link", { name: "Holds" })).toBeVisible();
 
-  await page.getByRole("group", { name: "Workspace" }).getByRole("button", { name: "Runtime" }).click();
+  // The sidebar header is the workspace + space switcher.
+  const switchSpace = async (name: string) => {
+    await page.getByRole("button", { name: /Switch space or workspace/ }).click();
+    await page.getByRole("menuitemradio", { name: new RegExp(`^${name}\\b`) }).click();
+  };
+  await switchSpace("Runtime");
   await expect(page).toHaveURL(/\/overview/);
-  await expect(shell).toHaveAttribute("data-mode", "runtime");
-  await expect(shell).toHaveClass(/theme-runtime/);
+  await expect(html).toHaveAttribute("data-mode", "runtime");
+  expect(await accent()).not.toBe(palAccent);
   await expect(page.getByRole("navigation", { name: "Runtime navigation" }).getByRole("link", { name: "Sandboxes" })).toBeVisible();
 
   // Shared routes keep the current mode.
   await page.goto("/settings");
-  await expect(page.locator("[data-mode]").first()).toHaveAttribute("data-mode", "runtime");
+  await expect(html).toHaveAttribute("data-mode", "runtime");
 
-  await page.getByRole("group", { name: "Workspace" }).getByRole("button", { name: "pal" }).click();
+  await switchSpace("pal");
   await expect(page).toHaveURL(/\/brief/);
 });
 
