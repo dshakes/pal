@@ -27,6 +27,8 @@ https://pal.example.com/v1/agents/<name>/a2a
 | `GET  /.well-known/agent-card.json` | The deployment's default agent (`PAL_A2A_DEFAULT_AGENT`, must be public) |
 | `GET  /.well-known/agent.json` | Legacy PAL directory of public agents (not a spec card) |
 
+In production, set `PAL_PUBLIC_BASE_URL`. Cards are served only when it is set, because the card's `url` is where clients send their credentials and must not come from request headers.
+
 Visibility follows the agent: a **private** agent is visible only to its own tenant. To anyone else
 its card and endpoint answer `404`, the same as an agent that does not exist. Mark an agent public to let
 other tenants and platforms reach it. Every call is still authenticated.

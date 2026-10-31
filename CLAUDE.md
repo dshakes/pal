@@ -698,7 +698,7 @@ directory lists only `is_public` agents.
 | `GET`  | `/.well-known/agent.json` | Well-known A2A discovery endpoint — lists only `is_public` agents |
 | `GET`  | `/v1/agents/{name}/a2a/.well-known/agent-card.json` | A2A v0.3 spec card (ADR 0057; same visibility) |
 | `POST` | `/v1/agents/{name}/a2a` | A2A v0.3 JSON-RPC: `message/send`, `message/stream` (SSE), `tasks/get`, `tasks/cancel`, `tasks/resubscribe`. Task = run (`trigger_kind=a2a`, view in `trigger_meta.a2a`); a task is readable only by the principal that created it (or the owning tenant). No push/extended card/multi-turn |
-| `GET`  | `/.well-known/agent-card.json` | Spec card of `PAL_A2A_DEFAULT_AGENT` (public only; else 404) |
+| `GET`  | `/.well-known/agent-card.json` | Spec card of `PAL_A2A_DEFAULT_AGENT` (public only; else 404). Cards are `no-store`; prod serves them only with `PAL_PUBLIC_BASE_URL` set (503 otherwise — the card url must not come from Host headers). SSE streams capped at 8 per caller per process |
 
 **Outbound A2A (ADR 0057).** Built-in `a2a_call` tool (tool loop + workflow `tool` node): advertised only when the agent's policy names an explicit http(s) `a2aTargets` entry; the URL AND the remote card's `url` must pass `a2aTargets` + `egressHosts`; SSRF-pinned callback client; reply fenced + marked UNTRUSTED. `PAL_A2A_ALLOW_PRIVATE=1` (dev/test only, ignored in prod) allows loopback.
 
