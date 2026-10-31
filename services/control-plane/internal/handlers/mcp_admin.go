@@ -598,8 +598,9 @@ func (h *MCPHandler) ListAttachmentTools(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"server": slug, "tools": out})
 }
 
-// callerSubject is the authenticated principal an OAuth flow is bound to: the
-// user id for a session, or the tenant for an API key (keys carry no subject).
+// callerSubject is the principal an OAuth flow is bound to: "user:<id>" for a
+// session; the literal "key" for an API key (keys carry no subject — the
+// tenant binding comes from the separate tenant_id predicate).
 func callerSubject(r *http.Request) string {
 	if c := claimsFromCtx(r.Context()); c != nil && c.Subject != "" {
 		return "user:" + c.Subject
