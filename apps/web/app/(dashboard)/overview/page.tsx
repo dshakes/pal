@@ -263,14 +263,11 @@ export default function OverviewPage() {
                       header: "Run",
                       render: (r) => (
                         <div className="min-w-0">
-                          <p className="flex min-w-0 items-center gap-2 truncate">
-                            <span className="font-mono text-[12.5px] text-fg">{r.agentName}</span>
-                            <span className="font-mono text-[11.5px] text-fg-3">{r.id.slice(0, 8)}</span>
-                          </p>
+                          <p className="truncate font-mono text-[12.5px] text-fg" title={`Run ${r.id}`}>{r.agentName}</p>
                           {r.error && (
                             <p className="density-detail mt-0.5 truncate text-[12px] text-fg-3" title={r.error.message}>
                               <span className="text-bad">{errorLabel(r.error.code)}</span>
-                              {r.error.message ? `: ${r.error.message}` : ""}
+                              {errorWhere(r.error.message)}
                             </p>
                           )}
                         </div>
@@ -348,6 +345,14 @@ function errorLabel(code?: string): string {
   return known[code] ?? code.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 }
 
+/** Where it failed, from the raw message: the unreachable host when there is one. The full text stays in the tooltip. */
+function errorWhere(message?: string): string {
+  if (!message) return "";
+  const host = message.match(/https?:\/\/([^/"\s:]+)/)?.[1];
+  if (host) return `, ${host.replace(/^api\./, "")} unreachable`;
+  return `: ${message.length > 60 ? message.slice(0, 60) + "…" : message}`;
+}
+
 function Stat({
   label, value, note, href, tone, className,
 }: {
@@ -366,7 +371,8 @@ function Stat({
       ) : (
         <p className={clsx("num mt-0.5 font-display text-[28px] font-semibold leading-tight tracking-[-0.02em]", tone === "bad" ? "text-bad" : "text-fg")}>{value}</p>
       )}
-      <p className="mt-0.5 truncate text-[12px] text-fg-3">{note}</p>
+      {/* Never state a fact before the data that backs it has loaded. */}
+      {value === null ? <Skeleton className="mt-1.5 h-3 w-24" /> : <p className="mt-0.5 truncate text-[12px] text-fg-3">{note}</p>}
     </Link>
   );
 }

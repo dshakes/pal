@@ -141,13 +141,13 @@ export default function AgentsPage() {
       sortable: true,
       sortFn: (a, b) => a.agent.name.localeCompare(b.agent.name),
       render: (r) => (
-        <div className="flex min-w-0 items-center gap-3">
-          <HealthDot health={r.health} />
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-[19px] items-center"><HealthDot health={r.health} /></span>
           <div className="min-w-0">
             <p className="truncate font-mono text-[13px] font-medium text-fg">{r.agent.name}</p>
             {r.agent.description && <p className="density-detail hidden max-w-[60ch] truncate text-[12px] text-fg-3 sm:block">{r.agent.description}</p>}
-            <p className="mt-0.5 text-[12px] text-fg-3 sm:hidden">
-              {r.last ? `${statusWord(r.last.status)} ${formatDistanceToNowStrict(ts(r.last.createdAt), { addSuffix: true })}` : "Never run"}
+            <p className="mt-0.5 truncate text-[12px] text-fg-3 sm:hidden">
+              {r.last ? `${statusWord(r.last.status)} ${shortAgo(ts(r.last.createdAt))}` : "Never run"}
               {r.runs24 ? `, ${r.runs24} today` : ""}
             </p>
           </div>
@@ -303,6 +303,15 @@ export default function AgentsPage() {
       />
     </div>
   );
+}
+
+/** "2m ago", "3h ago", "5d ago" — short enough to keep phone rows on one line. */
+function shortAgo(t: number): string {
+  const m = Math.max(0, Math.round((Date.now() - t) / 60_000));
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
 }
 
 function statusWord(s: Run["status"]): string {
