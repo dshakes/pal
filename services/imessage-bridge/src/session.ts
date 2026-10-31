@@ -464,7 +464,7 @@ import {
   type CenterCommand, type ParsedAction, type BriefItem, type DraftWaiting, type AgentStat, type AgentRunRow, type NewsItemLite, type NewsAskResult,
 } from "@pal/bridge-core/command-center";
 import {
-  buildAttentionPrompt, parseAttentionRanking, candidateIds,
+  buildAttentionPrompt, parseAttentionRanking, candidateIds, attentionRankCall,
   type WaitingThread,
 } from "@pal/bridge-core/attention";
 import type { BriefInput } from "@pal/bridge-core/command-center";
@@ -2806,7 +2806,13 @@ export class IMessageSession {
     if (input.drafts.length + input.commitments.length + waiting.length < 2) return;
     try {
       const prompt = buildAttentionPrompt(input, waiting, new Date());
-      const raw = (await this.agent.respondTo("attention::rank", prompt, "Return only valid JSON. No prose.", { timeoutMs: 20_000 })) || "";
+      const call = attentionRankCall();
+      let raw = "";
+      try {
+        raw = (await this.agent.respondTo(call.key, prompt, "Return only valid JSON. No prose.", call.opts)) || "";
+      } finally {
+        this.agent.clearHistory(call.key); // throwaway session: don't let the map grow
+      }
       const ranking = parseAttentionRanking(raw, candidateIds(input, waiting));
       if (ranking) {
         input.rankedIds = ranking.order;
