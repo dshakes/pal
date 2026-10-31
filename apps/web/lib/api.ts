@@ -14,6 +14,7 @@ import type {
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
 import { parseApiErrorBody } from "./eval-format";
+import { parseSSE, toStreamEvent } from "./sse";
 import type { BillingOverview } from "./billing";
 import type {
   Agent,
@@ -767,53 +768,61 @@ class PalAPI {
     close: () => void;
   } {
     // Real SSE only — no mock event emitter. When the stream fails, the
-    // subscribe callback simply never fires, and consumer pages render
-    // their existing "empty / no events yet" state. We never inject
-    // fabricated step_started → step_completed events to fake activity.
+    // subscribe callback simply never fires, and consumer pages render their
+    // existing empty state. Parsed with fetch + lib/sse (not EventSource): the
+    // server names every frame after its journal kind, which EventSource's
+    // onmessage never receives, and fetch sends the token as a header.
     let onEvent: ((event: StreamEvent) => void) | null = null;
-    let closed = false;
-    // The server (run_events.go) replays the full journal from seq 0 on
-    // every fresh connection, including a reconnect after a dropped one —
-    // dedupe on seq so a reconnect doesn't re-append events already shown.
+    const ctrl = new AbortController();
+    // The server (run_events.go) replays the full journal from seq 0 on every
+    // connection, including a reconnect — dedupe on seq.
     let lastSeq = -1;
-
-    let es: EventSource | null = null;
-    try {
-      const url = `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`;
-      es = new EventSource(this._token ? `${url}?token=${this._token}` : url);
-      es.onmessage = (msg) => {
-        if (closed) return;
-        try {
-          const event = JSON.parse(msg.data) as StreamEvent;
-          if (typeof event.seq === "number") {
-            if (event.seq <= lastSeq) return;
-            lastSeq = event.seq;
+    const buffered: StreamEvent[] = [];
+    const emit = (e: StreamEvent) => {
+      if (e.seq <= lastSeq) return;
+      lastSeq = e.seq;
+      if (onEvent) onEvent(e);
+      else buffered.push(e);
+    };
+    const url = `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`;
+    const token = this._token;
+    const connect = async (attempt: number): Promise<void> => {
+      try {
+        const res = await fetch(url, {
+          headers: { Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          signal: ctrl.signal,
+          cache: "no-store",
+        });
+        if (!res.ok || !res.body) return; // 404 / 401: nothing to stream
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) return; // server closes when the run is terminal
+          const { frames, rest } = parseSSE(buf + dec.decode(value, { stream: true }));
+          buf = rest;
+          for (const f of frames) {
+            const e = toStreamEvent(runId, f);
+            if (e) emit(e);
           }
-          event.ts = new Date(event.ts);
-          onEvent?.(event);
-        } catch {
-          /* drop malformed frames */
         }
-      };
-      // Do NOT close on error — closing here permanently kills the stream
-      // for the rest of a long-running run on a single transient network
-      // blip. Let EventSource's native reconnect run its course; the seq
-      // dedup above makes a reconnect's full-journal replay a no-op once
-      // we've already seen everything.
-      es.onerror = () => {};
-    } catch {
-      // EventSource construction failed — leave es null; consumer never
-      // receives events, which is the correct empty-stream behavior.
-    }
+      } catch {
+        // Network blip mid-run: reconnect with backoff; the seq dedupe makes
+        // the server's full replay a no-op. Abort (close) ends it for good.
+        if (ctrl.signal.aborted || attempt >= 5) return;
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        if (!ctrl.signal.aborted) await connect(attempt + 1);
+      }
+    };
+    void connect(0);
 
     return {
       subscribe: (cb) => {
         onEvent = cb;
+        for (const e of buffered.splice(0)) cb(e);
       },
-      close: () => {
-        closed = true;
-        if (es) es.close();
-      },
+      close: () => ctrl.abort(),
     };
   }
 
