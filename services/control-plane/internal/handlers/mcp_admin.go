@@ -432,6 +432,10 @@ func (h *MCPHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	asRaw, _ := json.Marshal(as)
 	expires := time.Now().Add(mcpOAuthPendingTTL)
 	createdBy := callerSubject(r)
+	if createdBy == "anonymous" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `DELETE FROM mcp_oauth_pending WHERE tenant_id = $1 AND expires_at < now()`, tenantID); e != nil {
 			return e
@@ -599,11 +603,17 @@ func (h *MCPHandler) ListAttachmentTools(w http.ResponseWriter, r *http.Request)
 }
 
 // callerSubject is the principal an OAuth flow is bound to: "user:<id>" for a
-// session; the literal "key" for an API key (keys carry no subject — the
-// tenant binding comes from the separate tenant_id predicate).
+// session, "key:<api key id>" for an API key. One key (or user) cannot finish
+// another's pending flow; the tenant binding is the separate tenant_id predicate.
 func callerSubject(r *http.Request) string {
-	if c := claimsFromCtx(r.Context()); c != nil && c.Subject != "" {
+	c := claimsFromCtx(r.Context())
+	switch {
+	case c == nil:
+		return "anonymous"
+	case c.APIKeyID != "":
+		return "key:" + c.APIKeyID
+	case c.Subject != "":
 		return "user:" + c.Subject
 	}
-	return "key"
+	return "anonymous"
 }

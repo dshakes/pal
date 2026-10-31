@@ -98,6 +98,8 @@ type userJSON struct {
 // PalClaims extends the standard JWT claims with PAL-specific fields.
 type PalClaims struct {
 	jwt.RegisteredClaims
+	// APIKeyID is set for API-key callers (never serialized into a token).
+	APIKeyID string `json:"-"`
 	TenantID string `json:"tenant_id"`
 	Email    string `json:"email"`
 	Name     string `json:"name"`
@@ -1063,6 +1065,7 @@ func (h *AuthHandler) validateAPIKey(ctx context.Context, rawKey string) (*PalCl
 	_, _ = h.srv.Pool.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1`, keyID)
 
 	return &PalClaims{
+		APIKeyID: keyID,
 		TenantID: tenantID,
 		Role:     "service",
 		Scopes:   scopes,

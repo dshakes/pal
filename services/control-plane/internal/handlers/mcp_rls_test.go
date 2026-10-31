@@ -373,6 +373,40 @@ func TestRLSMCPOAuth_FlowAndCrossTenantState(t *testing.T) {
 	// when no PAL_CREDENTIAL_KEY is set (dev) the envelope is plaintext — documented.
 }
 
+// An OAuth flow started with one API key cannot be finished with another key
+// of the same tenant (bound to the key id, not just "an API key").
+func TestRLSMCPOAuth_StateBoundToAPIKey(t *testing.T) {
+	m := newMCPEnv(t)
+	srv, _ := oauthMCP(t)
+	defer srv.Close()
+	tenant := seedEnforcedTenant(t, m.e, "mcp-"+uuid.NewString()[:8])
+	owner := m.ownerToken(t, tenant, "owner")
+	m.seedAgent(t, tenant, "researcher")
+	m.registerServer(t, owner, "secure", srv.URL+"/mcp", "oauth")
+	keyA, keyB := m.apiKey(t, tenant, "connectors:write"), m.apiKey(t, tenant, "connectors:write")
+	rr := m.do(t, m.auth.WithScope(ScopeConnectorsWrite, m.h.OAuthStart), "POST", "/v1/mcp/oauth/start", keyA,
+		map[string]any{"serverSlug": "secure"}, nil, nil)
+	if rr.Code != 200 {
+		t.Fatalf("start with key A: %d %s", rr.Code, rr.Body)
+	}
+	var start struct {
+		AuthorizationURL string `json:"authorizationUrl"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &start)
+	au, _ := url.Parse(start.AuthorizationURL)
+	state := au.Query().Get("state")
+	rr = m.do(t, m.auth.WithScope(ScopeConnectorsWrite, m.h.OAuthCallback), "POST", "/v1/mcp/oauth/callback", keyB,
+		map[string]any{"code": "c", "state": state}, nil, nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("key B finished key A's flow: %d %s", rr.Code, rr.Body)
+	}
+	rr = m.do(t, m.auth.WithScope(ScopeConnectorsWrite, m.h.OAuthCallback), "POST", "/v1/mcp/oauth/callback", keyA,
+		map[string]any{"code": "c", "state": state}, nil, nil)
+	if rr.Code != 200 {
+		t.Fatalf("key A could not finish its own flow: %d %s", rr.Code, rr.Body)
+	}
+}
+
 // ---------- PAL as an MCP server ----------
 
 func (m *mcpEnv) apiKey(t *testing.T, tenant string, scopes ...string) string {
