@@ -39,7 +39,7 @@ import {
 import clsx from "clsx";
 import { api } from "@/lib/api";
 import type { FleetUsage } from "@/lib/api";
-import type { Run, RunStatus } from "@/lib/mock-data";
+import type { Run, RunStatus } from "@/lib/types";
 import {
   groupRunsBySession,
   aggregateSession,

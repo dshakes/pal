@@ -8,7 +8,7 @@
 // no durations → no latency line) the field is `null`, and the UI renders "—"
 // instead of fabricating a number. We never invent data.
 
-import type { Run, RunStatus } from "./mock-data";
+import type { Run, RunStatus } from "./types";
 
 const TERMINAL: RunStatus[] = ["succeeded", "failed", "cancelled"];
 const LIVE: RunStatus[] = ["running", "paused", "queued"];

@@ -31,7 +31,7 @@ import type { ActivityEvent, ConnectionState } from "@/lib/bridge-types";
 import { listDrafts, listVIPs } from "@/lib/whatsapp-personal-client";
 import { api } from "@/lib/api";
 import type { Commitment, DomainRecord } from "@/lib/api";
-import type { Agent } from "@/lib/mock-data";
+import type { Agent } from "@/lib/types";
 
 export default function PersonalOverview() {
   const {

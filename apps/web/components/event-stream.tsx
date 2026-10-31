@@ -18,8 +18,8 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { format as formatDate } from "date-fns";
-import type { StreamEvent } from "@/lib/mock-data";
-import { formatDuration, formatCost, formatTokens } from "@/lib/mock-data";
+import type { StreamEvent } from "@/lib/types";
+import { formatDuration, formatCost, formatTokens } from "@/lib/format";
 import { JsonViewer } from "@/components/json-viewer";
 
 // --- Stream simulation hook ---
