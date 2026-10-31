@@ -1,0 +1,119 @@
+---
+title: Agent-to-agent (A2A)
+description: Expose a PAL agent over the A2A v0.3 protocol, and let a PAL agent call a remote A2A agent.
+sidebar:
+  order: 11
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+PAL speaks [A2A protocol v0.3.0](https://a2a-protocol.org/latest/specification/) over JSON-RPC 2.0.
+Any A2A client (the reference `a2a-sdk`, another platform, another PAL) can discover a PAL agent,
+send it a message, stream the result, and poll or cancel the task. A PAL agent can also call a
+remote A2A agent as a tool.
+
+## Expose an agent
+
+Every agent has an A2A base URL:
+
+```text
+https://pal.example.com/v1/agents/<name>/a2a
+```
+
+| Path | What |
+| --- | --- |
+| `GET  …/a2a/.well-known/agent-card.json` | The spec Agent Card |
+| `POST …/a2a` | JSON-RPC: `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`, `tasks/resubscribe` |
+| `GET  /.well-known/agent-card.json` | The deployment's default agent (`PAL_A2A_DEFAULT_AGENT`, must be public) |
+| `GET  /.well-known/agent.json` | Legacy PAL directory of public agents (not a spec card) |
+
+Visibility follows the agent: a **private** agent is visible only to its own tenant. To anyone else
+its card and endpoint answer `404`, the same as an agent that does not exist. Mark an agent public to let
+other tenants and platforms reach it. Every call is still authenticated.
+
+### Authentication
+
+The card's `securitySchemes` advertise two ways in:
+
+- `palBearer`: `Authorization: Bearer <PAL session token or API key>` with the `runs:execute` scope.
+- `palAgentToken`: `X-Pal-Agent-Token: <agent token>` for agent-to-agent calls. The token's audience
+  is the target agent's SPIFFE id, and the verifying keys are at `/.well-known/pal-agent-keys/<agentId>`.
+
+For an agent caller, both sides' policies must allow the call: the caller's `a2aTargets` and the
+target's `a2aInbound` (with its per-caller `maxA2AInboundPerMinute`). (ADR 0055).
+
+### Tasks
+
+A task **is** a PAL run: the task id is the run id, and it shows up in Runs with trigger `a2a`.
+
+| Run status | A2A state |
+| --- | --- |
+| queued | `submitted` |
+| running, paused, waiting (approval) | `working` |
+| succeeded | `completed` (output in `artifacts`) |
+| failed | `failed` (reason in `status.message`) |
+| cancelled | `canceled` |
+
+- `message/send` returns immediately unless `configuration.blocking` is `true` (then it waits up to 60 s).
+- A task belongs to the caller that created it. Other callers get `-32001 Task not found`, and the owning tenant can see all of its agent's tasks.
+- Re-sending the same `messageId` returns the existing task instead of starting a second run.
+- `tasks/cancel` works on `submitted` and running tasks. A task parked on an approval node reports `working`, but cancel returns `-32002`: deny the approval in PAL instead.
+
+<Aside type="caution">
+Not supported yet: push notifications (`-32003`), the authenticated extended card (`-32007`), and
+continuing an existing task with a follow-up message (`-32004`). PAL runs never stop to ask the
+caller for input.
+</Aside>
+
+### Try it with the reference client
+
+```bash
+pip install "a2a-sdk==0.3.26"
+```
+
+```python
+import asyncio, httpx
+from a2a.client import A2ACardResolver, ClientFactory, ClientConfig
+from a2a.client.helpers import create_text_message_object
+
+async def main():
+    async with httpx.AsyncClient(headers={"Authorization": "Bearer <api-key>"}, timeout=90) as hc:
+        card = await A2ACardResolver(hc, "https://pal.example.com/v1/agents/support-desk/a2a").get_agent_card()
+        client = ClientFactory(ClientConfig(httpx_client=hc, streaming=True)).create(card)
+        async for event in client.send_message(create_text_message_object(content="Where is order 1234?")):
+            print(event)
+
+asyncio.run(main())
+```
+
+Or from the PAL CLI: `pal a2a card support-desk`, `pal a2a send support-desk "hello" --wait`.
+
+## Call a remote A2A agent
+
+The built-in `a2a_call` tool sends a message to a remote A2A agent and returns its reply. It is
+available to an agent only when the agent's policy allows it explicitly:
+
+```json
+{
+  "mode": "enforce",
+  "tools": ["a2a_call"],
+  "a2aTargets": ["https://agents.example.com/*"],
+  "egressHosts": ["agents.example.com"]
+}
+```
+
+In a workflow, use a `tool` node with tool `a2a_call` and parameters `{"agentUrl": "https://agents.example.com/research", "message": "{{input.message}}"}`.
+In a chat or session, the model can call it once the policy names an `https://` target.
+
+What PAL checks on every call:
+
+- The URL must match `a2aTargets` and its host must match `egressHosts`.
+- A remote card's own `url` must also pass both checks, so a card cannot redirect the call elsewhere.
+- Requests go only to public addresses: private, loopback and cloud-metadata ranges are blocked,
+  redirects are refused, and production requires `https`.
+- The reply is returned **fenced and marked untrusted**, capped at 16 KiB. Treat it as data from
+  another party. It is never added to the agent's instructions.
+
+<Aside>
+Calling remote agents that require their own credentials is not supported yet.
+</Aside>
