@@ -575,3 +575,43 @@ func TestInlineRun_ExecutesFrozenSnapshot(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// The agent's own "never call tools" instruction must win over the executor's
+// tool-binding text: no binding prompt, no tool definitions on the wire. A normal
+// agent in the same harness still gets its tools (guards against a vacuous pass).
+func TestInlineRun_AgentNoToolsInstructionSuppressesToolBinding(t *testing.T) {
+	t.Setenv("PAL_USE_CLAUDE_CODE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
+	run := func(prompt string) string {
+		h, srv := newChaosHandler(t)
+		f := insertDRFixture(t, srv.Pool, fmt.Sprintf("no-tools-%d", time.Now().UnixNano()), "queued")
+		if _, err := srv.Pool.Exec(context.Background(), `UPDATE agents SET system_prompt=$2 WHERE id=$1::uuid`, f.agentID, prompt); err != nil {
+			t.Fatal(err)
+		}
+		var seen []string
+		var mu sync.Mutex
+		h.llmProxy = NewLlmProxyHandler(srv, NewAuthHandler(srv, testJWTSecret))
+		h.llmProxy.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			seen = append(seen, string(b))
+			mu.Unlock()
+			return okByProvider("done")(r)
+		})}
+		var name string
+		_ = srv.Pool.QueryRow(context.Background(), `SELECT name FROM agents WHERE id = $1`, f.agentID).Scan(&name)
+		if _, _, err := h.executeRunInlineSync(tenantCtx(recoveryTestDevTenantID), f.runID, recoveryTestDevTenantID, name, map[string]any{"message": "hi"}); err != nil {
+			t.Fatalf("executeRunInlineSync: %v", err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Join(seen, "\n")
+	}
+	const binding = "Available tools (call these"
+	if body := run("You are terse. Never call tools."); strings.Contains(body, binding) || strings.Contains(body, `"tools"`) {
+		t.Fatalf("no-tools agent still got tool binding/definitions: %.600s", body)
+	}
+	if body := run("You help with GitHub."); !strings.Contains(body, `"tools":[`) {
+		t.Fatalf("control agent lost its tools (test would be vacuous): %.600s", body)
+	}
+}

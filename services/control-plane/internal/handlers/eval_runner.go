@@ -673,6 +673,9 @@ func (h *EvalHandler) executeSuite(ctx context.Context, tenantID string, agent *
 // executeSample runs the agent once against the case's mocks.
 func (h *EvalHandler) executeSample(ctx context.Context, tenantID string, agent *evalAgent, c evalCase, baseTools []map[string]any) evalSample {
 	tools := hermeticTools(baseTools, c.Mocks)
+	if agentForbidsTools(agent.SystemPrompt, nil) { // same rule as the run executor
+		tools = nil
+	}
 	system := agent.SystemPrompt
 	if len(tools) > 0 {
 		system += toolBindingPrompt(toolNames(tools))

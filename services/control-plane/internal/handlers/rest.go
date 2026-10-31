@@ -1627,8 +1627,14 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 	// shape, not a user message). Treat any input with no user-facing
 	// text fields as Run Now too.
 	userContent := string(inputJSON)
+	// The agent's own instructions win over the executor's: an explicit no-tools
+	// directive (or label tools=none) suppresses tool binding below.
+	noTools := agentForbidsTools(systemPromptStr, labelsJSON)
 	if isRunNowInput(input, userContent) {
 		userContent = "This is a Run Now invocation — execute the workflow described in your system prompt right now. Call the tools you have available; do not ask me for clarification or claim you can't access anything."
+		if noTools {
+			userContent = "This is a Run Now invocation — execute the workflow described in your system prompt right now, following its rules exactly; do not ask me for clarification."
+		}
 	}
 	prompt := fmt.Sprintf("%s\n\n%s", systemPromptStr, userContent)
 
@@ -1745,7 +1751,9 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 		llmMessages[1] = map[string]any{"role": "user", "content": strings.TrimPrefix(prompt, systemPromptStr+"\n\n")}
 	}
 	var llmTools []map[string]any
-	if hasPrefetch {
+	if noTools {
+		logStep("attach_tools", "completed", "0 tools (agent instructions forbid tool use)")
+	} else if hasPrefetch {
 		// Pre-fetch did the work — no tools attached so the model just
 		// summarizes. Saves 700+ tokens of tool definitions per call and
 		// removes the model's option to refuse / hallucinate.
@@ -3210,6 +3218,21 @@ You currently have these tools attached and ready to call: %s.
 When the instructions above mention a 'GitHub connector', 'Linear connector',
 'Gmail connector', etc., they refer to the matching tools in this list.
 DO NOT respond with "I don't have access" — the tools are right here. Call them.`, strings.Join(names, ", "))
+}
+
+var noToolsDirective = regexp.MustCompile(`(?i)\b(?:never|do not|don'?t|must not|mustn'?t|should not|shouldn'?t|cannot|can'?t|may not)\s+(?:ever\s+)?(?:call|use|invoke|run|attempt|make)\s+(?:any\s+|the\s+|a\s+)?(?:tools?|tool[ -]calls?|functions?|connectors?)\b|\bwithout\s+(?:calling|using|invoking)\s+(?:any\s+)?(?:tools?|functions?)\b|\bno\s+tool[ -]calls?\b`)
+
+// agentForbidsTools reports whether the agent itself opts out of tools: label
+// tools=none, or an explicit directive in its own system prompt ("never call
+// tools"). The executor's tool-binding text must not override that.
+func agentForbidsTools(systemPrompt string, labelsJSON []byte) bool {
+	var lbl struct {
+		Tools string `json:"tools"`
+	}
+	if json.Unmarshal(labelsJSON, &lbl) == nil && strings.EqualFold(strings.TrimSpace(lbl.Tools), "none") {
+		return true
+	}
+	return noToolsDirective.MatchString(systemPrompt)
 }
 
 func runTotalStatus(outErr error, dbStatus string) string {
