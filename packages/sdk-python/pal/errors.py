@@ -10,9 +10,10 @@ class PalError(Exception):
 class PalApiError(PalError):
     """Raised when the PAL HTTP API returns a non-2xx response."""
 
-    def __init__(self, status: int, body: str) -> None:
+    def __init__(self, status: int, body: str, *, code: int | None = None) -> None:
         self.status = status
         self.body = body
+        self.code = code  # JSON-RPC error code (A2A), else None
         super().__init__(f"PAL API error {status}: {body[:200]}")
 
 

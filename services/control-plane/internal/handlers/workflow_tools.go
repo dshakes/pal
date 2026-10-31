@@ -35,7 +35,8 @@ var errToolFailed = errors.New("tool failed")
 // workflowBuiltinTools run in-process. They make their own LLM calls, so they
 // are metered like ai-steps. A package var so tests can stub the network.
 var workflowBuiltinTools = map[string]func(ctx context.Context, pool *pgxpool.Pool, tenantID string, params map[string]any) (any, error){
-	"web_search": executeWebSearchTool,
+	"web_search":    executeWebSearchTool,
+	a2aCallToolName: executeA2ACallTool,
 }
 
 // ExecTool lets RuntimeHandler serve workflow tool nodes through the same

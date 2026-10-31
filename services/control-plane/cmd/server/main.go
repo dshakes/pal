@@ -673,6 +673,9 @@ func main() {
 	// A2A (Agent-to-Agent) protocol endpoints (Gap 4).
 	httpMux.HandleFunc("GET /v1/agents/{name}/card", a2aHandler.GetAgentCard)
 	httpMux.HandleFunc("POST /v1/agents/{name}/a2a/invoke", authHandler.WithScopeOrAgent(handlers.ScopeRunsExecute, a2aHandler.InvokeAgent))
+	// A2A v0.3 (ADR 0057): spec card + JSON-RPC transport.
+	httpMux.HandleFunc("GET /v1/agents/{name}/a2a/.well-known/agent-card.json", a2aHandler.GetA2AAgentCard)
+	httpMux.HandleFunc("POST /v1/agents/{name}/a2a", authHandler.WithScopeOrAgent(handlers.ScopeRunsExecute, a2aHandler.JSONRPC))
 	httpMux.HandleFunc("GET /v1/agents/{name}/policy", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.GetPolicy))
 	httpMux.HandleFunc("PUT /v1/agents/{name}/policy", authHandler.WithScope(handlers.ScopeAgentsWrite, agentIdentityHandler.PutPolicy))
 	httpMux.HandleFunc("POST /v1/agents/{name}/policy/propose", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.ProposePolicy))
@@ -683,6 +686,7 @@ func main() {
 	httpMux.HandleFunc("GET /v1/agents/{name}/audit", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.ListAudit))
 	httpMux.HandleFunc("GET /.well-known/pal-agent-keys/{agentId}", agentIdentityHandler.AgentJWKS)
 	httpMux.HandleFunc("GET /.well-known/agent.json", a2aHandler.AgentDirectory)
+	httpMux.HandleFunc("GET /.well-known/agent-card.json", a2aHandler.WellKnownAgentCard)
 
 	// Workflow persistence endpoints (visual editor).
 	httpMux.HandleFunc("PUT /v1/agents/{name}/workflow", authHandler.WithScope(handlers.ScopeAgentsWrite, restHandler.SaveWorkflow))

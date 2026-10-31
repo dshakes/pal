@@ -90,9 +90,16 @@ func retryBackoff(attempt int) time.Duration {
 type APIError struct {
 	Status int
 	Body   string
+	// Code is the JSON-RPC error code (A2A); 0 for plain HTTP errors.
+	Code int
 }
 
-func (e *APIError) Error() string { return fmt.Sprintf("pal: http %d: %s", e.Status, e.Body) }
+func (e *APIError) Error() string {
+	if e.Code != 0 {
+		return fmt.Sprintf("pal: rpc error %d: %s", e.Code, e.Body)
+	}
+	return fmt.Sprintf("pal: http %d: %s", e.Status, e.Body)
+}
 
 // ---------- Core types ----------
 
