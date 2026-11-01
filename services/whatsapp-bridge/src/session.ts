@@ -50,6 +50,7 @@ import {
 } from "@pal/bridge-core/natural";
 import { judgeCommitment, commitmentHoldPage, extractContactRequests, isConfidentContactShare, promiseIsAboutNumber, type CommitmentVerdict, type ResolvedShare } from "@pal/bridge-core/commitment-gate";
 import { judgeGrounding, groundingHoldPage, type GroundingVerdict } from "@pal/bridge-core/grounding-gate";
+import { resolveReplyMode, decideContactReply, describeReplyMode, shouldSendBudgetFyi, BUDGET_FYI_TEXT, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
 import { fitVoiceModel, scoreVoice, voiceDelta, type VoiceModel } from "@pal/bridge-core/voice-score";
 import type { BotTellContext } from "@pal/bridge-core/natural";
 import { strictRegenHint } from "@pal/bridge-core/natural";
@@ -1872,6 +1873,8 @@ export class WhatsAppSession {
   // flood can't spam self-chat. NEVER fires for the normal "not addressed
   // to me / low-confidence chatter" non-responses.
   private droppedNotifyAt = new Map<string, number>();
+  private readonly replyMode = resolveReplyMode(process.env.PAL_REPLY_MODE);
+  private readonly budgetFyi: BudgetFyiState = {};
   private static readonly DROP_NOTIFY_DEDUP_MS = 10 * 60_000;
   private static readonly DROP_NOTIFY_MAX_KEYS = 500;
 
@@ -1885,6 +1888,8 @@ export class WhatsAppSession {
   constructor(tenantId: string, logger: Logger) {
     this.tenantId = tenantId;
     this.logger = logger.child({ tenant: tenantId });
+    if (this.replyMode.warning) this.logger.warn(this.replyMode.warning);
+    this.logger.info({ replyMode: this.replyMode.mode, source: this.replyMode.source }, describeReplyMode(this.replyMode));
     this.authDir = join(process.cwd(), "auth_sessions", tenantId);
     mkdirSync(this.authDir, { recursive: true });
     this.historyFile = join(this.authDir, "wa-history.jsonl");
@@ -3494,10 +3499,27 @@ export class WhatsAppSession {
           // So: known contacts (relationship/samples/facts) auto-reply
           // authentically; unknown contacts get held as a draft; nobody
           // gets spam. Owner can still globally mute or pause per-contact.
+          // PAL_REPLY_MODE (GA PR-1): a "draft" decision rides the SAME hold path as
+          // mute (opts.mutedHold -> tier LOW -> owner draft; hand-off failure
+          // suppresses). Mute / killswitch / commitment + grounding holds still win.
+          let modeHold = false;
+          if (this.replyMode.mode !== "everyone") {
+            const inInnerCircle = !isGroup && !!this.ownerProfileStore.relationshipFor(from, this.contactNames.get(from) ?? senderName);
+            let spam = false;
+            if (!inInnerCircle) {
+              const { classifyUnknownInbound } = await import("@pal/bridge-core/inbound-classifier");
+              spam = classifyUnknownInbound(text).kind === "spam";
+            }
+            const modeDecision = decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle, spam });
+            if (modeDecision.action === "draft") {
+              modeHold = true;
+              this.logger.info({ from, reason: modeDecision.reason }, "reply mode: contact reply will be drafted for the owner, not auto-sent");
+            }
+          }
           this.handleAgentReply(from, text, {
             isGroup,
             senderName,
-            mutedHold,
+            mutedHold: mutedHold || modeHold,
             msgKey: msg.key,
             // Full proto message → so we can quote-reply in groups
             // (real-human behavior in noisy threads).
@@ -3767,7 +3789,7 @@ export class WhatsAppSession {
   // owner self-chat. Returns true when the engine took ownership (ping/digest/
   // suppress), false when it's not actionable (caller falls back to legacy).
   private async surfaceLifeEvent(from: string, text: string): Promise<boolean> {
-    const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision } =
+    const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision, autoActEnabled } =
       await import("@pal/bridge-core/life-events");
     const { loadLifeEventPrefs, isAutoActPaused } = await import("@pal/bridge-core/life-events-store");
 
@@ -3792,7 +3814,7 @@ export class WhatsAppSession {
     // calendar) fire automatically; money/fraud/OTP/sending never do. Kill
     // switch (PAL_LIFE_EVENT_AUTOACT, default on) + persisted pause flag.
     const autoEnabled =
-      (process.env.PAL_LIFE_EVENT_AUTOACT || "on").toLowerCase() !== "off" && !isAutoActPaused();
+      autoActEnabled(process.env.PAL_LIFE_EVENT_AUTOACT) && !isAutoActPaused();
     const auto = autoActDecision(event, prefs, { enabled: autoEnabled });
     this.logger.info(
       { kind: event.kind, urgency: event.urgency, conf: event.confidence, autoMode: auto.mode, reason: auto.reason },
@@ -9274,8 +9296,14 @@ export class WhatsAppSession {
       // meant to answer got no reply — heads-up the owner once so it isn't
       // silently dropped. (Groups: empty draft is the normal "nothing to add"
       // outcome — never page, never expose a "composing" tell.)
+      // 402 = spend limit: hold for the owner (FYI once/day), never send a canned fallback.
+      if (this.agent.consumeBudgetBlock(from)) {
+        this.logger.warn({ from }, "contact reply HELD — control-plane budget limit (402); nothing sent");
+        if (shouldSendBudgetFyi(this.budgetFyi, Date.now())) void this.confirmToSelf(`⚠️ ${BUDGET_FYI_TEXT}`).catch(() => {});
+        return;
+      }
       if (!opts.isGroup) {
-        const sentGreeting = await this.sendGreetingFallback(from, text, "empty agent draft");
+        const sentGreeting = opts.mutedHold ? false : await this.sendGreetingFallback(from, text, "empty agent draft");
         if (!sentGreeting) {
           this.notifyOwnerOfDrop({ jid: from, reason: "I had no reply to send (empty response)", text, senderName: opts.senderName });
         }
@@ -9375,7 +9403,7 @@ export class WhatsAppSession {
         // blip. Ping the owner's self-chat so they can take it over (never-silent
         // rule: the owner lives in chat, not the dashboard).
         if (!opts.isGroup) {
-          const greeted = await this.sendGreetingFallback(from, text, `bot-tell: ${retryCheck.reason ?? tellCheck.reason}`);
+          const greeted = !opts.mutedHold && await this.sendGreetingFallback(from, text, `bot-tell: ${retryCheck.reason ?? tellCheck.reason}`);
           if (!greeted) {
             this.notifyOwnerOfDrop({
               jid: from,

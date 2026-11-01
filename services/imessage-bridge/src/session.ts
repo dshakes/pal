@@ -53,6 +53,7 @@ import {
 } from "@pal/bridge-core/natural";
 import { judgeCommitment, commitmentHoldPage, extractContactRequests, isConfidentContactShare, promiseIsAboutNumber, type CommitmentVerdict, type ResolvedShare } from "@pal/bridge-core/commitment-gate";
 import { judgeGrounding, groundingHoldPage, type GroundingVerdict } from "@pal/bridge-core/grounding-gate";
+import { resolveReplyMode, decideContactReply, describeReplyMode, shouldSendBudgetFyi, BUDGET_FYI_TEXT, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
 import { fitVoiceModel, scoreVoice, voiceDelta, type VoiceModel } from "@pal/bridge-core/voice-score";
 import type { BotTellContext } from "@pal/bridge-core/natural";
 import { strictRegenHint } from "@pal/bridge-core/natural";
@@ -1306,6 +1307,8 @@ export class IMessageSession {
   // Open chat.db, check Automation, start polling.
   async start(): Promise<void> {
     this.setState("starting");
+    if (this.replyMode.warning) this.logger.warn(this.replyMode.warning);
+    this.logger.info({ replyMode: this.replyMode.mode, source: this.replyMode.source }, describeReplyMode(this.replyMode));
 
     const opened = this.db.open();
     if (!opened.ok) {
@@ -1570,6 +1573,8 @@ export class IMessageSession {
   // in?" answerable without diffing inbound against reply counts.
   private unmonitoredGroupDrops: Map<number, number> = new Map();
   private recentDropNotices: Map<string, number> = new Map();
+  private readonly replyMode = resolveReplyMode(process.env.PAL_REPLY_MODE);
+  private readonly budgetFyi: BudgetFyiState = {};
 
   // Per-contact dedup for the URGENCY heads-up (a contact pleading
   // "URGENT" / "on priority" / "asap"). Keyed by handle → last-fired
@@ -4818,7 +4823,7 @@ export class IMessageSession {
   //   digest   → queue the short owner line into the morning briefing.
   //   suppress → drop (record kind for the owner model), as today.
   private async surfaceLifeEvent(handle: string, text: string, channel = "iMessage"): Promise<boolean> {
-    const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision } =
+    const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision, autoActEnabled } =
       await import("@pal/bridge-core/life-events");
     const { loadLifeEventPrefs, isAutoActPaused } = await import("@pal/bridge-core/life-events-store");
 
@@ -4847,7 +4852,7 @@ export class IMessageSession {
     // arms an undo. Money/fraud/OTP/sending are NEVER auto. Kill switch
     // (PAL_LIFE_EVENT_AUTOACT, default on) gates the whole ladder.
     const autoEnabled =
-      (process.env.PAL_LIFE_EVENT_AUTOACT || "on").toLowerCase() !== "off" && !isAutoActPaused();
+      autoActEnabled(process.env.PAL_LIFE_EVENT_AUTOACT) && !isAutoActPaused();
     const auto = autoActDecision(event, prefs, { enabled: autoEnabled });
     this.logger.info(
       { kind: event.kind, urgency: event.urgency, conf: event.confidence, autoMode: auto.mode, reason: auto.reason },
@@ -7571,6 +7576,24 @@ export class IMessageSession {
     // non-owner (set below) keeps it pinned to "contact" — never escalates.
     let personaAudience: "owner" | "contact" = isOwnerChan ? "owner" : "contact";
 
+    // PAL_REPLY_MODE (GA PR-1): drafts (default) / inner-circle / everyone. A
+    // "draft" decision rides the SAME hold path as mute (mutedHold -> tier LOW ->
+    // draftToOwnerForApproval; hand-off failure suppresses, never sends). Mute,
+    // killswitch and the commitment/grounding holds are unchanged and still win.
+    if (!isOwnerChan && this.replyMode.mode !== "everyone") {
+      const inInnerCircle = !isGroup && !!this.ownerProfileStore.relationshipFor(row.handle, this.contactNames.get(row.handle));
+      let spam = false;
+      if (!inInnerCircle) {
+        const { classifyUnknownInbound } = await import("@pal/bridge-core/inbound-classifier");
+        spam = classifyUnknownInbound(text).kind === "spam";
+      }
+      const modeDecision = decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle, spam });
+      if (modeDecision.action === "draft") {
+        mutedHold = true;
+        this.logger.info({ handle: row.handle, reason: modeDecision.reason }, "reply mode: contact reply will be drafted for the owner, not auto-sent");
+      }
+    }
+
     // Soft privacy boundary: a NON-owner asking about the owner's family,
     // relationship, home, schedule, or travel. NOT a hard probe — a friendly
     // "you married?" must not page the owner or cold-refuse. We only log it
@@ -8247,8 +8270,14 @@ export class IMessageSession {
       // / disabled, or empty when the LLM had nothing usable — a real inbound
       // goes unanswered. One deduped heads-up per contact so a misconfigured
       // LLM key or a control-plane outage isn't an invisible silent failure.
+      // 402 = spend limit: hold for the owner (FYI once/day), never send a canned fallback.
+      if (this.agent.consumeBudgetBlock(row.handle)) {
+        this.logger.warn({ from: row.handle }, "contact reply HELD — control-plane budget limit (402); nothing sent");
+        if (shouldSendBudgetFyi(this.budgetFyi, Date.now())) this.notifyOwnerOfDrop(BUDGET_FYI_TEXT, "budget-402");
+        return;
+      }
       if (!isGroup) {
-        const sentGreeting = await this.sendGreetingFallback(row.handle, text, "empty agent draft");
+        const sentGreeting = mutedHold ? false : await this.sendGreetingFallback(row.handle, text, "empty agent draft");
         if (!sentGreeting) {
           this.logger.warn({ from: row.handle, isGroup }, "contact reply empty/failed — operational drop");
           this.notifyOwnerOfDrop(
@@ -8348,7 +8377,7 @@ export class IMessageSession {
         // The classic case: a stranger texts "Hi", the model replies "Hey! How
         // can I help you?", and the customer-service guard suppresses it →
         // silence. For a pure greeting, fall back to a human opener instead.
-        if (!isGroup) await this.sendGreetingFallback(row.handle, text, `bot-tell: ${retryCheck.reason ?? tellCheck.reason}`);
+        if (!isGroup && !mutedHold) await this.sendGreetingFallback(row.handle, text, `bot-tell: ${retryCheck.reason ?? tellCheck.reason}`);
         return;
       }
     }

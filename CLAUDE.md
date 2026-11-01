@@ -2110,6 +2110,19 @@ messages instead of replying, which read as "the bot isn't responding". The targ
 `forceDraftCaution` (foreign-language) and PII/injection refusals hold regardless.
 VIPs always go through the dashboard draft queue regardless.
 
+### Reply mode (`PAL_REPLY_MODE`, safe by default)
+
+Contact replies are drafted for the owner unless the owner opts in: `drafts` (default) /
+`inner-circle` / `everyone` (see the env table). Decision = `decideContactReply`
+(`bridge-core/src/reply-mode.ts`); a "draft" outcome sets the same `mutedHold` flag the mute path
+uses, so it flows through tier LOW -> `draftToOwnerForApproval` and a failed owner hand-off
+suppresses (never sends); the canned greeting fallback is skipped too. Fixed safety refusals
+(life-threat / prompt-injection) still go out. A control-plane **402** (budget) on a contact reply
+is held, never replaced by a fallback send: logged every time, one owner FYI per local day
+(`shouldSendBudgetFyi`). Life-event auto-act is likewise opt-in (`PAL_LIFE_EVENT_AUTOACT=on`).
+**Owners who relied on the old defaults must set `PAL_REPLY_MODE=everyone` and
+`PAL_LIFE_EVENT_AUTOACT=on` in `~/.pal/bridge.env`.**
+
 ### Commitment gate (money / promises) — HOLD, never send
 
 `packages/bridge-core/src/commitment-gate.ts`, wired into BOTH bridges' contact
@@ -2283,6 +2296,8 @@ self-chat as `✅ closed: <title> — saw: "<evidence>"` (prefix registered in
 | `PAL_NEWS_RADAR` (control-plane)  | **Default OFF (opt-in).** `on`/`1`/`true` lets a `news_radar` loop agent fetch the external feeds. Even when on, only one API instance sweeps at a time (Postgres advisory lock `runNewsRadarGuarded`); a run that loses the lock or is disabled records `skipped` in its output. |
 | `PAL_PROACTIVE_NUDGES`            | Set to `0` to disable anticipation nudges entirely (default on).                                                                                                                                 |
 | `PAL_LIVE_WATCH`                  | Set to `0`/`off` to disable live watches (default on) — LLM-detected follow-ups on live public situations a contact mentioned (flight in the air, game, outage): re-checked via `web_search` every 15–120 min, resolved with one short follow-up text ("just saw he landed"). One active watch per contact, ≤8 total, ≤12h, killswitch/mute/quiet-hours aware. State: `<stateDir>/live-watches.jsonl` (0600). |
+| `PAL_REPLY_MODE`                  | **Safe by default (GA PR-1).** `drafts` (default when unset) = every contact reply is drafted to the owner for approval, never auto-sent; `inner-circle` = auto-send only to DM contacts in the owner's `## Relationships`, draft everyone else (unknown, spam-matched, groups); `everyone` = reply to everybody (the pre-GA behaviour). Invalid value => `drafts` + one WARN. One pure resolver, `bridge-core/src/reply-mode.ts`, used by both bridges; rides the existing mute/hold path, so mute, killswitch and the commitment/grounding holds still take precedence. Each bridge logs `reply mode: <mode> (source: ...)` at startup. |
+| `PAL_LIFE_EVENT_AUTOACT`          | **Default OFF (GA PR-1; was on).** `on`/`1`/`true` lets delivery/appointment/travel life-events auto-act (Deliveries note / Calendar). Unset => every category is ask-first (one-tap suggest). bill/fraud/otp are never auto regardless. |
 | `PAL_DRAFT_CONFIRM` / `PAL_DRAFT_HIGH_STAKES` | **Default OFF.** Set to `on` to hold LOW-confidence replies for owner approval — `PAL_DRAFT_CONFIRM` on iMessage, `PAL_DRAFT_HIGH_STAKES` on WhatsApp. Off → brief hold then auto-send + owner heads-up. Made opt-in because on-by-default drafted benign family messages ("bot isn't responding"). |
 | `PAL_DISLIKE_LLM_CLUSTER`         | Set to `0` to DISABLE the LLM fuzzy-clustering pass in the 👎 flywheel (the novel-preference learner). Default ON; fail-safe (deterministic pass always runs). Both bridges wire the `llmCall`. |
 | `PAL_VOICE_REFINE`                | (Optional) `0`/`off` disables critique-refine (ADR 0024 W3.4). Default ON: a MEDIUM/LOW contact draft gets one purpose-keyed call (`<jid>::refine`) editing it against the 5 most similar messages the owner really sent; accepted only when its voice delta is not worse AND it clears the bot-tell guard, else the draft stands. Never the owner channel, groups, or HIGH-tier drafts. Logs `voice refine {before, after, accepted}`. |

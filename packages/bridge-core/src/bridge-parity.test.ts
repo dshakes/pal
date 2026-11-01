@@ -29,6 +29,9 @@ export const REQUIRED_BOTH = [
   "maybeRunSkills",
   "maybeHandleRecap",
   "proactivePaused",
+  "decideContactReply", // PAL_REPLY_MODE (drafts default) — one pure decision, both bridges
+  "resolveReplyMode",
+  "shouldSendBudgetFyi", // 402 -> hold + one FYI/day
 ];
 
 /** Intentionally iMessage-only modules. Must stay absent from WhatsApp; if WA adopts one, drop it here. */

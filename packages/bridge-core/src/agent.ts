@@ -138,6 +138,12 @@ export class AgentClient {
     return reply;
   }
 
+  private budgetBlocked = new Set<string>();
+  /** True once if the last turn for `jid` was refused with HTTP 402; clears the flag. */
+  consumeBudgetBlock(jid: string): boolean {
+    return this.budgetBlocked.delete(jid);
+  }
+
   private async runTurn(jid: string, userText: string, systemHint?: string, withTools = false, turnHint?: string, readOnlyTools = false, webSearch = false, timeoutMs?: number): Promise<TurnResult | null> {
     // Up to ONE retry on dead-session errors. A prior turn that got
     // SSE-aborted (timeout, network hiccup) leaves the control-plane
@@ -246,6 +252,9 @@ export class AgentClient {
         { status: postRes.status, body: body.slice(0, 300), sessionId, attempt, isDead },
         "send message failed",
       );
+      // 402 = budget hard-fail. Remember it so the bridge can hold + FYI the
+      // owner instead of dropping the contact's message in silence.
+      if (postRes.status === 402) this.budgetBlocked.add(jid);
       if (isDead && attempt === 0) {
         this.sessions.delete(jid);
         this.saveSessions();
