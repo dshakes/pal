@@ -120,3 +120,16 @@ export function candidateIds(
   for (const w of waiting) ids.add(refId("thread", w.contactKey));
   return ids;
 }
+
+/**
+ * Brief ranking is a tiny reorder-and-annotate job, so it must not inherit the
+ * cost of a conversation. A fixed session key made the control-plane session
+ * accumulate the last 6 turns (each a full Brief prompt + JSON answer), and with
+ * no hint it routed to the balanced model; together that timed out live at 20s.
+ * Each rank therefore gets a throwaway session key (no history) and the
+ * "trivial" complexity hint (cheapest capable tier; the server ignores it when
+ * complexity routing is off). Callers drop the key's session afterwards.
+ */
+export function attentionRankCall(now: number = Date.now()): { key: string; opts: { timeoutMs: number; turnHint: "trivial" } } {
+  return { key: `attention::rank::${now}`, opts: { timeoutMs: 20_000, turnHint: "trivial" } };
+}

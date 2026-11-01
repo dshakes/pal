@@ -132,6 +132,8 @@ func main() {
 		logger.Info("migrations complete")
 	}
 
+	handlers.LogNewsRadarState(logger)
+
 	// Seed the Concierge loop agent for the dev tenant (idempotent, no-op in prod
 	// because the dev tenant row doesn't exist there).
 	if seedDev && !regionCfg.ReadOnly {

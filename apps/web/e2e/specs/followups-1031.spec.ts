@@ -1,0 +1,52 @@
+import { expect, test } from "@playwright/test";
+import { API_URL } from "../support/env";
+import { openOnboarding, signUp, uniqueEmail } from "../support/users";
+
+const token = (page: import("@playwright/test").Page) => page.evaluate(() => localStorage.getItem("pal_token"));
+const BANNER = "Add a model provider key";
+
+for (const theme of ["dark", "light"] as const) {
+  for (const [w, h] of [[1440, 900], [390, 844]] as const) {
+    test(`provider banner shows with no key, hides once a key exists (${theme} ${w})`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.setViewportSize({ width: w, height: h });
+      await page.addInitScript((v) => localStorage.setItem("pal-theme", v), theme);
+      await signUp(page, uniqueEmail("banner"));
+      await page.goto("/agents");
+      await expect(page.getByText(BANNER)).toBeVisible({ timeout: 30_000 });
+      await page.screenshot({ path: `/tmp/palfix-shots/banner-on-${theme}-${w}.png` });
+      const res = await page.request.post(`${API_URL}/v1/settings/llm-providers`, {
+        headers: { Authorization: `Bearer ${await token(page)}` },
+        data: { provider: "openai", apiKey: "sk-e2e-dummy-key" },
+      });
+      expect(res.ok()).toBeTruthy();
+      await page.reload();
+      await expect(page.getByText(BANNER)).toHaveCount(0, { timeout: 30_000 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: `/tmp/palfix-shots/banner-off-${theme}-${w}.png` });
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test("wizard refuses to overwrite an existing agent of the same name", async ({ page }) => {
+  await signUp(page, uniqueEmail("wiz"));
+  const auth = { Authorization: `Bearer ${await token(page)}` };
+  await page.request.post(`${API_URL}/v1/settings/llm-providers`, { headers: auth, data: { provider: "openai", apiKey: "sk-e2e-dummy-key" } });
+  const pre = await page.request.post(`${API_URL}/v1/agents`, { headers: auth, data: { name: "e2e-summarizer", systemPrompt: "ORIGINAL-PROMPT" } });
+  expect(pre.ok()).toBeTruthy();
+
+  await openOnboarding(page);
+  await page.getByLabel("Describe your agent's job").fill("E2E-GOAL turn rough notes into three bullets");
+  await page.getByRole("button", { name: "Design my agent" }).click();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("e2e-summarizer");
+  await page.getByRole("button", { name: "Approve design" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(page.getByText(/already exists/i).first()).toBeVisible({ timeout: 30_000 });
+  await page.screenshot({ path: "/tmp/palfix-shots/wizard-exists.png" });
+
+  const got = await page.request.get(`${API_URL}/v1/agents/e2e-summarizer`, { headers: auth });
+  expect(JSON.stringify(await got.json())).not.toContain("E2E-GOAL");
+});

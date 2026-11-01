@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -477,4 +478,53 @@ func TestNewsListHandler_CategoryFilter(t *testing.T) {
 	if !found {
 		t.Error("?category=labs did not return the labs item")
 	}
+}
+
+// ---------- opt-in + single-runner guard ----------
+
+func TestNewsRadarGuarded_DisabledByDefault_NoFetch(t *testing.T) {
+	t.Setenv("PAL_NEWS_RADAR", "")
+	var hits atomic.Int32
+	get := func(context.Context, string) ([]byte, error) { hits.Add(1); return nil, nil }
+	// nil pool: the flag check must short-circuit before any DB access.
+	_, _, _, _, skipped := runNewsRadarGuarded(context.Background(), nil, zap.NewNop(), "t", "r", nil, get)
+	if skipped != "disabled" || hits.Load() != 0 {
+		t.Fatalf("want disabled + 0 fetches, got skipped=%q hits=%d", skipped, hits.Load())
+	}
+}
+
+func TestNewsRadarGuarded_SingleRunner(t *testing.T) {
+	pool := openTestPool(t)
+	ctx := context.Background()
+	t.Setenv("PAL_NEWS_RADAR", "on")
+	var hits atomic.Int32
+	get := func(context.Context, string) ([]byte, error) { hits.Add(1); return nil, fmt.Errorf("canned") }
+
+	// Another "instance" holds the lock: this one must not fetch.
+	holder, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got bool
+	if err := holder.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, newsRadarLockKey).Scan(&got); err != nil || !got {
+		t.Fatalf("holder lock: %v %v", got, err)
+	}
+	_, _, _, _, skipped := runNewsRadarGuarded(ctx, pool, zap.NewNop(), devTenantIDForNews, "r", nil, get)
+	if skipped != "another_runner" || hits.Load() != 0 {
+		t.Fatalf("want another_runner + 0 fetches, got %q hits=%d", skipped, hits.Load())
+	}
+	_, _ = holder.Exec(ctx, `SELECT pg_advisory_unlock($1)`, newsRadarLockKey)
+	holder.Release()
+
+	// Lock free: it sweeps, then releases the lock for the next runner.
+	_, _, _, _, skipped = runNewsRadarGuarded(ctx, pool, zap.NewNop(), devTenantIDForNews, "r", nil, get)
+	if skipped != "" || hits.Load() == 0 {
+		t.Fatalf("want a sweep, got skipped=%q hits=%d", skipped, hits.Load())
+	}
+	c2, _ := pool.Acquire(ctx)
+	defer c2.Release()
+	if err := c2.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, newsRadarLockKey).Scan(&got); err != nil || !got {
+		t.Fatalf("lock leaked after sweep")
+	}
+	_, _ = c2.Exec(ctx, `SELECT pg_advisory_unlock($1)`, newsRadarLockKey)
 }

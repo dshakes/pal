@@ -575,3 +575,81 @@ func TestInlineRun_ExecutesFrozenSnapshot(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// The agent's own "never call tools" instruction must win over the executor's
+// tool-binding text: no binding prompt, no tool definitions on the wire. A normal
+// agent in the same harness still gets its tools (guards against a vacuous pass).
+func TestInlineRun_AgentNoToolsInstructionSuppressesToolBinding(t *testing.T) {
+	t.Setenv("PAL_USE_CLAUDE_CODE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-test-fake-key")
+	run := func(prompt string) string {
+		h, srv := newChaosHandler(t)
+		f := insertDRFixture(t, srv.Pool, fmt.Sprintf("no-tools-%d", time.Now().UnixNano()), "queued")
+		if _, err := srv.Pool.Exec(context.Background(), `UPDATE agents SET system_prompt=$2 WHERE id=$1::uuid`, f.agentID, prompt); err != nil {
+			t.Fatal(err)
+		}
+		var seen []string
+		var mu sync.Mutex
+		h.llmProxy = NewLlmProxyHandler(srv, NewAuthHandler(srv, testJWTSecret))
+		h.llmProxy.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			seen = append(seen, string(b))
+			mu.Unlock()
+			return okByProvider("done")(r)
+		})}
+		var name string
+		_ = srv.Pool.QueryRow(context.Background(), `SELECT name FROM agents WHERE id = $1`, f.agentID).Scan(&name)
+		if _, _, err := h.executeRunInlineSync(tenantCtx(recoveryTestDevTenantID), f.runID, recoveryTestDevTenantID, name, map[string]any{"message": "hi"}); err != nil {
+			t.Fatalf("executeRunInlineSync: %v", err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Join(seen, "\n")
+	}
+	const binding = "Available tools (call these"
+	if body := run("You are terse. Never call tools."); strings.Contains(body, binding) || strings.Contains(body, `"tools"`) {
+		t.Fatalf("no-tools agent still got tool binding/definitions: %.600s", body)
+	}
+	if body := run("You help with GitHub."); !strings.Contains(body, `"tools":[`) {
+		t.Fatalf("control agent lost its tools (test would be vacuous): %.600s", body)
+	}
+}
+
+// ?createOnly=1 (onboarding wizard) must 409 on an existing name and leave it untouched;
+// plain POST /v1/agents keeps its upsert semantics for every other caller.
+func TestCreateAgent_CreateOnlyRefusesExisting(t *testing.T) {
+	pool := openTestPool(t)
+	h := newTwoTierRESTHandler(t, pool)
+	tok := mintTestToken(t, recoveryTestDevTenantID, "00000000-0000-0000-0000-000000000002", "owner")
+	name := fmt.Sprintf("create-only-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM agents WHERE tenant_id = $1 AND name = $2`, recoveryTestDevTenantID, name)
+	})
+	post := func(query, prompt string) *httptest.ResponseRecorder {
+		b, _ := json.Marshal(map[string]any{"name": name, "systemPrompt": prompt})
+		req := httptest.NewRequest(http.MethodPost, "/v1/agents"+query, bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.CreateAgent(w, req)
+		return w
+	}
+	prompt := func() string {
+		var p string
+		_ = pool.QueryRow(context.Background(), `SELECT COALESCE(system_prompt,'') FROM agents WHERE tenant_id = $1 AND name = $2`, recoveryTestDevTenantID, name).Scan(&p)
+		return p
+	}
+	if w := post("?createOnly=1", "ORIGINAL"); w.Code != http.StatusCreated {
+		t.Fatalf("first createOnly: HTTP %d %s", w.Code, w.Body.String())
+	}
+	w := post("?createOnly=1", "OVERWRITE")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "agent_exists") {
+		t.Fatalf("second createOnly: HTTP %d %s, want 409 agent_exists", w.Code, w.Body.String())
+	}
+	if p := prompt(); p != "ORIGINAL" {
+		t.Fatalf("createOnly overwrote the agent: %q", p)
+	}
+	if w := post("", "UPSERTED"); w.Code >= 300 || prompt() != "UPSERTED" {
+		t.Fatalf("plain POST must still upsert: HTTP %d prompt %q", w.Code, prompt())
+	}
+}

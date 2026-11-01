@@ -10,6 +10,7 @@ import {
   buildBrief,
   buildPlate,
   buildAgents,
+  newsProactiveEnabled,
   summarizeAgentRuns,
   mergeBridgeLoopStatus,
   buildDomain,
@@ -351,4 +352,12 @@ test("buildNewsAsk — empty groups surfaces the honest note", () => {
   const v = buildNewsAsk({ note: "nothing from Sebastian Rachika in the feed", groups: [] });
   assert.match(v.text, /Sebastian Rachika/);
   assert.equal(v.items.length, 0);
+});
+
+test("newsProactiveEnabled: opt-in, unset/garbage/off => OFF", () => {
+  assert.equal(newsProactiveEnabled({}), false);
+  assert.equal(newsProactiveEnabled({ PAL_NEWS_PROACTIVE: "" }), false);
+  assert.equal(newsProactiveEnabled({ PAL_NEWS_PROACTIVE: "off" }), false);
+  assert.equal(newsProactiveEnabled({ PAL_NEWS_PROACTIVE: "yes please" }), false);
+  for (const v of ["on", "1", "TRUE", " on "]) assert.equal(newsProactiveEnabled({ PAL_NEWS_PROACTIVE: v }), true);
 });

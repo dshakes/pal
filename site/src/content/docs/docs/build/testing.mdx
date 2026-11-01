@@ -135,7 +135,7 @@ npm ci && npx playwright install chromium
 npm run test:e2e
 ```
 
-It boots its own stack on spare ports (web 3411, API 8411, llm-replay 9412): a throwaway Postgres database, a private Redis db index, the control plane (with `PAL_CORS_ORIGINS` set to the dashboard origin), llm-replay and `next dev`. It never touches `:8080`, `:3001` or the shared dev database, and tears everything down afterwards. It needs Go, `psql`, and reachable Postgres and Redis (the `make dev-infra` defaults work; override with `E2E_PG_ADMIN_URL`, `E2E_REDIS_*`). Details: `apps/web/e2e/README.md`.
+It boots its own stack on spare ports (web 3411, API 8411, llm-replay 9412): a throwaway Postgres database, a private Redis db index, the control plane (with `PAL_CORS_ORIGINS` set to the dashboard origin), llm-replay and `next dev`. It never touches `:8080`, `:3001` or the shared dev database, and tears everything down afterwards. It needs Go, `psql`, and a PRIVATE Postgres and Redis you start yourself (e.g. `-p 55511:5432`, `-p 56511:6379`); `E2E_PG_ADMIN_URL` and `E2E_REDIS_PORT` are required and the shared `:5432`/`:6379` are refused. Details: `apps/web/e2e/README.md`.
 
 ## CI
 
