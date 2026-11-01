@@ -3,32 +3,7 @@
 import { useState } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import clsx from "clsx";
-
-// Escape HTML BEFORE adding highlight spans, so attacker-controlled run I/O
-// (inbound messages, tool results) can't inject markup. Only our own <span>
-// tags below contain real angle brackets; any in the data become entities.
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function syntaxHighlight(json: string): string {
-  return escapeHtml(json)
-    .replace(
-      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g,
-      (match) => {
-        if (match.endsWith(":")) {
-          return `<span class="text-blue-400">${match.slice(0, -1)}</span>:`;
-        }
-        return `<span class="text-emerald-400">${match}</span>`;
-      }
-    )
-    .replace(/\b(true|false)\b/g, '<span class="text-amber-400">$1</span>')
-    .replace(/\b(null)\b/g, '<span class="text-zinc-500">$1</span>')
-    .replace(/\b(\d+\.?\d*)\b/g, '<span class="text-purple-400">$1</span>');
-}
+import { highlightJson } from "@/lib/json-highlight";
 
 interface JsonViewerProps {
   data: unknown;
@@ -42,7 +17,7 @@ export function JsonViewer({ data, label, defaultOpen = false }: JsonViewerProps
   if (data === undefined || data === null) return null;
 
   const formatted = JSON.stringify(data, null, 2);
-  const highlighted = syntaxHighlight(formatted);
+  const highlighted = highlightJson(formatted);
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-surface-2">

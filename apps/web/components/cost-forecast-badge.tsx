@@ -82,8 +82,8 @@ export function CostForecastBadge({ agentName, input = "", className }: Props) {
       ) : (
         <DollarSign className="h-3 w-3" />
       )}
-      <span>~${estCost.toFixed(estCost < 0.01 ? 5 : 4)}</span>
-      <span className="text-zinc-500">· {confPct}% conf</span>
+      <span>{estCost === undefined ? "No cost history yet" : `~$${estCost.toFixed(estCost < 0.01 ? 5 : 4)}`}</span>
+      {estCost !== undefined && <span className="text-zinc-500">· {confPct}% conf</span>}
       {budget && budget.maxCostUsdPerDay && budget.maxCostUsdPerDay > 0 && (
         <span
           className={clsx(
