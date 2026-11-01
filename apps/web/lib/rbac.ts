@@ -2,9 +2,13 @@
 // can't exercise. Roles come from /auth/me (users.role). Pure + unit-tested.
 //
 // Mirrors the server's scope taxonomy (handlers/auth.go). Note the server is
-// coarser today: a JWT session of ANY role passes WithScope; only owner/admin
-// endpoints (billing, team, GDPR) check the role. This matrix is the intended
-// product policy the UI enforces now; server-side role scoping is a tracked gap.
+// coarser today: a JWT session of ANY role passes WithScope; only a few
+// handlers check the role (API keys, billing, promotion approve, agent tokens:
+// owner|admin; GDPR erase: owner; kiosk is scope-limited). This matrix is the
+// intended product policy the UI follows so it never OFFERS what a role can't
+// use. It is UX, not enforcement - a viewer's JWT still passes most
+// WithScope routes today; server-side role scoping is a tracked gap. The
+// per-action table (with where each gate lives) is lib/rbac-matrix.ts.
 
 export type Role = "owner" | "admin" | "member" | "viewer" | "kiosk";
 
@@ -14,12 +18,15 @@ export type Capability =
   | "agents:read"
   | "budgets:read"
   | "runtime:admin"    // pause / resume / terminate / fork sandboxes
-  | "settings:write"   // providers, keys, team, billing
-  | "owner";           // destructive workspace actions, promotion approval
+  | "settings:write"   // providers, API keys, devices, DLP, billing, channels, promotion approval
+  | "connectors:write" // install connectors, MCP servers + credentials
+  | "budgets:write"    // spend caps
+  | "audit:read"       // the workspace audit log (actors + principals are visible)
+  | "owner";           // workspace erasure (server: gdpr.go owner-only)
 
 const MATRIX: Record<Role, readonly Capability[]> = {
-  owner: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write", "owner"],
-  admin: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write"],
+  owner: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write", "connectors:write", "budgets:write", "audit:read", "owner"],
+  admin: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write", "connectors:write", "budgets:write", "audit:read"],
   member: ["agents:write", "agents:read", "budgets:read", "runs:execute"],
   // kioskScopes on the server: read, agents:{read,write}, runs:{read,execute}
   // (no budgets:read).

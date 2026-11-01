@@ -3,6 +3,7 @@
 // Agent environments — lifecycle promotion (ADR 0054): sandbox -> staging -> prod.
 // All data comes from /v1/agents, /v1/agents/{name}/environments, /v1/promotions*.
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { AlertTriangle, GitBranch, Rocket, RotateCcw, Activity } from "lucide-react";
@@ -83,6 +84,9 @@ function SectionTitle({ icon, children }: { icon: React.ReactNode; children: Rea
 
 /** With `fixedAgent` it shows that one agent (the agent page's Promote tab) and hides the picker. */
 export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) {
+  // UX gating (lib/rbac-matrix.ts). Approve/reject: the server accepts only a human owner/admin session.
+  const canPromote = useCan("agents:write");
+  const canDecide = useCan("settings:write");
   const toast = useToast();
   const [agents, setAgents] = useState<string[] | null>(null);
   const [agent, setAgent] = useState("");
@@ -205,7 +209,8 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
             >
               {agents.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>}
-            <Button
+            {canPromote && (
+<Button
               variant="primary"
               size="md"
               icon={<Rocket className="h-3.5 w-3.5" />}
@@ -213,6 +218,7 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
             >
               Promote
             </Button>
+)}
           </div>
         )}
       </div>
@@ -259,7 +265,8 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                       {e.previousVersion && (
                         <p className="mt-1 break-all text-[12px] text-zinc-500">previous: {e.previousVersion}</p>
                       )}
-                      <Button
+                      {canPromote && (
+<Button
                         className="mt-3"
                         variant="danger"
                         size="sm"
@@ -269,6 +276,7 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                       >
                         Rollback
                       </Button>
+)}
                     </>
                   ) : (
                     <p className="mt-2 text-[12px] text-zinc-500">Nothing deployed.</p>
@@ -284,9 +292,11 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                 <SectionTitle icon={<Activity className="h-3.5 w-3.5 text-zinc-500" />}>
                   Prod canary — {envs?.promotions.find((p: Promotion) => p.id === prodCanary.promotionId)?.version ?? "candidate"} at {prodCanary.canaryPct ?? 0}% (stable {prodCanary.version})
                 </SectionTitle>
-                <Button variant="secondary" size="sm" loading={evaluating} onClick={doEvaluate}>
+                {canPromote && (
+<Button variant="secondary" size="sm" loading={evaluating} onClick={doEvaluate}>
                   Evaluate now
                 </Button>
+)}
               </div>
               {evalRes ? (
                 <div className="space-y-3 text-[12px]">
@@ -342,10 +352,14 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                     <p className="mt-1 text-[12px] text-zinc-500">{proposedBy(p)} · {ago(p.createdAt)}</p>
                     {p.note && <p className="mt-1 break-words text-[12px] text-zinc-400">{p.note}</p>}
                     <GateList gates={p.gates} />
-                    <div className="mt-3 flex gap-2">
-                      <Button size="sm" variant="primary" onClick={() => { setGateFail(null); setNote(""); setDecision({ p, kind: "approve" }); }}>Approve</Button>
-                      <Button size="sm" variant="secondary" onClick={() => { setGateFail(null); setNote(""); setDecision({ p, kind: "reject" }); }}>Reject</Button>
-                    </div>
+                    {canDecide ? (
+                      <div className="mt-3 flex gap-2">
+                        <Button size="sm" variant="primary" onClick={() => { setGateFail(null); setNote(""); setDecision({ p, kind: "approve" }); }}>Approve</Button>
+                        <Button size="sm" variant="secondary" onClick={() => { setGateFail(null); setNote(""); setDecision({ p, kind: "reject" }); }}>Reject</Button>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-[12px] text-zinc-500">Waiting for an owner or admin to approve.</p>
+                    )}
                   </div>
                 ))}
               </div>

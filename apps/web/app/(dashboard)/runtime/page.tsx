@@ -10,6 +10,7 @@
 // convention. Real VMs are NEVER decorated with simulated metrics; their
 // CPU/mem sparklines render "—" (see fleet-grid.tsx honesty guard).
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Activity, AlertTriangle, DollarSign, Plus, RefreshCw, Server } from "lucide-react";
@@ -28,6 +29,8 @@ import { CapacityMap } from "./capacity-map";
 import { VmDrawer } from "./vm-drawer";
 
 export default function RuntimePage() {
+  const canAdmin = useCan("runtime:admin"); // UX gating (lib/rbac-matrix.ts)
+  const canRun = useCan("runs:execute");
   const toast = useToast();
   const searchParams = useSearchParams();
   const [vms, setVms] = useState<VmRow[] | null>(null);
@@ -198,9 +201,11 @@ export default function RuntimePage() {
               >
                 Refresh
               </Button>
-              <Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setScheduleOpen(true)}>
-                Schedule
-              </Button>
+              {canRun && (
+                <Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setScheduleOpen(true)}>
+                  Schedule
+                </Button>
+              )}
             </div>
           }
         />
@@ -217,8 +222,8 @@ export default function RuntimePage() {
             icon={Server}
             title="No workloads running"
             description="Schedule a headless agent from here, or use `pal run <agent.yaml>` / POST /v1/runtime/schedule."
-            actionLabel="Schedule a workload"
-            onAction={() => setScheduleOpen(true)}
+            actionLabel={canRun ? "Schedule a workload" : undefined}
+            onAction={canRun ? () => setScheduleOpen(true) : undefined}
           />
         ) : (
           <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_360px]">
@@ -227,7 +232,7 @@ export default function RuntimePage() {
                 vms={vms}
                 isDemo={usingDemo}
                 onOpen={(vm) => setDrawerVm(vm)}
-                onTerminateSelected={terminateMany}
+                onTerminateSelected={canAdmin ? terminateMany : undefined}
               />
             </div>
             <div className="space-y-6">

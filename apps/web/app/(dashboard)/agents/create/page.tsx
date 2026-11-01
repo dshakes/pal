@@ -1,5 +1,7 @@
 "use client";
 
+import { EmptyState } from "@/components/empty-state";
+import { useCan } from "@/components/role-gate";
 import { Suspense, useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, Loader2, FileText, Puzzle, Play, Square, Save, CheckCircle2, AlertCircle, Search, Headphones, Code, Mail, BarChart3, PenTool, ClipboardList, ShieldCheck, Star, Link2 } from "lucide-react";
@@ -53,6 +55,14 @@ function ModelSelect({ value, onChange, className }: { value: string; onChange: 
 }
 
 export default function CreatePageWrapper() {
+  const canWrite = useCan("agents:write"); // UX gating (lib/rbac-matrix.ts)
+  if (!canWrite) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8">
+        <EmptyState title="You can't create agents" description="Your role is read-only for agents. Ask a workspace owner or admin for the Member role." actionLabel="Back to agents" actionHref="/agents" />
+      </div>
+    );
+  }
   return (<Suspense fallback={<div className="flex flex-1 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-fg-3" /></div>}><CreatePage /></Suspense>);
 }
 

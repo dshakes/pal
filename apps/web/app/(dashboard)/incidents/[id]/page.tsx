@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Undo2 } from "lucide-react";
@@ -13,6 +14,7 @@ import { TonePill } from "@/components/tone-pill";
 import { useToast } from "@/components/toast";
 
 export default function IncidentDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const canWrite = useCan("agents:write"); // ack/resolve/rollback act on the agent (UX gating, lib/rbac-matrix.ts)
   const { id } = use(params);
   const toast = useToast();
   const [inc, setInc] = useState<Incident | null>(null);
@@ -97,7 +99,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
           <ArrowLeft className="h-3 w-3" /> All incidents
         </Link>
 
-        {inc.rollback.suggested && inc.status !== "resolved" && !wasRolledBack(inc) && (
+        {canWrite && inc.rollback.suggested && inc.status !== "resolved" && !wasRolledBack(inc) && (
           <div role="note" className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
             <Undo2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
             <div className="text-sm">
@@ -210,7 +212,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
           </ol>
         </section>
 
-        {actions.length > 0 && (
+        {canWrite && actions.length > 0 && (
           <section aria-label="Actions" className="rounded-xl border border-zinc-800/60 bg-surface-1 p-4">
             <label htmlFor="note" className="mb-1 block text-xs text-zinc-500">
               Note (optional, saved to the timeline)

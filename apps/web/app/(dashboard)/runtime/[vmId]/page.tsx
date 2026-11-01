@@ -2,6 +2,7 @@
 
 // Per-VM debug view — log tail, spec, audit events, terminate.
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -61,6 +62,7 @@ interface VmDetail {
 }
 
 export default function RuntimeVmPage() {
+  const canAdmin = useCan("runtime:admin"); // UX gating (lib/rbac-matrix.ts)
   const params = useParams<{ vmId: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -229,7 +231,7 @@ export default function RuntimeVmPage() {
           </button>
         }
         action={
-          active ? (
+          active && canAdmin ? (
             <div className="flex items-center gap-2">
               {v.state === "running" && (
                 <Button variant="secondary" size="sm" loading={busy === "pause"} onClick={pause} icon={<Pause className="h-3.5 w-3.5" />}>

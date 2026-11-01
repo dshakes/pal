@@ -7,21 +7,24 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import clsx from "clsx";
-import { Cpu, CreditCard, Key, Settings2, Shield, Smartphone, Users, type LucideIcon } from "lucide-react";
+import { Cpu, CreditCard, Key, LogIn, Lock, ScrollText, Settings2, Shield, Smartphone, Users, type LucideIcon } from "lucide-react";
 import { ToastProvider } from "@/components/settings/toast";
 import { PageHeader } from "@/components/page-header";
-import { SETTINGS_NAV, isSettingsActive, type SettingsIcon } from "@/lib/settings-nav";
+import { visibleSettingsNav, isSettingsActive, type SettingsIcon } from "@/lib/settings-nav";
+import { useAuth } from "@/lib/auth";
 
 const ICONS: Record<SettingsIcon, LucideIcon> = {
   settings: Settings2, key: Key, cpu: Cpu, users: Users, card: CreditCard, smartphone: Smartphone, shield: Shield,
+  scroll: ScrollText, lock: Lock, login: LogIn,
 };
 
 function SettingsNav() {
   const pathname = usePathname() ?? "/settings";
   const tab = useSearchParams().get("tab");
+  const { user } = useAuth();
   return (
     <nav aria-label="Settings sections" className="-mx-1 flex gap-1 overflow-x-auto pb-1 md:mx-0 md:flex-col md:overflow-visible md:pb-0">
-      {SETTINGS_NAV.map((item) => {
+      {visibleSettingsNav(user?.role).map((item) => {
         const Icon = ICONS[item.icon];
         const active = isSettingsActive(item, pathname, tab);
         return (

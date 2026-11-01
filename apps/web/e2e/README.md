@@ -32,6 +32,7 @@ Iterating: boot the stack once yourself and run with `E2E_REUSE_STACK=1 npx play
 - `onboarding.spec.ts` template gallery -> review step; free-text goal -> key test -> design -> create -> first run succeeded with fixture output
 - `settings-danger.spec.ts` delete workspace (typed phrase), then the account is gone
 - `theme.spec.ts` login renders in light and dark; toggle persists
+- `enterprise-slots.spec.ts` Settings -> Data protection (DLP CRUD; the server owns regex validity), Audit log, SSO slot, honest Team tab, live A2A card, and the role matrix through the UI (viewer/member are set in the throwaway DB via `support/users.ts setRole`: no members API exists)
 
 Helpers: `support/mail.ts` (`mailLink` reads the control-plane log), `support/users.ts` (`signUp`), `support/env.ts`.
 

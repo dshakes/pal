@@ -47,7 +47,8 @@ export function FleetGrid({
   vms: VmRow[];
   isDemo: boolean;
   onOpen: (vm: VmRow) => void;
-  onTerminateSelected: (ids: string[]) => void;
+  /** Omitted for roles without runtime:admin: selection + bulk terminate are not offered. */
+  onTerminateSelected?: (ids: string[]) => void;
 }) {
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<"all" | VmState>("all");
@@ -147,7 +148,8 @@ export function FleetGrid({
     }
   };
 
-  const selectableIds = filtered.filter((v) => v.state !== "terminated" && v.state !== "failed").map((v) => v.vmId);
+  const canTerminate = !!onTerminateSelected;
+  const selectableIds = !canTerminate ? [] : filtered.filter((v) => v.state !== "terminated" && v.state !== "failed").map((v) => v.vmId);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const toggleAll = () => {
     setSelected(allSelected ? new Set() : new Set(selectableIds));
@@ -233,13 +235,13 @@ export function FleetGrid({
             <thead className="sticky top-0 z-10 bg-surface-1 text-[11px] uppercase tracking-wide text-zinc-500">
               <tr className="border-b border-zinc-800/40">
                 <th className="w-8 px-4 py-3.5">
-                  <input
+                  {canTerminate && <input
                     type="checkbox"
                     checked={allSelected}
                     onChange={toggleAll}
                     aria-label="Select all"
                     className="h-3.5 w-3.5 accent-pal-400"
-                  />
+                  />}
                 </th>
                 <SortTh label="Workload" col="name" active={sortKey} dir={sortDir} onSort={toggleSort} />
                 <SortTh label="State" col="state" active={sortKey} dir={sortDir} onSort={toggleSort} />
@@ -269,14 +271,14 @@ export function FleetGrid({
                     )}
                   >
                     <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                      <input
+                      {canTerminate && <input
                         type="checkbox"
                         checked={selected.has(v.vmId)}
                         onChange={() => toggleOne(v.vmId)}
                         disabled={!selectable}
                         aria-label={`Select ${v.vmId}`}
                         className="h-3.5 w-3.5 accent-pal-400 disabled:opacity-30"
-                      />
+                      />}
                     </td>
                     <td className="px-4 py-4">
                       <div className="font-medium text-zinc-100">{v.name || "workload"}</div>
@@ -368,7 +370,7 @@ export function FleetGrid({
               )}
             >
               <div className="flex items-start gap-3">
-                <input
+                {canTerminate && <input
                   type="checkbox"
                   checked={selected.has(v.vmId)}
                   onChange={() => toggleOne(v.vmId)}
@@ -376,7 +378,7 @@ export function FleetGrid({
                   disabled={!selectable}
                   aria-label={`Select ${v.vmId}`}
                   className="mt-1 h-4 w-4 shrink-0 accent-pal-400 disabled:opacity-30"
-                />
+                />}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -457,7 +459,7 @@ export function FleetGrid({
         tone="danger"
         onCancel={() => setConfirmBulkTerminate(false)}
         onConfirm={() => {
-          onTerminateSelected([...selected]);
+          onTerminateSelected?.([...selected]);
           setSelected(new Set());
           setConfirmBulkTerminate(false);
         }}

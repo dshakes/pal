@@ -8,6 +8,7 @@
 // labelled simulated stream and metrics are seeded from the demo series.
 // REAL rows hit the live endpoints and render "—" where data is absent.
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -246,6 +247,7 @@ function LogsTab({ vm, isDemo }: { vm: VmRow; isDemo: boolean }) {
 
 function ExecTab({ vm, isDemo }: { vm: VmRow; isDemo: boolean }) {
   const toast = useToast();
+  const canAdmin = useCan("runtime:admin"); // exec is runtime:admin server-side too
   const [cmd, setCmd] = useState("");
   const [history, setHistory] = useState<{ cmd: string; out: string }[]>([]);
   const [running, setRunning] = useState(false);
@@ -305,7 +307,8 @@ function ExecTab({ vm, isDemo }: { vm: VmRow; isDemo: boolean }) {
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-2">
+      {!canAdmin && <p className="text-[12px] text-zinc-500">Running commands in a sandbox needs the Admin role.</p>}
+      {canAdmin && <div className="flex items-center gap-2">
         <span className="font-mono text-[12px] text-zinc-600">$</span>
         <input
           value={cmd}
@@ -320,7 +323,7 @@ function ExecTab({ vm, isDemo }: { vm: VmRow; isDemo: boolean }) {
         <Button variant="secondary" size="sm" loading={running} onClick={run} icon={<CornerDownLeft className="h-3.5 w-3.5" />}>
           Run
         </Button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -455,6 +458,7 @@ function LifecycleTab({ vm, isDemo, onTerminated }: { vm: VmRow; isDemo: boolean
   const toast = useToast();
   const [terminating, setTerminating] = useState(false);
   const [confirmTerminate, setConfirmTerminate] = useState(false);
+  const canAdmin = useCan("runtime:admin");
   const active = vm.state !== "terminated" && vm.state !== "failed";
 
   const STEPS: { state: string; label: string }[] = [
@@ -529,7 +533,7 @@ function LifecycleTab({ vm, isDemo, onTerminated }: { vm: VmRow; isDemo: boolean
         <pre className="overflow-x-auto font-mono text-[12px] text-zinc-400">{JSON.stringify(vm.spec ?? {}, null, 2)}</pre>
       </div>
 
-      {active && (
+      {active && canAdmin && (
         <Button variant="danger" size="md" loading={terminating} onClick={() => setConfirmTerminate(true)} icon={<StopCircle className="h-3.5 w-3.5" />}>
           Terminate workload
         </Button>

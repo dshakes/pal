@@ -1,5 +1,7 @@
 "use client";
 
+import { EmptyState } from "@/components/empty-state";
+import { useCan } from "@/components/role-gate";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -109,7 +111,21 @@ function buildWorkflowFromAgent(agentName: string): WorkflowDefinition | null {
   };
 }
 
+/** The visual editor saves workflows, so it needs agents:write (UX gating, lib/rbac-matrix.ts). */
 export default function EditorPage() {
+  const canWrite = useCan("agents:write");
+  const agent = useParams().name as string;
+  if (!canWrite) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8">
+        <EmptyState title="The workflow editor is read-only for your role" description="Ask an owner or admin for the Member role to edit this agent's workflow." actionLabel="Back to agent" actionHref={`/agents/${encodeURIComponent(agent)}`} />
+      </div>
+    );
+  }
+  return <EditorPageInner />;
+}
+
+function EditorPageInner() {
   const params = useParams();
   const name = params.name as string;
 

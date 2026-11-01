@@ -19,6 +19,7 @@
 // counts, capacity sparkline) are demo-only. For a REAL plane those render
 // real values where the API has them, and "—" otherwise — never fabricated.
 
+import { useCan } from "@/components/role-gate";
 import { usePublicUrls } from "@/lib/public-url";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
@@ -263,6 +264,7 @@ function capTone(u: number): "ok" | "accent" | "warn" | "danger" {
 // ---------------------------------------------------------------------------
 
 export default function DeploymentsPage() {
+  const canManage = useCan("settings:write"); // data planes are infra config (UX gating, lib/rbac-matrix.ts)
   const { apiBase } = usePublicUrls();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
@@ -429,9 +431,11 @@ export default function DeploymentsPage() {
             >
               Refresh
             </Button>
-            <Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowAddPlane(true)}>
+            {canManage && (
+<Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowAddPlane(true)}>
               Connect data plane
             </Button>
+)}
           </div>
         }
       />
@@ -451,8 +455,8 @@ export default function DeploymentsPage() {
                 ? "The control-plane API was unreachable, so this may not be the real list. Retry once it's back."
                 : "Connect a Kubernetes data plane (EKS, GKE, or AKS) so agents run inside your VPC. Use the Terraform + Helm onboarding below, then click Connect data plane."
             }
-            actionLabel="Connect data plane"
-            onAction={() => setShowAddPlane(true)}
+            actionLabel={canManage ? "Connect data plane" : undefined}
+            onAction={canManage ? () => setShowAddPlane(true) : undefined}
           />
         ) : (
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
@@ -469,7 +473,7 @@ export default function DeploymentsPage() {
                   open={expanded.has(p.id)}
                   onToggle={() => toggle(p.id)}
                   deployments={deployments.filter((d) => d.planeId === p.id)}
-                  onRemove={() => setRemoveTarget(p)}
+                  onRemove={canManage ? () => setRemoveTarget(p) : undefined}
                 />
               ))}
             </div>
@@ -542,9 +546,11 @@ export default function DeploymentsPage() {
                     {selectedCloud.steps.join("\n").replaceAll("__API_BASE__", apiBase || "https://<your-control-plane>")}
                   </pre>
                   <div className="mt-4 flex items-center gap-3">
-                    <Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowAddPlane(true)}>
+                    {canManage && (
+<Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowAddPlane(true)}>
                       Register data plane
                     </Button>
+)}
                     <p className="text-xs text-zinc-500">After the install completes, register your data plane here.</p>
                   </div>
                 </div>
@@ -706,7 +712,7 @@ function PlaneCard({
   open: boolean;
   onToggle: () => void;
   deployments: DeploymentRow[];
-  onRemove: () => void;
+  onRemove?: () => void;
 }) {
   const offline = plane.status === "offline";
   const cpuUtil = plane.vcpuTotal && plane.vcpuTotal > 0 ? (plane.vcpuUsed ?? 0) / plane.vcpuTotal : null;
@@ -827,12 +833,14 @@ function PlaneCard({
 
           {/* Plane actions */}
           <div className="mt-4 flex justify-end">
-            <button
+            {onRemove && (
+<button
               onClick={onRemove}
               className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-[12px] text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400/90"
             >
               <Trash2 className="h-3 w-3" /> Disconnect
             </button>
+)}
           </div>
         </div>
       )}

@@ -3,6 +3,7 @@
 // Agent detail → MCP servers: real attachments (GET/POST/DELETE
 // /v1/agents/{name}/mcp-servers) + live tools/list as the connection test.
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useState } from "react";
 import { Plug, Plus, Server, X } from "lucide-react";
 import clsx from "clsx";
@@ -22,6 +23,9 @@ interface Option { slug: string; name: string; transport: string; tenant: boolea
 
 export function AgentMcpSection({ agentName }: { agentName: string }) {
   const toast = useToast();
+  // UX gating (lib/rbac-matrix.ts): attach/detach are agents:write; connecting a credential is connectors:write.
+  const canAttach = useCan("agents:write");
+  const canConnect = useCan("connectors:write");
   const [attached, setAttached] = useState<McpAttachment[] | null>(null);
   const [options, setOptions] = useState<Option[]>([]);
   const [showAttach, setShowAttach] = useState(false);
@@ -113,7 +117,7 @@ export function AgentMcpSection({ agentName }: { agentName: string }) {
     <div className="space-y-4 rounded-xl border border-line bg-panel p-5">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><Plug className="h-4 w-4 text-accent" /> MCP Servers</h3>
-        <Button size="sm" variant="secondary" icon={<Plus className="h-3 w-3" />} onClick={openAttach}>Attach server</Button>
+        {canAttach && <Button size="sm" variant="secondary" icon={<Plus className="h-3 w-3" />} onClick={openAttach}>Attach server</Button>}
       </div>
       <p className="text-[11px] text-fg-3">
         Give the agent tools from Model Context Protocol servers. Register your own servers and credentials in{" "}
@@ -143,13 +147,13 @@ export function AgentMcpSection({ agentName }: { agentName: string }) {
                     {typeof a.config?.vmId === "string" && <p className="mt-0.5 font-mono text-[11px] text-fg-3">sandbox VM {a.config.vmId}</p>}
                   </div>
                   <Button size="sm" variant="secondary" loading={testing === a.serverSlug} onClick={() => test(a.serverSlug)}>Test</Button>
-                  <button aria-label={`Detach ${a.serverName}`} onClick={() => detach(a.serverSlug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><X className="h-3 w-3" /></button>
+                  {canAttach && <button aria-label={`Detach ${a.serverName}`} onClick={() => detach(a.serverSlug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><X className="h-3 w-3" /></button>}
                 </div>
 
                 {t?.kind === "auth" && (
                   <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-warn-soft px-3 py-2 text-[11px] text-warn">
-                    Not connected yet — this server needs authorization.
-                    <Button size="sm" variant="primary" onClick={() => connect(a)}>Connect</Button>
+                    {canConnect ? "Not connected yet — this server needs authorization." : "Not connected yet — an owner or admin needs to authorize this server."}
+                    {canConnect && <Button size="sm" variant="primary" onClick={() => connect(a)}>Connect</Button>}
                   </div>
                 )}
                 {t?.kind === "error" && <p className="mt-2 rounded-lg bg-bad-soft px-3 py-2 text-[11px] text-bad">{t.message}</p>}

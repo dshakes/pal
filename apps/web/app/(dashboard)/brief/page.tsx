@@ -9,6 +9,7 @@
 // only reorder/annotate (lib/brief). Nothing here fabricates: every row is a
 // real server record; a source that is down is named, not faked.
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
@@ -36,6 +37,7 @@ const CHANNELS: BridgeChannel[] = ["whatsapp", "imessage"];
 type ChannelHealth = Record<BridgeChannel, "online" | "offline" | "unknown">;
 
 export default function BriefPage() {
+  const canAct = useCan("runs:execute");
   const { user } = useAuth();
   const { isConfigured } = useModels();
   const toast = useToast();
@@ -268,9 +270,11 @@ export default function BriefPage() {
                       <HoldCard item={item} draft={draftById.get(item.id)!} onResolve={resolveDraft} />
                     ) : item.kind === "life_event" ? (
                       <RowCard item={item} icon={Zap}>
-                        <Button size="sm" variant="ghost" icon={<X className="h-3 w-3" />} onClick={() => void dismissEvent(item.id)}>
+                        {canAct && (
+<Button size="sm" variant="ghost" icon={<X className="h-3 w-3" />} onClick={() => void dismissEvent(item.id)}>
                           Dismiss
                         </Button>
+)}
                         <Link href="/automations" className="text-[12px] font-medium text-pal-400 hover:text-pal-300">Open</Link>
                       </RowCard>
                     ) : item.kind === "commitment" ? (
@@ -390,6 +394,7 @@ function HoldCard({
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(draft.draftText);
   const [busy, setBusy] = useState<null | "approve" | "edit" | "discard">(null);
+  const canAct = useCan("runs:execute"); // sending/discarding a held reply (UX gating, lib/rbac-matrix.ts)
   const act = async (a: "approve" | "edit" | "discard") => {
     setBusy(a);
     await onResolve(draft, a, a === "edit" ? text : undefined);
@@ -426,7 +431,9 @@ function HoldCard({
             </p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {editing ? (
+            {!canAct ? (
+              <span className="text-[12px] text-zinc-500">Only a Member or above can send or discard held replies.</span>
+            ) : editing ? (
               <>
                 <Button size="sm" variant="primary" loading={busy === "edit"} disabled={!text.trim()} icon={<Check className="h-3 w-3" />} onClick={() => void act("edit")}>
                   Send edited

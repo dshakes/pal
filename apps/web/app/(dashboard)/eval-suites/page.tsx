@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useState, useEffect, useCallback } from "react";
 import {
   BookCheck,
@@ -49,6 +50,9 @@ function emptyDraft(agentName: string): EvalSuiteInput {
 }
 
 export default function EvalSuitesPage() {
+  // UX gating (lib/rbac-matrix.ts): suites are agent config, hermetic runs/LLM judge spend money.
+  const canWrite = useCan("agents:write");
+  const canRun = useCan("runs:execute");
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [suites, setSuites] = useState<EvalSuite[]>([]);
@@ -274,7 +278,8 @@ export default function EvalSuitesPage() {
         badge={suites.length > 0 ? <CountBadge count={suites.length} /> : null}
         secondaryAction={
           <div className="flex flex-wrap gap-2">
-            <Button
+            {canRun && (
+<Button
               variant="secondary"
               size="md"
               icon={<Scale className="h-3.5 w-3.5" />}
@@ -288,7 +293,9 @@ export default function EvalSuitesPage() {
             >
               Calibrate judge
             </Button>
-            <Button
+)}
+            {canRun && (
+<Button
               variant="secondary"
               size="md"
               icon={<Sparkles className="h-3.5 w-3.5" />}
@@ -298,10 +305,12 @@ export default function EvalSuitesPage() {
             >
               Generate with agent
             </Button>
+)}
           </div>
         }
         action={
-          <Button
+          canWrite ? (
+<Button
             variant="primary"
             size="md"
             icon={<Plus className="h-3.5 w-3.5" />}
@@ -314,6 +323,7 @@ export default function EvalSuitesPage() {
           >
             New suite
           </Button>
+) : null
         }
       />
 
@@ -330,16 +340,16 @@ export default function EvalSuitesPage() {
                   ? "A suite is a list of inputs + expected output substrings. Pin one run as the baseline per branch, and every future run fails CI if it scores lower."
                   : "Create an agent first. Eval suites are defined per-agent."
               }
-              actionLabel={canCreate ? "New suite" : "Create agent"}
+              actionLabel={!canWrite ? undefined : canCreate ? "New suite" : "Create agent"}
               onAction={
-                canCreate
+                canWrite && canCreate
                   ? () => {
                       setEditing(emptyDraft(agents[0]?.name ?? ""));
                       setEditingId(null);
                     }
                   : undefined
               }
-              actionHref={canCreate ? undefined : "/agents/create"}
+              actionHref={canWrite && !canCreate ? "/agents/create" : undefined}
             />
           ) : (
             <div className="space-y-2">
@@ -366,7 +376,8 @@ export default function EvalSuitesPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1">
-                    <Button
+                    {canRun && (
+<Button
                       variant="primary"
                       size="sm"
                       icon={<Play className="h-3 w-3" />}
@@ -374,6 +385,7 @@ export default function EvalSuitesPage() {
                     >
                       Run (hermetic)
                     </Button>
+)}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -382,7 +394,8 @@ export default function EvalSuitesPage() {
                     >
                       History
                     </Button>
-                    <Button
+                    {canWrite && (
+<Button
                       variant="secondary"
                       size="sm"
                       icon={<Pencil className="h-3 w-3" />}
@@ -398,7 +411,9 @@ export default function EvalSuitesPage() {
                     >
                       Edit
                     </Button>
-                    <Button
+)}
+                    {canWrite && (
+<Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setDeleteTarget({ id: s.id, name: s.name })}
@@ -406,6 +421,7 @@ export default function EvalSuitesPage() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
+)}
                   </div>
                 </div>
                 {historyFor === s.id && (
@@ -517,7 +533,8 @@ export default function EvalSuitesPage() {
                           >
                             View
                           </Button>
-                          <Button
+                          {canWrite && (
+<Button
                             variant="ghost"
                             size="sm"
                             icon={<Pin className="h-3 w-3" />}
@@ -526,6 +543,7 @@ export default function EvalSuitesPage() {
                           >
                             Pin baseline
                           </Button>
+)}
                         </td>
                       </tr>
                     ))}
@@ -585,7 +603,8 @@ export default function EvalSuitesPage() {
                     >
                       View details
                     </Button>
-                    <Button
+                    {canWrite && (
+<Button
                       variant="ghost"
                       size="sm"
                       icon={<Pin className="h-3 w-3" />}
@@ -595,6 +614,7 @@ export default function EvalSuitesPage() {
                     >
                       Pin baseline
                     </Button>
+)}
                   </div>
                 ))}
               </div>

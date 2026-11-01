@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { api, type McpCredential, type McpTenantServer } from "@/lib/api";
@@ -14,6 +15,7 @@ const inputCls = "w-full rounded-lg border border-line bg-canvas px-3 py-2 text-
 const card = "rounded-xl border border-line bg-panel p-5";
 
 export default function McpSettingsPage() {
+  const canWrite = useCan("connectors:write"); // UX gating (lib/rbac-matrix.ts)
   const { toast } = useToast();
   const [servers, setServers] = useState<McpTenantServer[] | null>(null);
   const [creds, setCreds] = useState<McpCredential[]>([]);
@@ -85,11 +87,11 @@ export default function McpSettingsPage() {
             <h2 className="text-sm font-semibold text-fg">Your MCP servers</h2>
             <p className="mt-1 text-[11px] text-fg-3">Remote (HTTPS) servers you register. Attach them to agents from the agent page.</p>
           </div>
-          <Button size="sm" className="shrink-0 whitespace-nowrap" icon={<Plus className="h-3 w-3" />} onClick={() => setShowAdd(true)}>Add server</Button>
+          {canWrite && <Button size="sm" className="shrink-0 whitespace-nowrap" icon={<Plus className="h-3 w-3" />} onClick={() => setShowAdd(true)}>Add server</Button>}
         </div>
         <div className="mt-4 space-y-2">
           {servers === null ? <Skeleton className="h-14 w-full" /> : servers.length === 0 ? (
-            <EmptyState size="compact" title="No servers yet" description="Register a remote MCP server to use it with your agents." actionLabel="Add server" onAction={() => setShowAdd(true)} />
+            <EmptyState size="compact" title="No servers yet" description="Register a remote MCP server to use it with your agents." actionLabel={canWrite ? "Add server" : undefined} onAction={canWrite ? () => setShowAdd(true) : undefined} />
           ) : servers.map((s) => (
             <div key={s.slug} className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-canvas px-3 py-2.5">
               <div className="min-w-0 flex-1 basis-full sm:basis-auto">
@@ -97,9 +99,9 @@ export default function McpSettingsPage() {
                 <p className="truncate font-mono text-[11px] text-fg-3">{s.url}</p>
               </div>
               <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-fg-2">auth: {s.authType}</span>
-              {s.authType === "oauth" && <Button size="sm" variant="secondary" onClick={() => oauth(s.slug)}>Connect with OAuth</Button>}
-              {s.authType === "bearer" && <Button size="sm" variant="secondary" onClick={() => setTokenFor(s.slug)}>Set token</Button>}
-              <button aria-label={`Remove ${s.slug}`} onClick={() => remove(s.slug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><Trash2 className="h-3.5 w-3.5" /></button>
+              {canWrite && s.authType === "oauth" && <Button size="sm" variant="secondary" onClick={() => oauth(s.slug)}>Connect with OAuth</Button>}
+              {canWrite && s.authType === "bearer" && <Button size="sm" variant="secondary" onClick={() => setTokenFor(s.slug)}>Set token</Button>}
+              {canWrite && <button aria-label={`Remove ${s.slug}`} onClick={() => remove(s.slug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><Trash2 className="h-3.5 w-3.5" /></button>}
             </div>
           ))}
         </div>
@@ -116,13 +118,13 @@ export default function McpSettingsPage() {
               {c.scope && <span className="text-[11px] text-fg-3">scope: {c.scope}</span>}
               {c.expiresAt && <span className="text-[11px] text-fg-3">expires {new Date(c.expiresAt).toLocaleString()}</span>}
               <span className="ml-auto text-[11px] text-fg-3">updated {new Date(c.updatedAt).toLocaleString()}</span>
-              <button aria-label={`Delete credential for ${c.serverSlug}`} onClick={() => dropCred(c.serverSlug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><Trash2 className="h-3.5 w-3.5" /></button>
+              {canWrite && <button aria-label={`Delete credential for ${c.serverSlug}`} onClick={() => dropCred(c.serverSlug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><Trash2 className="h-3.5 w-3.5" /></button>}
             </div>
           ))}
         </div>
-        <div className="mt-3">
+        {canWrite && <div className="mt-3">
           <Button size="sm" variant="secondary" onClick={() => setTokenFor("")}>Set a token for another server</Button>
-        </div>
+        </div>}
       </section>
 
       <section className={card}>

@@ -4,6 +4,7 @@
 // POST /v1/hooks/{id} that GitHub / Sentry / PagerDuty (or any HMAC-signing
 // sender) delivers to; a verified delivery starts a run of this agent.
 
+import { useCan } from "@/components/role-gate";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Plus, Trash2, Webhook } from "lucide-react";
 import { api, type Trigger, type TriggerProvider } from "@/lib/api";
@@ -25,6 +26,7 @@ const inputCls =
   "w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50";
 
 export default function AgentTriggersPage({ params }: { params: Promise<{ name: string }> }) {
+  const canWrite = useCan("agents:write"); // UX gating (lib/rbac-matrix.ts)
   const { name: rawName } = use(params);
   const name = decodeURIComponent(rawName);
   const toast = useToast();
@@ -132,9 +134,11 @@ export default function AgentTriggersPage({ params }: { params: Promise<{ name: 
         title="Webhook triggers"
         description={`Start a run of ${name} when GitHub, Sentry, PagerDuty or any HMAC-signing service sends an event. Runs count against this agent's budget.`}
         action={
-          <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setOpen(true)}>
+          canWrite ? (
+<Button variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setOpen(true)}>
             New trigger
           </Button>
+) : null
         }
         secondaryAction={
           <LinkButton href={`/agents/${encodeURIComponent(name)}`} variant="ghost">
@@ -149,8 +153,8 @@ export default function AgentTriggersPage({ params }: { params: Promise<{ name: 
             icon={Webhook}
             title="No webhook triggers yet"
             description="Create one, then paste its URL and secret into the sending service."
-            actionLabel="New trigger"
-            onAction={() => setOpen(true)}
+            actionLabel={canWrite ? "New trigger" : undefined}
+            onAction={canWrite ? () => setOpen(true) : undefined}
             size="compact"
           />
         ) : (
@@ -173,7 +177,7 @@ export default function AgentTriggersPage({ params }: { params: Promise<{ name: 
                       {t.enabled ? "enabled" : "disabled"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  {canWrite && <div className="flex items-center gap-1">
                     <Button size="sm" variant="ghost" onClick={() => toggle(t)}>
                       {t.enabled ? "Disable" : "Enable"}
                     </Button>
@@ -183,7 +187,7 @@ export default function AgentTriggersPage({ params }: { params: Promise<{ name: 
                     <Button size="sm" variant="danger" icon={<Trash2 className="h-3 w-3" />} onClick={() => remove(t)} aria-label="Delete trigger">
                       Delete
                     </Button>
-                  </div>
+                  </div>}
                 </div>
                 <div className="flex items-center gap-2">
                   <code className="min-w-0 flex-1 truncate rounded bg-surface-0 px-2 py-1 text-[11px] text-zinc-300">{url}</code>
