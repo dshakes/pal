@@ -1,5 +1,6 @@
 "use client";
 
+import { AgentA2aCard } from "@/components/agent-a2a-card";
 import { usePublicUrls } from "@/lib/public-url";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -19,16 +20,12 @@ import {
   Zap,
   GitCompare,
   ShieldAlert,
-  DollarSign,
-  Network,
   Plug,
   X,
   Brain,
   Paperclip,
   Send,
   Copy,
-  Link,
-  Share2,
   Cloud,
   GitBranch,
 } from "lucide-react";
@@ -56,7 +53,7 @@ import { runtimeApi } from "@/lib/runtime-api";
 import { formatDistanceToNowStrict } from "date-fns";
 import { Button } from "@/components/button";
 import { ConfirmModal } from "@/components/modal";
-import { RoleGate } from "@/components/role-gate";
+import { RoleGate, useCan } from "@/components/role-gate";
 import { useAgentSurface } from "@/components/agent-surface";
 import { resolveTab, type AgentTab } from "@/lib/lifecycle";
 import { DebugPanel, EvalsPanel, GatePanel, LifecycleRail, PromotePanel, ReliabilityStrip } from "./lifecycle";
@@ -174,13 +171,8 @@ function loadChat(n: string): ChatMessage[] { if (typeof window === "undefined")
 function saveChat(n: string, msgs: ChatMessage[]) { if (typeof window === "undefined") return; localStorage.setItem(CHAT_KEY(n), JSON.stringify(msgs)); }
 
 // ---------------------------------------------------------------------------
-// Sharing localStorage helpers
 // ---------------------------------------------------------------------------
 
-interface SharingConfig { isPublic: boolean; accessLevel: "view" | "run" | "fork"; publicId: string; }
-const SHARING_KEY = (n: string) => `pal_agent_sharing_${n}`;
-function loadSharing(n: string): SharingConfig { if (typeof window === "undefined") return { isPublic: false, accessLevel: "view", publicId: "" }; try { const raw = localStorage.getItem(SHARING_KEY(n)); if (!raw) return { isPublic: false, accessLevel: "view", publicId: `pub_${Date.now().toString(36)}` }; return JSON.parse(raw); } catch { return { isPublic: false, accessLevel: "view", publicId: `pub_${Date.now().toString(36)}` }; } }
-function saveSharing(n: string, cfg: SharingConfig) { if (typeof window === "undefined") return; localStorage.setItem(SHARING_KEY(n), JSON.stringify(cfg)); }
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -188,6 +180,9 @@ function saveSharing(n: string, cfg: SharingConfig) { if (typeof window === "und
 
 export default function AgentDetailPage() {
   const { apiBase } = usePublicUrls();
+  // UX gating only (lib/rbac-matrix.ts) - the server stays authoritative.
+  const canWrite = useCan("agents:write");
+  const canRun = useCan("runs:execute");
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -304,13 +299,7 @@ export default function AgentDetailPage() {
   // Code Sandbox (Feature 3)
   const [codeBlockResults, setCodeBlockResults] = useState<Record<number, { output: string; error: boolean }>>({});
 
-  // Sharing (Feature 4)
-  const [sharing, setSharing] = useState<SharingConfig>({ isPublic: false, accessLevel: "view", publicId: "" });
 
-  // A2A Agent Card (Gap 4)
-  const [a2aEnabled, setA2aEnabled] = useState(false);
-  const [a2aInputSchema, setA2aInputSchema] = useState('{"type":"object","properties":{"message":{"type":"string"}}}');
-  const [a2aOutputSchema, setA2aOutputSchema] = useState('{"type":"object","properties":{"result":{"type":"string"}}}');
 
   // Cloud Deploy (Gap 5)
   const [cloudDeployStatus, setCloudDeployStatus] = useState<string>("not_deployed");
@@ -351,8 +340,6 @@ export default function AgentDetailPage() {
     setMemoryEntries(getAgentMemory(name));
     // Load chat history
     setChatMessages(loadChat(name));
-    // Load sharing config
-    setSharing(loadSharing(name));
     // Load managed environment settings (Gap 2)
     try {
       const envSettings = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}");
@@ -361,13 +348,6 @@ export default function AgentDetailPage() {
       if (envSettings.timeout) setEnvTimeout(envSettings.timeout);
       if (envSettings.network) setEnvNetwork(envSettings.network);
       if (envSettings.packages) setEnvPackages(envSettings.packages);
-    } catch { /* */ }
-    // Load A2A config (Gap 4)
-    try {
-      const a2aConfig = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}");
-      if (a2aConfig.enabled) setA2aEnabled(a2aConfig.enabled);
-      if (a2aConfig.inputSchema) setA2aInputSchema(a2aConfig.inputSchema);
-      if (a2aConfig.outputSchema) setA2aOutputSchema(a2aConfig.outputSchema);
     } catch { /* */ }
     // Load cloud deploy status (Gap 5)
     api.getCloudDeployment(name).then((d) => {
@@ -739,13 +719,6 @@ export default function AgentDetailPage() {
     setCodeBlockResults(prev => ({ ...prev, [idx]: { output: result.output, error: result.error } }));
   }, []);
 
-  // Feature 4: Sharing handler
-  const handleSharingChange = useCallback((updates: Partial<SharingConfig>) => {
-    const updated = { ...sharing, ...updates };
-    if (updates.isPublic && !sharing.publicId) updated.publicId = `pub_${Date.now().toString(36)}`;
-    setSharing(updated); saveSharing(name, updated);
-  }, [sharing, name]);
-
   // Agent health stats
   const healthStats = useMemo(() => {
     const total = agentRuns.length;
@@ -1027,7 +1000,8 @@ export default function AgentDetailPage() {
                 <span className="text-[11px] text-accent">Agent is responding -- you can send another message to steer the conversation</span>
               </div>
             )}
-            <div className="mt-3 flex items-center gap-2">
+            {!canRun && <p className="mt-3 text-[11px] text-fg-3">Your role cannot send messages to agents (it spends money). Ask an owner or admin for the Member role.</p>}
+            {canRun && <div className="mt-3 flex items-center gap-2">
               <button onClick={() => handleFileAttach(setChatFiles)} className="rounded-lg border border-line-strong p-2 text-fg-3 hover:bg-hover hover:text-fg" title="Attach file">
                 <Paperclip className="h-4 w-4" />
               </button>
@@ -1045,7 +1019,7 @@ export default function AgentDetailPage() {
               >
                 {chatStreaming && !sessionConnected ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               </button>
-            </div>
+            </div>}
           </div>
         )}
 
@@ -1054,7 +1028,8 @@ export default function AgentDetailPage() {
           <div className="space-y-4">
             <ReliabilityStrip agentName={name} />
             <div className="flex flex-wrap items-center gap-3">
-              <Button
+              {canRun && (
+<Button
                 variant="primary"
                 size="md"
                 loading={testRunning}
@@ -1079,6 +1054,7 @@ export default function AgentDetailPage() {
               >
                 {testRunning ? "Running..." : "Run Now"}
               </Button>
+)}
               <CostForecastBadge agentName={name} />
               {agentRuns.length >= 2 && (
                 <Button variant={compareMode ? "primary" : "secondary"} size="md" icon={<GitCompare className="h-3 w-3" />} onClick={() => { setCompareMode(!compareMode); setCompareIds([null, null]); }}>
@@ -1174,7 +1150,7 @@ export default function AgentDetailPage() {
                         </button>
                         {/* Delete — visible on hover or when confirming */}
                         <div className={clsx("flex w-[76px] shrink-0 items-center justify-end pr-2", confirmingDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity")}>
-                          {confirmingDelete ? (
+                          {!canRun ? null : confirmingDelete ? (
                             <div className="flex items-center gap-1">
                               <button
                                 onClick={async () => {
@@ -1238,7 +1214,8 @@ export default function AgentDetailPage() {
         {/* SCHEDULE TAB */}
         {activeTab === "schedule" && (
           <div className="mx-auto max-w-2xl space-y-6">
-            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
+            {!canWrite && <p className="rounded-lg bg-raised px-3 py-2 text-[11px] text-fg-3">Read-only for your role. Ask an owner or admin for the Member role to change the schedule.</p>}
+            <fieldset disabled={!canWrite} className="m-0 min-w-0 rounded-xl border border-line bg-panel p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-fg">Cron Schedule</h3>
                 <button type="button" role="switch" aria-checked={scheduleEnabled} onClick={() => setScheduleEnabled(!scheduleEnabled)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", scheduleEnabled ? "bg-accent" : "bg-line-strong")}>
@@ -1274,10 +1251,12 @@ export default function AgentDetailPage() {
                 </div>
               </div>
 
-              <button onClick={handleSaveSchedule} disabled={savingSchedule || !settingsCron.trim()} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-on-action hover:opacity-90 disabled:opacity-50">
+              {canWrite && (
+<button onClick={handleSaveSchedule} disabled={savingSchedule || !settingsCron.trim()} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-on-action hover:opacity-90 disabled:opacity-50">
                 {savingSchedule ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving...</> : <><Save className="h-3 w-3" /> Save Schedule</>}
               </button>
-            </div>
+)}
+            </fieldset>
           </div>
         )}
 
@@ -1286,6 +1265,7 @@ export default function AgentDetailPage() {
 
         {activeTab === "settings" && (
           <div className="mx-auto max-w-2xl space-y-6">
+            {!canWrite && <p className="rounded-lg bg-raised px-3 py-2 text-[11px] text-fg-3">Read-only for your role. Ask an owner or admin for the Member role to change this agent.</p>}
             {/* Webhook triggers (ADR 0028) */}
             <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-panel p-5">
               <div>
@@ -1295,6 +1275,7 @@ export default function AgentDetailPage() {
               <LinkButton href={`/agents/${encodeURIComponent(name)}/triggers`} size="sm">Manage</LinkButton>
             </div>
 
+            <fieldset disabled={!canWrite} className="m-0 min-w-0 space-y-6 border-0 p-0">
             {/* Default Model */}
             <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
               <h3 className="text-sm font-semibold text-fg">Default Model</h3>
@@ -1450,88 +1431,15 @@ export default function AgentDetailPage() {
               )}
             </div>
 
+            {canWrite && (
             <button onClick={handleSaveSettings} disabled={savingSettings} className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-on-action hover:opacity-90 disabled:opacity-50">
               {savingSettings ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving...</> : "Save Settings"}
             </button>
+            )}
+            </fieldset>
 
-            {/* Sharing (Feature 4) */}
-            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><Share2 className="h-4 w-4 text-accent" /> Sharing</h3>
-                <button type="button" role="switch" aria-checked={sharing.isPublic} onClick={() => handleSharingChange({ isPublic: !sharing.isPublic })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", sharing.isPublic ? "bg-accent" : "bg-line-strong")}>
-                  <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", sharing.isPublic ? "translate-x-4" : "translate-x-0.5")} />
-                </button>
-              </div>
-              <p className="text-[11px] text-fg-3">{sharing.isPublic ? "Anyone with the link can access this agent" : "This agent is private"}</p>
-              {sharing.isPublic && (
-                <>
-                  <div>
-                    <label className="mb-1 block text-xs text-fg-2">Access level</label>
-                    <select value={sharing.accessLevel} onChange={(e) => handleSharingChange({ accessLevel: e.target.value as SharingConfig["accessLevel"] })} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
-                      <option value="view">View only</option>
-                      <option value="run">Can run</option>
-                      <option value="fork">Can fork</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-fg-2">Shareable URL</label>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg-2 select-all">https://dshakes.github.io/pal/agents/public/{sharing.publicId}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(`https://dshakes.github.io/pal/agents/public/${sharing.publicId}`); toast.success("Link copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
-                        <Copy className="h-3 w-3" /> Copy
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 rounded-lg bg-canvas px-3 py-2.5">
-                    <Link className="h-4 w-4 text-accent shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-fg-2">Public ID: {sharing.publicId}</p>
-                      <p className="text-[11px] text-fg-3">Access: {sharing.accessLevel === "view" ? "View only" : sharing.accessLevel === "run" ? "Can run" : "Can fork"}</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* A2A & Sharing (Gap 4) */}
-            <div className="rounded-xl border border-accent bg-panel p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Network className="h-4 w-4 text-accent" />
-                  <h3 className="text-sm font-semibold text-fg">A2A Agent Card</h3>
-                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[9px] font-medium text-accent">A2A Protocol</span>
-                </div>
-                <button type="button" role="switch" aria-checked={a2aEnabled} onClick={() => { const next = !a2aEnabled; setA2aEnabled(next); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.enabled = next; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } toast.success(next ? "A2A Agent Card published" : "A2A Agent Card unpublished"); }} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", a2aEnabled ? "bg-accent" : "bg-line-strong")}>
-                  <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", a2aEnabled ? "translate-x-4" : "translate-x-0.5")} />
-                </button>
-              </div>
-              <p className="text-[11px] text-fg-3">Publish this agent as an A2A Agent Card so other agents and platforms can discover and invoke it.</p>
-              {a2aEnabled && (
-                <>
-                  <div>
-                    <label className="mb-1 block text-xs text-fg-2">Agent Card URL</label>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg-2 select-all">{apiBase}/v1/agents/{name}/card</code>
-                      <button onClick={() => { navigator.clipboard.writeText(`${apiBase}/v1/agents/${name}/card`); toast.success("Card URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
-                        <Copy className="h-3 w-3" /> Copy
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-fg-2">Agent Card Preview</label>
-                    <pre className="rounded-lg border border-line bg-canvas p-3 font-mono text-[11px] text-fg-3 overflow-x-auto leading-relaxed max-h-40 overflow-y-auto">{JSON.stringify({ name, description: agent?.description || "", version: "0.1.0", capabilities: ["text-generation"], endpoint: `${apiBase}/v1/agents/${name}/a2a/invoke`, auth: { type: "bearer", description: "PAL API key" }, inputSchema: (() => { try { return JSON.parse(a2aInputSchema); } catch { return {}; } })(), outputSchema: (() => { try { return JSON.parse(a2aOutputSchema); } catch { return {}; } })(), provider: { name: "PAL", url: "https://dshakes.github.io/pal" } }, null, 2)}</pre>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-fg-2">Input Schema (JSON)</label>
-                    <textarea value={a2aInputSchema} onChange={(e) => { setA2aInputSchema(e.target.value); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.inputSchema = e.target.value; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } }} rows={3} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg placeholder:text-fg-3 outline-none focus:border-accent resize-none" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-fg-2">Output Schema (JSON)</label>
-                    <textarea value={a2aOutputSchema} onChange={(e) => { setA2aOutputSchema(e.target.value); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.outputSchema = e.target.value; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } }} rows={3} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg placeholder:text-fg-3 outline-none focus:border-accent resize-none" />
-                  </div>
-                </>
-              )}
-            </div>
+            {/* A2A Agent Card: live from the control plane (ADR 0057) */}
+            <AgentA2aCard name={name} />
 
             {/* Deploy to Cloud (Gap 5) */}
             <div className="rounded-xl border border-accent bg-panel p-5 space-y-4">
@@ -1542,7 +1450,7 @@ export default function AgentDetailPage() {
                 {cloudDeployStatus === "stopped" && <span className="rounded-full bg-raised px-2 py-0.5 text-[9px] font-medium text-fg-2">Stopped</span>}
               </div>
               <p className="text-[11px] text-fg-3">Deploy this agent to PAL Cloud for managed hosting with usage-based billing. No infrastructure to manage.</p>
-              {cloudDeployStatus === "not_deployed" && (
+              {canWrite && cloudDeployStatus === "not_deployed" && (
                 <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent deployed to PAL Cloud"); } catch (err) { toast.error(`Deploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-action px-4 py-2.5 text-sm font-medium text-on-action transition-colors hover:opacity-90 disabled:opacity-50">
                   {deploying ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deploying...</> : <><Cloud className="h-3.5 w-3.5" /> Deploy to Cloud</>}
                 </button>
@@ -1552,53 +1460,41 @@ export default function AgentDetailPage() {
                   <div>
                     <label className="mb-1 block text-xs text-fg-2">Live URL</label>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-ok bg-canvas px-3 py-2 font-mono text-xs text-ok select-all">{cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`); toast.success("URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
+                      <code className="flex-1 truncate rounded-lg border border-ok bg-canvas px-3 py-2 font-mono text-xs text-ok select-all">{cloudDeployUrl || "not reported by the deployment"}</code>
+                      <button disabled={!cloudDeployUrl} onClick={() => { navigator.clipboard.writeText(cloudDeployUrl); toast.success("URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
                         <Copy className="h-3 w-3" /> Copy
                       </button>
                     </div>
                   </div>
-                  <div className="rounded-lg border border-line bg-canvas p-3 space-y-2">
-                    <span className="text-[11px] font-medium text-fg-3 uppercase tracking-wider">Usage This Month</span>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div><p className="text-lg font-semibold text-fg">142</p><p className="text-[11px] text-fg-3">Sessions</p></div>
-                      <div><p className="text-lg font-semibold text-fg">48.2k</p><p className="text-[11px] text-fg-3">Tokens</p></div>
-                      <div><p className="text-lg font-semibold text-fg">3.2h</p><p className="text-[11px] text-fg-3">Compute</p></div>
-                    </div>
-                    <div className="flex items-center gap-2 pt-1 border-t border-line">
-                      <DollarSign className="h-3 w-3 text-fg-3" />
-                      <span className="text-xs text-fg-2">Estimated cost: <span className="font-medium text-fg">$4.82</span>/month</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  {canWrite && <div className="flex items-center gap-2">
                     <button onClick={async () => { setDeploying(true); try { await api.deployAgent(name); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover disabled:opacity-50">
                       {deploying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Cloud className="h-3 w-3" />} Redeploy
                     </button>
                     <button onClick={async () => { setStopping(true); try { await api.stopCloudDeployment(name); setCloudDeployStatus("stopped"); setCloudDeployUrl(""); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: "stopped", url: "" })); toast.success("Deployment stopped"); } catch (err) { toast.error(`Failed to stop deployment — ${err instanceof Error ? err.message : String(err)}`); } finally { setStopping(false); } }} disabled={stopping} className="inline-flex items-center gap-2 rounded-lg border border-bad px-3 py-1.5 text-xs font-medium text-bad hover:bg-bad-soft disabled:opacity-50">
                       {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />} Stop
                     </button>
-                  </div>
+                  </div>}
                 </div>
               )}
               {cloudDeployStatus === "stopped" && (
                 <div className="space-y-3">
                   <p className="text-xs text-fg-3">This agent was previously deployed and is now stopped.</p>
-                  <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action transition-colors hover:opacity-90 disabled:opacity-50">
+                  {canWrite && <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action transition-colors hover:opacity-90 disabled:opacity-50">
                     {deploying ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deploying...</> : <><Cloud className="h-3.5 w-3.5" /> Redeploy</>}
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
 
             {/* Danger Zone */}
-            <div className="rounded-xl border border-bad bg-bad-soft p-5 space-y-3">
+            {canWrite && <div className="rounded-xl border border-bad bg-bad-soft p-5 space-y-3">
               <h3 className="text-sm font-semibold text-bad">Danger Zone</h3>
               <p className="text-xs text-fg-3">Deleting this agent will remove it and all associated data. This cannot be undone.</p>
               <div className="text-xs text-fg-3">{agentRuns.length} runs, {succeededRuns} succeeded, {formatCost(totalCost)} total cost</div>
               <button onClick={() => setShowDeleteConfirm(true)} className="inline-flex items-center gap-2 rounded-lg border border-bad px-4 py-2 text-xs font-medium text-bad hover:bg-bad-soft">
                 <Trash2 className="h-3 w-3" /> Delete Agent
               </button>
-            </div>
+            </div>}
           </div>
         )}
       </div>

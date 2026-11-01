@@ -10,6 +10,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Laptop, Smartphone, Plus, Trash2, Copy, Check } from "lucide-react";
 import { api, type BridgePairingCode, type BridgePlatform, type PairedBridge } from "@/lib/api";
 import { Button } from "@/components/button";
+import { useCan } from "@/components/role-gate";
 import { EmptyState } from "@/components/empty-state";
 import { Modal, ModalField } from "@/components/modal";
 import { Skeleton } from "@/components/skeleton";
@@ -45,6 +46,7 @@ function secondsUntil(iso: string): number {
 }
 
 export function DevicesTab() {
+  const canWrite = useCan("settings:write"); // UX gating (lib/rbac-matrix.ts); kiosk is refused server-side too
   const { toast } = useToast();
   const [devices, setDevices] = useState<PairedBridge[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -88,9 +90,11 @@ export function DevicesTab() {
             device only sends the context you approve.
           </p>
         </div>
-        <Button variant="primary" size="md" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowPair(true)}>
-          Pair a device
-        </Button>
+        {canWrite && (
+          <Button variant="primary" size="md" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowPair(true)}>
+            Pair a device
+          </Button>
+        )}
       </div>
 
       {loadError && (
@@ -107,8 +111,8 @@ export function DevicesTab() {
           icon={Laptop}
           title="No devices paired"
           description="Pair the PAL bridge on your Mac, or an iPhone Shortcuts signal source, with a one-time code."
-          actionLabel="Pair a device"
-          onAction={() => setShowPair(true)}
+          actionLabel={canWrite ? "Pair a device" : undefined}
+          onAction={canWrite ? () => setShowPair(true) : undefined}
           size="compact"
         />
       ) : (
@@ -125,15 +129,17 @@ export function DevicesTab() {
                     {since(d.createdAt)} · last seen {since(d.lastSeenAt)}
                   </p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<Trash2 className="h-3.5 w-3.5" />}
-                  onClick={() => setRevokeTarget(d)}
-                  aria-label={`Revoke ${d.name || PLATFORM_LABEL[d.platform]}`}
-                >
-                  Revoke
-                </Button>
+                {canWrite && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                    onClick={() => setRevokeTarget(d)}
+                    aria-label={`Revoke ${d.name || PLATFORM_LABEL[d.platform]}`}
+                  >
+                    Revoke
+                  </Button>
+                )}
               </li>
             );
           })}

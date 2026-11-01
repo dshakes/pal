@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useModels } from "@/lib/model-context";
 import { format } from "date-fns";
@@ -15,15 +16,13 @@ import {
   Check,
   Loader2,
   Save,
-  ToggleLeft,
-  ToggleRight,
   Laptop,
 } from "lucide-react";
 import clsx from "clsx";
 // Mock data imports removed — settings start with empty state when API is available
 import { ProviderCard, type ProviderStatus } from "@/components/settings/provider-card";
-import { ApiKeyModal, type CreatedApiKey } from "@/components/settings/api-key-modal";
-import { InviteModal, type InvitedMember } from "@/components/settings/invite-modal";
+import { ApiKeyModal } from "@/components/settings/api-key-modal";
+import { createApiKey, keyErrorMessage, type NewKeyInput } from "@/lib/api-key-create";
 import { ConfirmDialog } from "@/components/settings/confirm-dialog";
 import { api } from "@/lib/api";
 import type { FleetUsage } from "@/lib/api";
@@ -32,6 +31,12 @@ import { DangerZone } from "./danger-zone";
 import { BillingPlans } from "@/components/settings/billing-plans";
 import { DevicesTab } from "./devices";
 import { Button } from "@/components/button";
+import { useAuth } from "@/lib/auth";
+import { useCan, useRoleReady, RoleGate } from "@/components/role-gate";
+import { settingsTabAllowed } from "@/lib/settings-nav";
+import { ACTIONS, ROLES, ROLE_BLURB, actionsFor } from "@/lib/rbac-matrix";
+import { ROLE_LABEL, toRole } from "@/lib/rbac";
+import { workspaceName } from "@/components/org-switcher";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,17 +52,8 @@ interface StoredApiKey {
   status: "active" | "revoked";
 }
 
-interface StoredMember {
-  id: string;
-  name: string;
-  email: string;
-  role: "owner" | "admin" | "member" | "viewer";
-  joinedAt: string;
-}
 
 interface GeneralSettings {
-  workspaceName: string;
-  workspaceId: string;
   defaultModel: string;
   defaultIsolation: string;
 }
@@ -68,11 +64,6 @@ interface ProviderSettings {
   google: { key: string; status: ProviderStatus };
 }
 
-interface BillingSettings {
-  plan: string;
-  budgetLimit: string;
-  hardLimit: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Tabs
@@ -109,17 +100,8 @@ function saveLS<T>(key: string, value: T) {
 // Defaults
 // ---------------------------------------------------------------------------
 
-const defaultGeneral: GeneralSettings = { workspaceName: "Acme Corp", workspaceId: "t_acme_01hq3x9k7m", defaultModel: "auto", defaultIsolation: "standard" };
+const defaultGeneral: GeneralSettings = { defaultModel: "auto", defaultIsolation: "standard" };
 const defaultProviders: ProviderSettings = { openai: { key: "", status: "not_configured" }, anthropic: { key: "", status: "not_configured" }, google: { key: "", status: "not_configured" } };
-const defaultBilling: BillingSettings = { plan: "Team", budgetLimit: "100", hardLimit: false };
-
-function defaultApiKeysList(): StoredApiKey[] {
-  return [];
-}
-
-function defaultMembersList(): StoredMember[] {
-  return [];
-}
 
 const roleBadgeColors: Record<string, string> = { owner: "bg-pal-500/10 text-pal-500", admin: "bg-purple-500/10 text-purple-400", member: "bg-blue-500/10 text-blue-400", viewer: "bg-zinc-500/10 text-zinc-400" };
 
@@ -130,6 +112,8 @@ const roleBadgeColors: Record<string, string> = { owner: "bg-pal-500/10 text-pal
 export default function SettingsPage() {
   const { toast } = useToast();
   const { refresh: refreshModels } = useModels();
+  const { user } = useAuth();
+  const canWrite = useCan("settings:write"); // UX gating (lib/rbac-matrix.ts); the server decides
 
   // The tab is the URL (?tab=) so the Settings nav (lib/settings-nav) can link
   // straight to it and new settings pages slot in beside it.
@@ -137,26 +121,32 @@ export default function SettingsPage() {
   const activeTab: TabId = TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : "general";
   const [general, setGeneral] = useState<GeneralSettings>(defaultGeneral);
   const [generalSaving, setGeneralSaving] = useState(false);
-  const [keys, setKeys] = useState<StoredApiKey[]>([]);
+  const [keys, setKeys] = useState<StoredApiKey[] | null>(null);
+  const [keysError, setKeysError] = useState<string | null>(null);
   const [showCreateKey, setShowCreateKey] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<StoredApiKey | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderSettings>(defaultProviders);
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const [providersSaving, setProvidersSaving] = useState(false);
-  const [members, setMembers] = useState<StoredMember[]>([]);
-  const [showInvite, setShowInvite] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<StoredMember | null>(null);
-  const [billing, setBilling] = useState<BillingSettings>(defaultBilling);
   const [fleetUsage, setFleetUsage] = useState<FleetUsage | null>(null);
 
   // Stripe Checkout/Portal return to /settings?tab=billing; the tab is the URL
   // (lib/settings-nav), so no extra deep-link handling is needed.
 
-  // Load from real API with localStorage fallback
+  const ready = useRoleReady();
+  const tabAllowed = settingsTabAllowed(user?.role, activeTab);
+
+  // Server state is the only source for providers + keys; there is no local
+  // copy to clobber it or to show when the API is down (an error is shown).
   useEffect(() => {
-    setGeneral(loadLS("general", defaultGeneral));
-    setMembers(loadLS("members", defaultMembersList()));
-    setBilling(loadLS("billing", defaultBilling));
+    // Older builds kept provider keys, API-key lists, members and a budget in this browser.
+    // The server is the only source now; drop the stale copies (they held plaintext provider keys).
+    for (const k of ["providers", "api_keys", "members", "billing"]) {
+      try { localStorage.removeItem(LS_PREFIX + k); } catch { /* storage unavailable */ }
+    }
+    // Defaults are the one browser-only setting.
+    setGeneral({ ...defaultGeneral, ...loadLS<Partial<GeneralSettings>>("general", {}) });
 
     (async () => {
       try {
@@ -169,69 +159,67 @@ export default function SettingsPage() {
           }
         }
         setProviders(newState);
-      } catch { setProviders(loadLS("providers", defaultProviders)); }
+        setProvidersError(null);
+      } catch (e) {
+        setProvidersError(e instanceof Error ? e.message : "Could not load providers");
+      }
     })();
 
     (async () => {
       const u = await api.getFleetUsage();
       if (u) setFleetUsage(u);
     })();
+  }, []);
 
+  // API keys are owner|admin only on the server, so don't ask as anyone else
+  // (it would 403 and read as an outage).
+  useEffect(() => {
+    if (!user || !canWrite) return;
     (async () => {
       try {
         const realKeys = await api.listApiKeysReal();
-        if (realKeys && realKeys.length >= 0) {
-          const mapped: StoredApiKey[] = realKeys.map((k) => ({
+        setKeys(
+          realKeys.map((k) => ({
             id: k.id, name: k.name, prefix: k.prefix, scopes: k.scopes ?? [], createdAt: k.createdAt,
             lastUsed: k.lastUsedAt ?? "Never", status: (k.status === "revoked" ? "revoked" : "active") as "active" | "revoked",
-          }));
-          setKeys(mapped);
-          saveLS("api_keys", mapped);
-          return;
-        }
-      } catch { /* API unavailable */ }
-      setKeys(loadLS("api_keys", defaultApiKeysList()));
+          })),
+        );
+        setKeysError(null);
+      } catch (e) {
+        setKeys([]);
+        setKeysError(keyErrorMessage(e));
+      }
     })();
-  }, []);
+  }, [user, canWrite]);
 
   // General
   const handleSaveGeneral = async () => {
-    // No backend endpoint for workspace-level settings yet — this only
-    // persists to this browser. Toast copy says so rather than implying
-    // it synced anywhere.
+    // No backend endpoint for workspace-level defaults yet: this only persists
+    // to this browser, and the toast says so.
     setGeneralSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
     saveLS("general", general);
     setGeneralSaving(false);
-    toast("success", "Workspace settings saved on this device");
+    toast("success", "Defaults saved on this device");
   };
 
-  // API Keys
-  const handleKeyCreated = async (created: CreatedApiKey) => {
-    try {
-      const result = await api.createApiKeyReal({ name: created.name, scopes: created.scopes });
-      const stored: StoredApiKey = { id: result.key.id, name: result.key.name, prefix: result.key.prefix, scopes: result.key.scopes ?? [], createdAt: result.key.createdAt, lastUsed: "Never", status: "active" };
-      const next = [stored, ...keys];
-      setKeys(next);
-      saveLS("api_keys", next);
-      toast("success", `API key "${created.name}" created. Key: ${result.rawKey}`);
-      return;
-    } catch { /* fall back */ }
-    const stored: StoredApiKey = { id: created.id, name: created.name, prefix: created.prefix, scopes: created.scopes, createdAt: created.createdAt.toISOString(), lastUsed: "Never", status: "active" };
-    const next = [stored, ...keys];
-    setKeys(next);
-    saveLS("api_keys", next);
-    toast("success", `API key "${created.name}" created`);
+  // API keys: the key shown is the one the control plane returned (lib/api-key-create).
+  const handleCreateKey = async (input: NewKeyInput) => {
+    const out = await createApiKey((i) => api.createApiKeyReal(i), input);
+    if (out.kind === "created") {
+      setKeys((prev) => [{ id: out.id, name: out.name, prefix: out.prefix, scopes: out.scopes, createdAt: out.createdAt, lastUsed: "Never", status: "active" }, ...(prev ?? [])]);
+    }
+    return out;
   };
 
   const handleRevokeKey = async () => {
     if (!revokeTarget) return;
-    try { await api.revokeApiKeyReal(revokeTarget.id); } catch { /* fall back */ }
-    await new Promise((r) => setTimeout(r, 400));
-    const next = keys.map((k) => k.id === revokeTarget.id ? { ...k, status: "revoked" as const } : k);
-    setKeys(next);
-    saveLS("api_keys", next);
-    toast("success", `API key "${revokeTarget.name}" revoked`);
+    try {
+      await api.revokeApiKeyReal(revokeTarget.id);
+      setKeys((prev) => (prev ?? []).map((k) => (k.id === revokeTarget.id ? { ...k, status: "revoked" as const } : k)));
+      toast("success", `API key "${revokeTarget.name}" revoked`);
+    } catch (e) {
+      toast("error", `Could not revoke "${revokeTarget.name}": ${keyErrorMessage(e)}`);
+    }
     setRevokeTarget(null);
   };
 
@@ -247,103 +235,70 @@ export default function SettingsPage() {
   }, []);
 
   const testProvider = useCallback(async (provider: keyof ProviderSettings): Promise<boolean> => {
+    const label = provider.charAt(0).toUpperCase() + provider.slice(1);
     const key = providers[provider].key;
-    if (!key || key.length < 10) {
+    const fail = (msg: string) => {
       setProviders((prev) => ({ ...prev, [provider]: { ...prev[provider], status: "error" as ProviderStatus } }));
-      toast("error", `${provider.charAt(0).toUpperCase() + provider.slice(1)} key is too short`);
+      toast("error", msg);
       return false;
+    };
+    if (!key || key.length < 10) return fail(`${label} key is too short`);
+    // A masked key (already stored) is tested as-is; only a newly typed key is saved first.
+    if (!key.includes("****")) {
+      try { await api.saveLlmProvider(provider, key); } catch (e) { return fail(`${label} key was not saved: ${e instanceof Error ? e.message : "request failed"}`); }
     }
-    try { await api.saveLlmProvider(provider, key); } catch { /* env fallback */ }
     try {
       const result = await api.testLlmProvider(provider);
       setProviders((prev) => ({ ...prev, [provider]: { ...prev[provider], status: result.success ? "connected" as ProviderStatus : "error" as ProviderStatus } }));
-      if (result.success) toast("success", result.message || `${provider.charAt(0).toUpperCase() + provider.slice(1)} connected`);
-      else toast("error", result.error || `${provider.charAt(0).toUpperCase() + provider.slice(1)} key is invalid`);
+      if (result.success) toast("success", result.message || `${label} connected`);
+      else toast("error", result.error || `${label} key is invalid`);
       return result.success;
-    } catch {
-      const success = key.length >= 10;
-      setProviders((prev) => ({ ...prev, [provider]: { ...prev[provider], status: success ? "connected" as ProviderStatus : "error" as ProviderStatus } }));
-      toast(success ? "success" : "error", success ? `${provider.charAt(0).toUpperCase() + provider.slice(1)} key saved (API unavailable for test)` : "Invalid key");
-      return success;
+    } catch (e) {
+      return fail(`Could not test the ${label} key: ${e instanceof Error ? e.message : "request failed"}`);
     }
   }, [providers, toast]);
 
   const handleSaveProviders = async () => {
     setProvidersSaving(true);
-    const savePromises: Promise<void>[] = [];
-    for (const provider of Object.keys(providers) as Array<keyof ProviderSettings>) {
-      const config = providers[provider];
-      if (config.key && config.key.length >= 10 && !config.key.includes("****")) {
-        savePromises.push(
-          api.saveLlmProvider(provider, config.key).then(() => {
-            setProviders((prev) => ({ ...prev, [provider]: { ...prev[provider], status: "connected" as ProviderStatus } }));
-          }).catch(() => { /* localStorage fallback */ })
-        );
-      }
-    }
-    try { await Promise.all(savePromises); } catch { /* some may fail */ }
-    saveLS("providers", providers);
+    const failed: string[] = [];
+    await Promise.all(
+      (Object.keys(providers) as Array<keyof ProviderSettings>).map(async (provider) => {
+        const config = providers[provider];
+        if (!config.key || config.key.length < 10 || config.key.includes("****")) return; // nothing new to save
+        try {
+          await api.saveLlmProvider(provider, config.key);
+          setProviders((prev) => ({ ...prev, [provider]: { ...prev[provider], status: "connected" as ProviderStatus } }));
+        } catch {
+          failed.push(provider);
+        }
+      }),
+    );
     setProvidersSaving(false);
-    toast("success", "Provider settings saved");
+    if (failed.length) toast("error", `Could not save: ${failed.join(", ")}`);
+    else toast("success", "Provider settings saved");
     refreshModels();
-  };
-
-  // Team
-  const handleInviteMember = (invited: InvitedMember) => {
-    const stored: StoredMember = { id: invited.id, name: invited.name, email: invited.email, role: invited.role, joinedAt: invited.joinedAt.toISOString() };
-    const next = [...members, stored];
-    setMembers(next);
-    saveLS("members", next);
-    toast("success", `Invitation sent to ${invited.email}`);
-  };
-
-  const handleChangeRole = (memberId: string, newRole: string) => {
-    const next = members.map((m) => m.id === memberId ? { ...m, role: newRole as StoredMember["role"] } : m);
-    setMembers(next);
-    saveLS("members", next);
-    toast("success", "Role updated");
-  };
-
-  const handleRemoveMember = async () => {
-    if (!removeTarget) return;
-    await new Promise((r) => setTimeout(r, 400));
-    const next = members.filter((m) => m.id !== removeTarget.id);
-    setMembers(next);
-    saveLS("members", next);
-    toast("success", `${removeTarget.name} removed from team`);
-    setRemoveTarget(null);
-  };
-
-  // Billing
-  const handleSetBudget = async () => {
-    await new Promise((r) => setTimeout(r, 400));
-    saveLS("billing", billing);
-    toast("success", `Budget limit set to $${billing.budgetLimit}/month`);
-  };
-
-  const handleToggleHardLimit = () => {
-    const next = { ...billing, hardLimit: !billing.hardLimit };
-    setBilling(next);
-    saveLS("billing", next);
-    toast("success", next.hardLimit ? "Hard limit enabled" : "Hard limit disabled");
   };
 
   return (
     <div>
       <div className="w-full max-w-3xl">
-          {activeTab === "general" && <GeneralTab general={general} setGeneral={setGeneral} saving={generalSaving} onSave={handleSaveGeneral} />}
-          {activeTab === "api-keys" && <ApiKeysTab keys={keys} copiedKeyId={copiedKeyId} onCreateClick={() => setShowCreateKey(true)} onCopyPrefix={handleCopyPrefix} onRevokeClick={setRevokeTarget} />}
-          {activeTab === "providers" && <ProvidersTab providers={providers} saving={providersSaving} onKeyChange={updateProvider} onTest={testProvider} onSave={handleSaveProviders} />}
-          {activeTab === "team" && <TeamTab members={members} onInviteClick={() => setShowInvite(true)} onChangeRole={handleChangeRole} onRemoveClick={setRemoveTarget} />}
-          {activeTab === "devices" && <DevicesTab />}
-          {activeTab === "billing" && <BillingTab billing={billing} setBilling={setBilling} onSetBudget={handleSetBudget} onToggleHardLimit={handleToggleHardLimit} fleetUsage={fleetUsage} />}
+          {!ready && <p className="text-sm text-zinc-500">Loading…</p>}
+          {ready && !tabAllowed && (
+            <div role="status" className="rounded-xl border border-zinc-800 bg-surface-1 p-5 text-sm text-zinc-400">
+              This section is for workspace owners and admins. Your role is {ROLE_LABEL[toRole(user?.role)]}.
+            </div>
+          )}
+          {ready && tabAllowed && activeTab === "general" && <GeneralTab general={general} setGeneral={setGeneral} saving={generalSaving} onSave={handleSaveGeneral} />}
+          {ready && tabAllowed && activeTab === "api-keys" && <ApiKeysTab keys={keys} error={keysError} copiedKeyId={copiedKeyId} onCreateClick={() => setShowCreateKey(true)} onCopyPrefix={handleCopyPrefix} onRevokeClick={setRevokeTarget} />}
+          {ready && tabAllowed && activeTab === "providers" && <ProvidersTab providers={providers} error={providersError} canWrite={canWrite} saving={providersSaving} onKeyChange={updateProvider} onTest={testProvider} onSave={handleSaveProviders} />}
+          {ready && tabAllowed && activeTab === "team" && <TeamTab />}
+          {ready && tabAllowed && activeTab === "devices" && <DevicesTab />}
+          {ready && tabAllowed && activeTab === "billing" && <BillingTab fleetUsage={fleetUsage} />}
       </div>
 
       {/* Modals */}
-      <ApiKeyModal open={showCreateKey} onClose={() => setShowCreateKey(false)} onCreated={handleKeyCreated} />
-      <InviteModal open={showInvite} onClose={() => setShowInvite(false)} onInvited={handleInviteMember} />
+      <ApiKeyModal open={showCreateKey} onClose={() => setShowCreateKey(false)} onCreate={handleCreateKey} />
       <ConfirmDialog open={!!revokeTarget} title="Revoke API key" message={`Revoke "${revokeTarget?.name}"? Anything using this key stops working immediately.`} confirmLabel="Revoke key" destructive onConfirm={handleRevokeKey} onCancel={() => setRevokeTarget(null)} />
-      <ConfirmDialog open={!!removeTarget} title="Remove team member" message={`Remove ${removeTarget?.name} (${removeTarget?.email})? They lose access to this workspace.`} confirmLabel="Remove member" destructive onConfirm={handleRemoveMember} onCancel={() => setRemoveTarget(null)} />
     </div>
   );
 }
@@ -353,33 +308,34 @@ export default function SettingsPage() {
 // ===========================================================================
 
 function GeneralTab({ general, setGeneral, saving, onSave }: { general: GeneralSettings; setGeneral: (g: GeneralSettings) => void; saving: boolean; onSave: () => void }) {
+  const { user } = useAuth();
   return (
     <div className="space-y-5 pb-24">
       <SettingsSection
         title="Workspace"
-        description="Saved in this browser only. Workspace settings don't sync to the server yet."
+        description="This workspace, as the control plane sees you. Read-only: renaming and switching workspaces need an organization endpoint that does not exist yet."
       >
-        <Field label="Workspace name">
-          <input
-            type="text"
-            value={general.workspaceName}
-            onChange={(e) => setGeneral({ ...general, workspaceName: e.target.value })}
-            className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-xs text-zinc-100 outline-none transition-colors duration-150 focus:border-pal-500/60"
-          />
+        <Field label="Workspace">
+          <p className="text-sm text-zinc-100">{workspaceName(user?.name, user?.email)}</p>
         </Field>
-        <Field label="Workspace ID" hint="Example value, not your tenant ID.">
+        <Field label="Signed in as" hint={`Role: ${ROLE_LABEL[toRole(user?.role)]}`}>
+          <p className="text-sm text-zinc-100">{user?.email ?? "-"}</p>
+        </Field>
+        <Field label="Workspace ID">
           <div className="flex gap-2">
             <input
               type="text"
-              value={general.workspaceId}
+              value={user?.tenantId ?? ""}
               readOnly
+              aria-label="Workspace ID"
               className="flex-1 rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-xs text-zinc-400 outline-none cursor-default"
             />
             <Button
               variant="secondary"
               size="md"
               icon={<Copy className="h-3.5 w-3.5" />}
-              onClick={() => { navigator.clipboard.writeText(general.workspaceId); }}
+              disabled={!user?.tenantId}
+              onClick={() => { void navigator.clipboard.writeText(user?.tenantId ?? ""); }}
             >
               Copy
             </Button>
@@ -426,7 +382,9 @@ function GeneralTab({ general, setGeneral, saving, onSave }: { general: GeneralS
         </div>
       </SettingsSection>
 
-      <DangerZone />
+      <RoleGate cap="owner">
+        <DangerZone />
+      </RoleGate>
 
       {/* Sticky save bar — pinned to the bottom of the viewport so it's
           always reachable, never orphaned to the bottom-right of a card. */}
@@ -507,7 +465,8 @@ function StickySaveBar({ saving, onSave }: { saving: boolean; onSave: () => void
 // API Keys Tab
 // ===========================================================================
 
-function ApiKeysTab({ keys, copiedKeyId, onCreateClick, onCopyPrefix, onRevokeClick }: { keys: StoredApiKey[]; copiedKeyId: string | null; onCreateClick: () => void; onCopyPrefix: (key: StoredApiKey) => void; onRevokeClick: (key: StoredApiKey) => void }) {
+function ApiKeysTab({ keys: keysOrNull, error, copiedKeyId, onCreateClick, onCopyPrefix, onRevokeClick }: { keys: StoredApiKey[] | null; error: string | null; copiedKeyId: string | null; onCreateClick: () => void; onCopyPrefix: (key: StoredApiKey) => void; onRevokeClick: (key: StoredApiKey) => void }) {
+  const keys = keysOrNull ?? [];
   const activeKeys = keys.filter((k) => k.status === "active");
   const revokedKeys = keys.filter((k) => k.status === "revoked");
 
@@ -520,6 +479,9 @@ function ApiKeysTab({ keys, copiedKeyId, onCreateClick, onCopyPrefix, onRevokeCl
         </div>
         <button onClick={onCreateClick} className="inline-flex items-center gap-2 rounded-lg bg-pal-500 px-3 py-1.5 text-sm font-medium text-on-flame transition-colors hover:bg-pal-400">Create API Key</button>
       </div>
+
+      {error && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">Could not load API keys: {error}</p>}
+      {keysOrNull === null && !error && <p className="text-xs text-zinc-500">Loading keys…</p>}
 
       {/* Desktop: table, unchanged */}
       <div className="hidden overflow-hidden rounded-xl border border-zinc-800 bg-surface-1 md:block">
@@ -626,7 +588,7 @@ function ApiKeysTab({ keys, copiedKeyId, onCreateClick, onCopyPrefix, onRevokeCl
 // Providers Tab
 // ===========================================================================
 
-function ProvidersTab({ providers, saving, onKeyChange, onTest, onSave }: { providers: ProviderSettings; saving: boolean; onKeyChange: (p: keyof ProviderSettings, k: string) => void; onTest: (p: keyof ProviderSettings) => Promise<boolean>; onSave: () => void }) {
+function ProvidersTab({ providers, error, canWrite, saving, onKeyChange, onTest, onSave }: { providers: ProviderSettings; error: string | null; canWrite: boolean; saving: boolean; onKeyChange: (p: keyof ProviderSettings, k: string) => void; onTest: (p: keyof ProviderSettings) => Promise<boolean>; onSave: () => void }) {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -634,6 +596,19 @@ function ProvidersTab({ providers, saving, onKeyChange, onTest, onSave }: { prov
         <p className="mt-0.5 text-xs text-zinc-500">Configure API keys for LLM providers. The model router maps capability requests to these.</p>
       </div>
 
+      {error && <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">Could not load providers: {error}</p>}
+
+      {!canWrite ? (
+        <ul className="divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-surface-1">
+          {([["OpenAI", providers.openai], ["Anthropic", providers.anthropic], ["Google AI", providers.google]] as const).map(([label, p]) => (
+            <li key={label} className="flex items-center justify-between px-4 py-3 text-sm">
+              <span className="text-zinc-200">{label}</span>
+              <span className={p.status === "connected" ? "text-emerald-400" : "text-zinc-500"}>{p.status === "connected" ? "Connected" : "Not configured"}</span>
+            </li>
+          ))}
+          <li className="px-4 py-3 text-xs text-zinc-500">Only an owner or admin can change provider keys.</li>
+        </ul>
+      ) : (<>
       <ProviderCard name="OpenAI" description="GPT and o-series models" icon={<span className="text-sm font-bold text-emerald-400">AI</span>} apiKey={providers.openai.key} status={providers.openai.status} onApiKeyChange={(k) => onKeyChange("openai", k)} onTest={() => onTest("openai")} />
       <ProviderCard name="Anthropic" description="Claude models" icon={<span className="text-sm font-bold text-orange-400">A</span>} apiKey={providers.anthropic.key} status={providers.anthropic.status} onApiKeyChange={(k) => onKeyChange("anthropic", k)} onTest={() => onTest("anthropic")} />
       <ProviderCard name="Google AI" description="Key is stored, but runs don't route to Gemini yet" icon={<span className="text-sm font-bold text-blue-400">G</span>} apiKey={providers.google.key} status={providers.google.status} onApiKeyChange={(k) => onKeyChange("google", k)} onTest={() => onTest("google")} />
@@ -648,6 +623,7 @@ function ProvidersTab({ providers, saving, onKeyChange, onTest, onSave }: { prov
           {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving...</> : <><Save className="h-3.5 w-3.5" />Save Changes</>}
         </button>
       </div>
+      </>)}
     </div>
   );
 }
@@ -655,88 +631,63 @@ function ProvidersTab({ providers, saving, onKeyChange, onTest, onSave }: { prov
 // ===========================================================================
 // Team Tab
 // ===========================================================================
+//
+// Honest by construction: the control plane has no members/invitations
+// endpoint (routes: none under /v1/team|members|users), so there is nothing to
+// list, invite or remove. This tab shows what IS real - who you are, how people
+// can join (GET /auth/providers `signup`), and what each role is offered.
 
-function TeamTab({ members, onInviteClick, onChangeRole, onRemoveClick }: { members: StoredMember[]; onInviteClick: () => void; onChangeRole: (id: string, role: string) => void; onRemoveClick: (m: StoredMember) => void }) {
+const SIGNUP_COPY: Record<string, string> = {
+  open: "Anyone can create an account on this deployment.",
+  invite: "Sign-up needs an invite code that the operator hands out.",
+  closed: "Sign-up is closed; accounts are created by the operator.",
+};
+
+function TeamTab() {
+  const { user } = useAuth();
+  const [signup, setSignup] = useState<string | null>(null);
+  useEffect(() => {
+    void api.getAuthProviders().then((p) => setSignup(p?.signup ?? null));
+  }, []);
+  const role = toRole(user?.role);
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-zinc-100">Team Members</h3>
-          <p className="mt-0.5 text-xs text-zinc-500">Manage who has access and their permissions.</p>
-        </div>
-        <button onClick={onInviteClick} className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-3">Invite Member</button>
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-100">Team</h3>
+        <p className="mt-0.5 text-xs text-zinc-500">Who can do what in this workspace.</p>
       </div>
 
-      {/* Desktop: table, unchanged */}
-      <div className="hidden overflow-hidden rounded-xl border border-zinc-800 bg-surface-1 md:block">
-        <table className="data-table">
-          <thead><tr><th>Member</th><th>Email</th><th>Role</th><th>Joined</th><th className="w-20"></th></tr></thead>
-          <tbody>
-            {members.length === 0 && <tr><td colSpan={5} className="text-center text-zinc-500 py-8">No team members yet. Invite someone to collaborate on your agents.</td></tr>}
-            {members.map((member) => (
-              <tr key={member.id}>
-                <td>
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-xs font-medium text-zinc-400">{member.name.split(" ").map((n) => n[0]).join("")}</div>
-                    <span className="font-medium text-zinc-200">{member.name}</span>
-                  </div>
-                </td>
-                <td className="text-zinc-400">{member.email}</td>
-                <td>
-                  {member.role === "owner" ? (
-                    <span className={clsx("rounded-full px-2.5 py-0.5 text-xs font-medium", roleBadgeColors[member.role])}>Owner</span>
-                  ) : (
-                    <select value={member.role} onChange={(e) => onChangeRole(member.id, e.target.value)}
-                      className="rounded-lg border border-zinc-700 bg-surface-2 px-2 py-1 text-xs text-zinc-300 outline-none focus:border-pal-500 focus:ring-1 focus:ring-pal-500/30">
-                      <option value="admin">Admin</option><option value="member">Developer</option><option value="viewer">Viewer</option>
-                    </select>
-                  )}
-                </td>
-                <td className="text-zinc-500">{format(new Date(member.joinedAt), "MMM d, yyyy")}</td>
-                <td>{member.role !== "owner" && <button onClick={() => onRemoveClick(member)} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"><Trash2 className="h-3 w-3" />Remove</button>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <section className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
+        <p className="text-xs text-zinc-500">You</p>
+        <p className="mt-1 text-sm font-medium text-zinc-100">{user?.name || user?.email || "-"}</p>
+        <p className="text-xs text-zinc-400">{user?.email}</p>
+        <span className={clsx("mt-2 inline-block rounded-full px-2.5 py-0.5 text-xs font-medium", roleBadgeColors[role] ?? "bg-zinc-500/10 text-zinc-400")}>{ROLE_LABEL[role]}</span>
+        <p className="mt-2 text-xs text-zinc-500">{ROLE_BLURB[role]} You are offered {actionsFor(role).length} of {ACTIONS.length} tracked actions.</p>
+      </section>
 
-      {/* Mobile: stacked cards, same data */}
-      <div className="space-y-2 md:hidden">
-        {members.length === 0 && (
-          <div className="rounded-xl border border-zinc-800 bg-surface-1 py-8 text-center text-sm text-zinc-500">
-            No team members yet. Invite someone to collaborate on your agents.
-          </div>
-        )}
-        {members.map((member) => (
-          <div key={member.id} className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-xs font-medium text-zinc-400">{member.name.split(" ").map((n) => n[0]).join("")}</div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-zinc-200">{member.name}</p>
-                <p className="truncate text-xs text-zinc-400">{member.email}</p>
-              </div>
-              {member.role === "owner" && (
-                <span className={clsx("shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium", roleBadgeColors[member.role])}>Owner</span>
-              )}
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-2">
+      <section className="rounded-xl border border-zinc-800 bg-surface-1 p-5" data-testid="members-slot">
+        <h4 className="text-sm font-semibold text-zinc-100">Members and invitations</h4>
+        <p className="mt-1 text-xs text-zinc-400">
+          Not available yet: the control plane has no members or invitations API, so this page cannot list, invite or remove people, or change a role.
+          {signup && <> {SIGNUP_COPY[signup] ?? ""}</>}
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
+        <h4 className="text-sm font-semibold text-zinc-100">What each role is offered</h4>
+        <p className="mt-1 text-xs text-zinc-500">The dashboard hides actions a role cannot use. This is a convenience, not a security boundary: the server enforces what it enforces (API keys, billing, approvals: owner or admin; erasing the workspace: owner).</p>
+        <ul className="mt-3 divide-y divide-zinc-800">
+          {ROLES.map((r) => (
+            <li key={r} className="flex items-start justify-between gap-4 py-2.5">
               <div>
-                <p className="text-[12px] uppercase tracking-wide text-zinc-500">Joined</p>
-                <p className="text-xs text-zinc-200">{format(new Date(member.joinedAt), "MMM d, yyyy")}</p>
+                <p className="text-sm text-zinc-200">{ROLE_LABEL[r]}</p>
+                <p className="text-xs text-zinc-500">{ROLE_BLURB[r]}</p>
               </div>
-              {member.role !== "owner" && (
-                <div className="flex items-center gap-2">
-                  <select value={member.role} onChange={(e) => onChangeRole(member.id, e.target.value)}
-                    className="rounded-lg border border-zinc-700 bg-surface-2 px-2 py-1.5 text-xs text-zinc-300 outline-none focus:border-pal-500 focus:ring-1 focus:ring-pal-500/30">
-                    <option value="admin">Admin</option><option value="member">Developer</option><option value="viewer">Viewer</option>
-                  </select>
-                  <button onClick={() => onRemoveClick(member)} className="inline-flex items-center gap-1 rounded px-2 py-2 text-xs text-red-400 transition-colors hover:bg-red-500/10"><Trash2 className="h-3 w-3" />Remove</button>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+              <span className="shrink-0 text-xs tabular-nums text-zinc-400">{actionsFor(r).length}/{ACTIONS.length}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
@@ -744,66 +695,28 @@ function TeamTab({ members, onInviteClick, onChangeRole, onRemoveClick }: { memb
 // ===========================================================================
 // Billing Tab
 // ===========================================================================
+//
+// Plans are live (ADR 0049, BillingPlans). Spend caps live under Budgets; the
+// old sample-usage card and the browser-only "monthly budget" were removed
+// because they were not backed by anything.
 
-const usageData = [
-  { label: "LLM Tokens", used: 2_100_000, limit: 5_000_000, format: (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${(n / 1_000).toFixed(0)}k` },
-  { label: "Compute Hours", used: 18.4, limit: 50, format: (n: number) => `${n.toFixed(1)}h` },
-  { label: "Runs", used: 348, limit: 1000, format: (n: number) => String(Math.round(n)) },
-  { label: "Storage", used: 2.3, limit: 10, format: (n: number) => `${n.toFixed(1)} GB` },
-];
-
-const costByAgent = [
-  { agent: "research-agent", runs: 142, tokens: "1.2M", cost: "$6.84" },
-  { agent: "code-reviewer", runs: 98, tokens: "620k", cost: "$3.21" },
-  { agent: "customer-support", runs: 86, tokens: "240k", cost: "$1.58" },
-  { agent: "data-pipeline", runs: 22, tokens: "40k", cost: "$0.84" },
-];
-
-function BillingTab({ billing, setBilling, onSetBudget, onToggleHardLimit, fleetUsage }: { billing: BillingSettings; setBilling: (b: BillingSettings) => void; onSetBudget: () => void; onToggleHardLimit: () => void; fleetUsage: FleetUsage | null }) {
+function BillingTab({ fleetUsage }: { fleetUsage: FleetUsage | null }) {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
-      {/* Plans — live from /v1/billing (ADR 0049) */}
       <div>
         <h3 className="mb-4 text-sm font-semibold text-zinc-100">Plan</h3>
         <BillingPlans />
       </div>
 
-      {/* Usage */}
       <div>
-        <div className="mb-4 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-zinc-100">Usage This Month</h3>
-          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400">Sample data</span>
-        </div>
-        <div className="rounded-xl border border-zinc-800 bg-surface-1 p-6">
-          <div className="grid grid-cols-2 gap-6">
-            {usageData.map((item) => {
-              const pct = Math.min((item.used / item.limit) * 100, 100);
-              return (
-                <div key={item.label}>
-                  <div className="flex items-baseline justify-between"><p className="text-sm font-medium text-zinc-300">{item.label}</p><p className="text-xs text-zinc-500">{item.format(item.used)} / {item.format(item.limit)}</p></div>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-3"><div className={clsx("h-full rounded-full transition-all", pct > 90 ? "bg-red-500" : pct > 70 ? "bg-amber-500" : "bg-pal-500")} style={{ width: `${pct}%` }} /></div>
-                  <p className="mt-1 text-right text-[12px] text-zinc-600">{pct.toFixed(0)}% used</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Cost breakdown */}
-      <div>
-        <div className="mb-4 flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-zinc-100">Cost Breakdown by Agent</h3>
-          {!fleetUsage && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400">Sample data</span>}
-        </div>
+        <h3 className="mb-4 text-sm font-semibold text-zinc-100">Cost by agent</h3>
         <div className="overflow-hidden rounded-xl border border-zinc-800 bg-surface-1">
           {fleetUsage ? (
             <>
-              {/* Desktop: table, unchanged */}
               <table className="data-table hidden md:table">
                 <thead><tr><th>Agent</th><th>Runs</th><th>Cost</th></tr></thead>
                 <tbody>
-                  {fleetUsage.byAgent.sort((a, b) => b.costUsd - a.costUsd).map((row) => (
+                  {[...fleetUsage.byAgent].sort((a, b) => b.costUsd - a.costUsd).map((row) => (
                     <tr key={row.agentName}>
                       <td className="font-medium text-zinc-300">{row.agentName}</td>
                       <td className="text-zinc-400">{row.runs}</td>
@@ -822,13 +735,9 @@ function BillingTab({ billing, setBilling, onSetBudget, onToggleHardLimit, fleet
                   )}
                 </tbody>
               </table>
-
-              {/* Mobile: stacked cards, same data */}
               <div className="divide-y divide-zinc-800 md:hidden">
-                {fleetUsage.byAgent.length === 0 && (
-                  <p className="py-6 text-center text-sm text-zinc-500">No agent cost data yet</p>
-                )}
-                {fleetUsage.byAgent.sort((a, b) => b.costUsd - a.costUsd).map((row) => (
+                {fleetUsage.byAgent.length === 0 && <p className="py-6 text-center text-sm text-zinc-500">No agent cost data yet</p>}
+                {[...fleetUsage.byAgent].sort((a, b) => b.costUsd - a.costUsd).map((row) => (
                   <div key={row.agentName} className="flex items-center justify-between px-4 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-zinc-300">{row.agentName}</p>
@@ -837,75 +746,17 @@ function BillingTab({ billing, setBilling, onSetBudget, onToggleHardLimit, fleet
                     <span className="text-sm font-medium text-zinc-200">${row.costUsd.toFixed(2)}</span>
                   </div>
                 ))}
-                {fleetUsage.byAgent.length > 0 && (
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold text-zinc-100">Total</p>
-                      <p className="text-[12px] text-zinc-500">{fleetUsage.periods.total.runs} runs</p>
-                    </div>
-                    <span className="text-sm font-semibold text-pal-400">${fleetUsage.periods.total.costUsd.toFixed(2)}</span>
-                  </div>
-                )}
               </div>
             </>
           ) : (
-            <>
-              {/* Desktop: table, unchanged */}
-              <table className="data-table hidden md:table">
-                <thead><tr><th>Agent</th><th>Runs</th><th>Tokens</th><th>Cost</th></tr></thead>
-                <tbody>
-                  {costByAgent.map((row) => <tr key={row.agent}><td className="font-medium text-zinc-300">{row.agent}</td><td className="text-zinc-400">{row.runs}</td><td className="text-zinc-400">{row.tokens}</td><td className="font-medium text-zinc-200">{row.cost}</td></tr>)}
-                  <tr className="border-t border-zinc-700"><td className="font-semibold text-zinc-100">Total</td><td className="text-zinc-400">348</td><td className="text-zinc-400">2.1M</td><td className="font-semibold text-pal-400">$12.47</td></tr>
-                </tbody>
-              </table>
-
-              {/* Mobile: stacked cards, same data */}
-              <div className="divide-y divide-zinc-800 md:hidden">
-                {costByAgent.map((row) => (
-                  <div key={row.agent} className="flex items-center justify-between px-4 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-zinc-300">{row.agent}</p>
-                      <p className="text-[12px] text-zinc-500">{row.runs} runs · {row.tokens} tokens</p>
-                    </div>
-                    <span className="text-sm font-medium text-zinc-200">{row.cost}</span>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-zinc-100">Total</p>
-                    <p className="text-[12px] text-zinc-500">348 runs · 2.1M tokens</p>
-                  </div>
-                  <span className="text-sm font-semibold text-pal-400">$12.47</span>
-                </div>
-              </div>
-            </>
+            <p className="px-4 py-6 text-center text-sm text-zinc-500">Cost data is unavailable right now.</p>
           )}
         </div>
       </div>
 
-      {/* Budget */}
-      <div>
-        <h3 className="mb-4 text-sm font-semibold text-zinc-100">Budget Controls</h3>
-        <div className="rounded-xl border border-zinc-800 bg-surface-1 p-6 space-y-5">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Monthly budget limit</label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">$</span>
-                <input type="number" value={billing.budgetLimit} onChange={(e) => setBilling({ ...billing, budgetLimit: e.target.value })}
-                  className="w-full rounded-lg border border-zinc-700 bg-surface-2 pl-7 pr-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500 focus:ring-1 focus:ring-pal-500/30" />
-              </div>
-              <button onClick={onSetBudget} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-surface-3">Set Budget</button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-surface-2 px-4 py-3">
-            <div><p className="text-sm font-medium text-zinc-200">Hard limit</p><p className="text-xs text-zinc-500">Pause all agents when budget is exceeded.</p></div>
-            <button onClick={onToggleHardLimit} className="text-zinc-400 transition-colors hover:text-zinc-200">
-              {billing.hardLimit ? <ToggleRight className="h-8 w-8 text-pal-500" /> : <ToggleLeft className="h-8 w-8" />}
-            </button>
-          </div>
-        </div>
-      </div>
+      <p className="text-xs text-zinc-500">
+        Spend caps and hard limits are per agent and workspace-wide under <Link href="/budgets" className="text-pal-400 hover:underline">Budgets</Link>.
+      </p>
     </div>
   );
 }

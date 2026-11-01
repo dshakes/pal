@@ -105,7 +105,7 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
           <ArrowLeft className="h-3 w-3" /> All incidents
         </Link>
 
-        {inc.rollback.suggested && inc.status !== "resolved" && !wasRolledBack(inc) && (
+        {canWrite && inc.rollback.suggested && inc.status !== "resolved" && !wasRolledBack(inc) && (
           <div role="note" className="flex items-start gap-3 rounded-[12px] border border-warn/40 bg-warn-soft p-4">
             <Undo2 className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
             <div className="text-sm">

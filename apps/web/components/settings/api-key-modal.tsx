@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, Copy, AlertTriangle, Loader2, Check } from "lucide-react";
+import type { CreateKeyOutcome, NewKeyInput } from "@/lib/api-key-create";
 
 const SCOPE_OPTIONS = [
   { id: "agents:read", label: "Read agents", group: "Agents" },
@@ -12,37 +13,21 @@ const SCOPE_OPTIONS = [
   { id: "mcp", label: "MCP server access (also needs the tool scopes)", group: "MCP" },
 ];
 
-const EXPIRY_OPTIONS = [
-  { value: "30", label: "30 days" },
-  { value: "90", label: "90 days" },
-  { value: "365", label: "1 year" },
-  { value: "never", label: "Never" },
-];
-
-export interface CreatedApiKey {
-  id: string;
-  name: string;
-  prefix: string;
-  fullKey: string;
-  scopes: string[];
-  expiry: string;
-  createdAt: Date;
-  lastUsed: string;
-  status: "active";
-}
-
 interface ApiKeyModalProps {
   open: boolean;
   onClose: () => void;
-  onCreated: (key: CreatedApiKey) => void;
+  /** Calls the control plane. The key shown is the one it returns; failure is shown inline. */
+  onCreate: (input: NewKeyInput) => Promise<CreateKeyOutcome>;
 }
 
-export function ApiKeyModal({ open, onClose, onCreated }: ApiKeyModalProps) {
+type Created = Extract<CreateKeyOutcome, { kind: "created" }>;
+
+export function ApiKeyModal({ open, onClose, onCreate }: ApiKeyModalProps) {
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<string[]>(["agents:read", "runs:read"]);
-  const [expiry, setExpiry] = useState("90");
+  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [createdKey, setCreatedKey] = useState<CreatedApiKey | null>(null);
+  const [createdKey, setCreatedKey] = useState<Created | null>(null);
   const [copied, setCopied] = useState(false);
 
   if (!open) return null;
@@ -56,38 +41,19 @@ export function ApiKeyModal({ open, onClose, onCreated }: ApiKeyModalProps) {
   const handleCreate = async () => {
     if (!name.trim() || scopes.length === 0) return;
     setCreating(true);
-
-    // Simulate API call
-    await new Promise((r) => setTimeout(r, 800));
-
-    const randomHex = () =>
-      Array.from({ length: 4 }, () =>
-        Math.floor(Math.random() * 16).toString(16)
-      ).join("");
-
-    const fullKey = `ltn_live_${randomHex()}${randomHex()}${randomHex()}${randomHex()}${randomHex()}${randomHex()}${randomHex()}${randomHex()}`;
-    const prefix = `ltn_live_${fullKey.slice(9, 13)}`;
-
-    const key: CreatedApiKey = {
-      id: `key_${Date.now()}`,
-      name: name.trim(),
-      prefix,
-      fullKey,
-      scopes,
-      expiry,
-      createdAt: new Date(),
-      lastUsed: "Never",
-      status: "active",
-    };
-
-    setCreatedKey(key);
+    setError(null);
+    const out = await onCreate({ name: name.trim(), scopes });
     setCreating(false);
-    onCreated(key);
+    if (out.kind === "failed") {
+      setError(out.message); // stay on the form; nothing was created
+      return;
+    }
+    setCreatedKey(out);
   };
 
   const handleCopy = async () => {
     if (!createdKey) return;
-    await navigator.clipboard.writeText(createdKey.fullKey);
+    await navigator.clipboard.writeText(createdKey.rawKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -95,7 +61,7 @@ export function ApiKeyModal({ open, onClose, onCreated }: ApiKeyModalProps) {
   const handleClose = () => {
     setName("");
     setScopes(["agents:read", "runs:read"]);
-    setExpiry("90");
+    setError(null);
     setCreatedKey(null);
     setCopied(false);
     onClose();
@@ -137,7 +103,7 @@ export function ApiKeyModal({ open, onClose, onCreated }: ApiKeyModalProps) {
             </label>
             <div className="flex gap-2">
               <code className="flex-1 rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2.5 font-mono text-xs text-zinc-100 break-all select-all">
-                {createdKey.fullKey}
+                {createdKey.rawKey}
               </code>
               <button
                 onClick={handleCopy}
@@ -165,12 +131,6 @@ export function ApiKeyModal({ open, onClose, onCreated }: ApiKeyModalProps) {
               <div className="flex justify-between">
                 <span className="text-zinc-500">Scopes</span>
                 <span className="text-zinc-300">{createdKey.scopes.join(", ")}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Expiry</span>
-                <span className="text-zinc-300">
-                  {EXPIRY_OPTIONS.find((o) => o.value === createdKey.expiry)?.label}
-                </span>
               </div>
             </div>
 
@@ -229,24 +189,9 @@ export function ApiKeyModal({ open, onClose, onCreated }: ApiKeyModalProps) {
                 </div>
               </div>
 
-              {/* Expiry */}
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-zinc-300">
-                  Expiration
-                </label>
-                <select
-                  value={expiry}
-                  onChange={(e) => setExpiry(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
-                >
-                  {EXPIRY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
+
+            {error && <p role="alert" className="mx-6 mb-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">Could not create the key: {error}</p>}
 
             {/* Footer */}
             <div className="flex items-center justify-end gap-3 border-t border-zinc-800 px-6 py-4">

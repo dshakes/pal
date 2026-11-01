@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { usePublicUrls } from "@/lib/public-url";
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
@@ -240,6 +241,7 @@ export default function SurfacesPage() {
   const toast = useToast();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const canManage = useCan("settings:write"); // channel config is workspace admin (UX gating, lib/rbac-matrix.ts)
   const whatsappTenantId = user?.tenantId ?? FALLBACK_TENANT;
   const [configs, setConfigs] = useState<Record<string, SurfaceConfig>>({});
   const [loading, setLoading] = useState(true);
@@ -287,6 +289,7 @@ export default function SurfacesPage() {
   }, [configModal]);
 
   const openConfig = useCallback((surface: SurfaceDefinition) => {
+    if (!canManage) return;
     const existing = configs[surface.id];
     const fields: Record<string, string> = {};
     surface.configFields.forEach((f) => { fields[f.key] = existing?.fields?.[f.key] ?? ""; });
@@ -296,7 +299,7 @@ export default function SurfacesPage() {
     setTestStatus("idle");
     setTestMessage("");
     setConfigModal(surface);
-  }, [configs]);
+  }, [configs, canManage]);
 
   // Deep-link auto-open: ?setup=<id> opens the matching surface config
   // modal. Used by /agents/{name}/setup so users land directly on the
@@ -574,7 +577,8 @@ export default function SurfacesPage() {
                       {surface.primaryActionLabel || (connected ? "Manage" : "Set up")}
                     </Link>
                   ) : (
-                    <button
+                    canManage ? (
+<button
                       onClick={() => openConfig(surface)}
                       className={clsx(
                         "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
@@ -583,6 +587,7 @@ export default function SurfacesPage() {
                     >
                       {connected ? "Configure" : "Set up"}
                     </button>
+) : null
                   )}
                   {surface.id === "webchat" && connected && (
                     <button onClick={() => setShowWebChat(!showWebChat)} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-surface-3">
