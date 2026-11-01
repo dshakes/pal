@@ -15,7 +15,7 @@ import { api, type EvalRun, type EvalSuite } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import { CONFIG, LIFECYCLE, type AgentTab } from "@/lib/lifecycle";
 import { ts } from "@/lib/overview";
-import { apiErrorText, budgetTone, incidentTone, type Incident } from "@/lib/observability";
+import { apiErrorText, budgetPct, budgetTone, incidentTone, type Incident } from "@/lib/observability";
 import { DataTable } from "@/components/data-table";
 import { ExplainInline } from "@/components/explain-inline";
 import { Skeleton } from "@/components/skeleton";
@@ -360,31 +360,31 @@ export function ReliabilityStrip({ agentName }: { agentName: string }) {
       ) : !slo || !incidents ? (
         <Skeleton className="h-16 w-full" />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-lg border border-line bg-panel p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="min-w-0 rounded-lg border border-line bg-panel p-4">
             <p className="text-[12.5px] text-fg-3">Error budget</p>
             {!slo.configured || !slo.slis?.length ? (
               <p className="mt-1 text-[13px] text-fg-2">No SLO set. <Link href={`${base}/reliability`} className="text-accent hover:underline">Set targets</Link></p>
             ) : (
               <ul className="mt-1.5 space-y-1">
                 {slo.slis.map((s) => (
-                  <li key={s.name} className="flex items-baseline justify-between gap-3 text-[13px]">
-                    <span className="text-fg-2">{s.name} <span className="text-fg-3">· {s.target}</span></span>
-                    <span className={clsx("num font-medium", TONE_TEXT[budgetTone(s.budgetRemaining)])}>{Math.round(s.budgetRemaining * 100)}% left</span>
+                  <li key={s.name} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]">
+                    <span className="min-w-0 truncate text-fg-2">{s.name} <span className="text-fg-3">· {s.target}</span></span>
+                    <span className={clsx("num shrink-0 font-medium", TONE_TEXT[budgetTone(s.budgetRemaining)])}>{s.budgetRemaining < 0 ? "Budget exhausted" : `${budgetPct(s.budgetRemaining)}% left`}</span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-          <div className="rounded-lg border border-line bg-panel p-4">
+          <div className="min-w-0 rounded-lg border border-line bg-panel p-4">
             <p className="text-[12.5px] text-fg-3">Open incidents</p>
             {incidents.length === 0 ? (
               <p className="mt-1 text-[13px] text-fg-2">None open.</p>
             ) : (
               <ul className="mt-1.5 space-y-1">
                 {incidents.slice(0, 3).map((i) => (
-                  <li key={i.id} className="flex items-baseline justify-between gap-3 text-[13px]">
-                    <Link href={`/incidents/${encodeURIComponent(i.id)}`} className={clsx("truncate hover:underline", TONE_TEXT[incidentTone(i)])}>{i.title}</Link>
+                  <li key={i.id} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]">
+                    <Link href={`/incidents/${encodeURIComponent(i.id)}`} className={clsx("min-w-0 truncate hover:underline", TONE_TEXT[incidentTone(i)])}>{i.title}</Link>
                     <span className="shrink-0 text-fg-3">{formatDistanceToNowStrict(new Date(i.openedAt))} ago</span>
                   </li>
                 ))}
