@@ -476,3 +476,38 @@ func TestFindOrphanedRuns_TenantPinnedJoin(t *testing.T) {
 	}
 	t.Logf("run %s agentName=%q (correct tenant A name)", runID, found.agentName)
 }
+
+// A cancelled run must stay cancelled when the microVM resume cap is hit.
+func TestResumeMicroVMRun_CapDoesNotOverwriteCancelled(t *testing.T) {
+	pool := openTestPool(t)
+	ctx := context.Background()
+	tenantID := recoveryTestDevTenantID
+	runID, _ := seedMicroVMRun(t, tenantID)
+
+	if _, err := pool.Exec(ctx, `UPDATE runs SET status = 'cancelled' WHERE id = $1`, runID); err != nil {
+		t.Fatalf("cancel run: %v", err)
+	}
+	for i := 0; i < maxMicroVMResumeAttempts; i++ {
+		vmID := fmt.Sprintf("vm-cap-cancelled-%d-%d", time.Now().UnixNano(), i)
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO runtime_vms (vm_id, tenant_id, run_id, state, spec, created_at)
+			VALUES ($1, $2, $3::uuid, 'terminated', '{}', now())
+		`, vmID, tenantID, runID); err != nil {
+			t.Fatalf("seed vm: %v", err)
+		}
+		t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM runtime_vms WHERE vm_id = $1`, vmID) })
+	}
+
+	logger, _ := zap.NewDevelopment()
+	h := &RESTHandler{srv: &server.Server{Pool: pool, Logger: logger}}
+	if err := h.resumeMicroVMRun(ctx, orphanedRun{runID: runID, tenantID: tenantID}); err != nil {
+		t.Fatalf("resumeMicroVMRun: %v", err)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if status != "cancelled" {
+		t.Errorf("status = %q, want cancelled", status)
+	}
+}

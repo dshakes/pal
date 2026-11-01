@@ -529,6 +529,11 @@ func (h *SessionHandler) processMessage(sessionID, tenantID, agentName string, m
 			h.logger().Warn("session: tool catalog lookup failed", zap.Error(toolsErr))
 			tools = nil
 		}
+		// MCP tools of the acting agent (ADR 0058). Never on the contact reply
+		// path: a remote server's readOnlyHint is untrusted.
+		if !readOnlyTools {
+			tools = append(tools, mcpToolsForAgent(ctx, tenantID)...)
+		}
 		// Contact reply path: keep ONLY read-only tools so a contact's message
 		// can ground on Calendar/Gmail reads but can never drive a connector
 		// write (send/create/delete). Trust boundary — see ReadOnlyTools above.

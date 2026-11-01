@@ -58,6 +58,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
 	"github.com/dshakes/pal/services/control-plane/internal/server"
@@ -259,13 +260,38 @@ func NewOnboardingAgentHandler(srv *server.Server, auth *AuthHandler, llm *LlmPr
 		runPoll: 1500 * time.Millisecond,
 	}
 	if llm != nil {
-		h.complete = func(ctx context.Context, tenantID, system, user string) (string, error) {
-			text, _, _, _, err := llm.CompleteInternalWithUsage(ctx, tenantID, system, user)
-			return text, err
-		}
+		h.complete = meteredOnbComplete(srv.Pool, llm.CompleteInternalWithUsage)
 		h.providerReady = llm.hasAnyLLMProvider
 	}
 	return h
+}
+
+// onbUsageAgent is the agent_usage_daily bucket for the onboarding agent's own
+// model calls (they count toward the tenant-wide daily cap like any other spend).
+const onbUsageAgent = "__onboarding__"
+
+// errOnbBudget is returned when a hard-fail budget blocks the onboarding model call.
+var errOnbBudget = errors.New("budget exceeded")
+
+// meteredOnbComplete wraps the raw model call with the same budget gate and
+// spend accounting as other internal LLM calls: CheckBudget before (hard-fail
+// blocks), RecordUsageSpend after (tokens + cost, no runs/day bump).
+func meteredOnbComplete(
+	pool *pgxpool.Pool,
+	raw func(ctx context.Context, tenantID, system, user string) (string, int64, int64, float64, error),
+) func(ctx context.Context, tenantID, system, user string) (string, error) {
+	return func(ctx context.Context, tenantID, system, user string) (string, error) {
+		if bc := CheckBudget(ctx, pool, tenantID, onbUsageAgent, 0); !bc.Allowed && bc.HardFail {
+			return "", fmt.Errorf("%w: %s", errOnbBudget, bc.Reason)
+		}
+		text, tIn, tOut, cost, err := raw(ctx, tenantID, system, user)
+		if tIn > 0 || tOut > 0 || cost > 0 { // spend even when the reply was later unusable
+			if recErr := RecordUsageSpend(ctx, pool, tenantID, onbUsageAgent, tIn, tOut, cost); recErr != nil {
+				zap.L().Warn("onboarding agent: RecordUsageSpend failed", zap.Error(recErr))
+			}
+		}
+		return text, err
+	}
 }
 
 // SetDispatcher sets the REST mux server tools call into.
@@ -663,6 +689,10 @@ func (h *OnboardingAgentHandler) agentLoop(w http.ResponseWriter, t *turnCtx, ev
 		text, err := h.complete(t.r.Context(), t.tenantID, system, user)
 		if err != nil {
 			h.srv.Logger.Warn("onboarding agent: model call failed", zap.String("tenant_id", t.tenantID), zap.Error(err))
+			if errors.Is(err, errOnbBudget) {
+				h.finish(w, t, "fallback", h.fallbackReply(t), "a budget limit blocked the model call — raise it in Budgets, or continue step by step")
+				return
+			}
 			t.offer(onbAction{Tool: "collect_provider_key", Args: onbActionArgs{Reason: "llm_failed"}})
 			h.finish(w, t, "fallback", h.fallbackReply(t), "the model call failed — check your provider key, or continue step by step")
 			return

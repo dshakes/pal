@@ -190,3 +190,37 @@ func TestContract_CreateAgent_Instructions_Ignored(t *testing.T) {
 		t.Errorf("GET systemPrompt should be empty when only 'instructions' was sent, got %q", sp)
 	}
 }
+
+// TestContract_ListAgents_IncludesModel asserts GET /v1/agents returns each
+// agent's model (extension column, like GET /v1/agents/{name}).
+func TestContract_ListAgents_IncludesModel(t *testing.T) {
+	h := newRESTHandlerForContractTest(t)
+	tok := mintContractToken(t, h)
+
+	name := contractAgentName(t, "contract-model")
+	t.Cleanup(func() { doDeleteAgent(h, tok, name) })
+	if rr := doCreateAgent(h, tok, map[string]any{"name": name, "model": "fast"}); rr.Code != http.StatusCreated {
+		t.Fatalf("POST /v1/agents: got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rr := httptest.NewRecorder()
+	h.ListAgents(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /v1/agents: got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, a := range list {
+		if a["name"] == name {
+			if a["model"] != "fast" {
+				t.Errorf("model = %v, want fast", a["model"])
+			}
+			return
+		}
+	}
+	t.Fatalf("agent %q not in list", name)
+}

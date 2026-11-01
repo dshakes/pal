@@ -24,6 +24,7 @@ import { RoleGate } from "@/components/role-gate";
 import { Kbd, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip, TooltipProvider } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { useModels } from "@/lib/model-context";
+import { shouldShowProviderBanner } from "@/lib/model-banner";
 import { openAsk } from "@/lib/ask-events";
 import { ROLE_LABEL, toRole } from "@/lib/rbac";
 import { MODE_HOME, MODE_LABEL, currentNavLabel } from "@/lib/workspace-nav";
@@ -170,8 +171,8 @@ function Topbar() {
 
 function ProviderBanner() {
   const kiosk = useKioskSession();
-  const { isConfigured, loading } = useModels();
-  if (kiosk || loading || isConfigured) return null;
+  const { isConfigured, loading, loaded } = useModels();
+  if (!shouldShowProviderBanner({ kiosk: !!kiosk, loading, loaded, isConfigured })) return null;
   return (
     <div className="flex items-center gap-3 border-b border-warn/30 bg-warn-soft px-4 py-2 md:px-5">
       <AlertTriangle className="h-4 w-4 shrink-0 text-warn" aria-hidden />

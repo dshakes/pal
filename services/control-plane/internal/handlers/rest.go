@@ -219,8 +219,41 @@ func (h *RESTHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 			agents = append(agents, agentToMap(a))
 		}
 	}
+	// model is an extension column absent from the proto Agent; fetch it in one
+	// tenant-scoped query and merge by name (best-effort, like GetAgent).
+	if tenantID, _ := middleware.TenantIDFromContext(ctx); len(agents) > 0 {
+		models := map[string]string{}
+		_ = db.WithTenantConn(ctx, h.srv.TenantPool(), tenantID, func(tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, `SELECT name, model FROM agents WHERE tenant_id = $1 AND model IS NOT NULL`, tenantID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var n, m string
+				if err := rows.Scan(&n, &m); err != nil {
+					return err
+				}
+				models[n] = m
+			}
+			return rows.Err()
+		})
+		for _, a := range agents {
+			if m, ok := models[fmt.Sprint(a["name"])]; ok {
+				a["model"] = m
+			}
+		}
+	}
 
 	writeJSON(w, http.StatusOK, agents)
+}
+
+func envQueryOn(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "on":
+		return true
+	}
+	return false
 }
 
 // CreateAgent handles POST /v1/agents.
@@ -258,6 +291,25 @@ func (h *RESTHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	if body.Model != nil {
 		if err := validAgentModel(*body.Model); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	// ?createOnly=1: refuse to upsert over an existing agent (the onboarding wizard
+	// must never overwrite someone's agent). Default POST semantics are unchanged.
+	// ponytail: check-then-create, not atomic; a concurrent same-name create can still win.
+	if envQueryOn(r.URL.Query().Get("createOnly")) {
+		tenantID, _ := middleware.TenantIDFromContext(ctx)
+		var exists bool
+		if err := db.WithTenantConn(ctx, h.srv.TenantPool(), tenantID, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agents WHERE tenant_id = $1 AND name = $2)`, tenantID, body.Name).Scan(&exists)
+		}); err != nil {
+			h.logger().Error("CreateAgent exists check failed", zap.Error(err))
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not check for an existing agent"})
+			return
+		}
+		if exists {
+			writeJSON(w, http.StatusConflict, map[string]string{"code": "agent_exists", "error": fmt.Sprintf("an agent named %q already exists", body.Name)})
 			return
 		}
 	}
@@ -1627,8 +1679,14 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 	// shape, not a user message). Treat any input with no user-facing
 	// text fields as Run Now too.
 	userContent := string(inputJSON)
+	// The agent's own instructions win over the executor's: an explicit no-tools
+	// directive (or label tools=none) suppresses tool binding below.
+	noTools := agentForbidsTools(systemPromptStr, labelsJSON)
 	if isRunNowInput(input, userContent) {
 		userContent = "This is a Run Now invocation — execute the workflow described in your system prompt right now. Call the tools you have available; do not ask me for clarification or claim you can't access anything."
+		if noTools {
+			userContent = "This is a Run Now invocation — execute the workflow described in your system prompt right now, following its rules exactly; do not ask me for clarification."
+		}
 	}
 	prompt := fmt.Sprintf("%s\n\n%s", systemPromptStr, userContent)
 
@@ -1745,7 +1803,9 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 		llmMessages[1] = map[string]any{"role": "user", "content": strings.TrimPrefix(prompt, systemPromptStr+"\n\n")}
 	}
 	var llmTools []map[string]any
-	if hasPrefetch {
+	if noTools {
+		logStep("attach_tools", "completed", "0 tools (agent instructions forbid tool use)")
+	} else if hasPrefetch {
 		// Pre-fetch did the work — no tools attached so the model just
 		// summarizes. Saves 700+ tokens of tool definitions per call and
 		// removes the model's option to refuse / hallucinate.
@@ -1757,6 +1817,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 			h.logger().Warn("inline executor: tools lookup failed",
 				zap.String("run_id", runID), zap.Error(llmToolsErr))
 		}
+		llmTools = append(llmTools, mcpToolsForAgent(ctx, tenantID)...)
 	}
 	// When tools ARE attached, models still routinely refuse to call them
 	// because the system prompt's mention of e.g. 'the GitHub connector'
@@ -1821,6 +1882,12 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 		return dispatchTool(dctx, h.srv.Pool, tenantID, name, args)
 	}
 	onToolCallStep := func(inv ToolInvocation) {
+		if _, _, isMCP := parseMCPToolName(inv.Name); isMCP {
+			// Redacted: the MCP dispatcher journals its own tool_call event
+			// (argument keys + hash only, ADR 0058).
+			logStep(fmt.Sprintf("tool:%s", inv.Name), mcpStepStatus(inv), mcpStepDetail(inv))
+			return
+		}
 		argsJSON, _ := json.Marshal(inv.Args)
 		switch {
 		case inv.Error != "":
@@ -3210,6 +3277,25 @@ You currently have these tools attached and ready to call: %s.
 When the instructions above mention a 'GitHub connector', 'Linear connector',
 'Gmail connector', etc., they refer to the matching tools in this list.
 DO NOT respond with "I don't have access" — the tools are right here. Call them.`, strings.Join(names, ", "))
+}
+
+// noToolsDirective matches only an UNCONDITIONAL, clause-final directive at the start of a
+// sentence/clause ("Never call tools." / "do not use any tools; ..."). A trailing qualifier
+// ("never call tools that need auth", "...without consent") or a quoted mention does not match;
+// the precise mechanism is the label tools=none.
+var noToolsDirective = regexp.MustCompile(`(?im)(?:^|[.!?;:\n]\s*)(?:you\s+)?(?:(?:must|should|may|can)\s+)?(?:never|do not|don'?t|not|cannot|can'?t)\s+(?:ever\s+)?(?:call|use|invoke|run|attempt|make)\s+(?:any\s+|the\s+|a\s+)?(?:tools?|tool[ -]calls?|function[ -]calls?|connector[ -]calls?)(?:\s+(?:under any circumstances|at all|ever))?\s*(?:[.!;]|$)|(?:^|[.!?;:\n]\s*)(?:answer|respond|reply)\b[^.!;\n]{0,40}\bwithout\s+(?:calling|using|invoking)\s+(?:any\s+)?(?:tools?|functions?)\s*(?:[.!;]|$)|(?:^|[.!?;:\n]\s*)no\s+tool[ -]calls?\s*(?:[.!;]|$)`)
+
+// agentForbidsTools reports whether the agent itself opts out of tools: label
+// tools=none, or an explicit directive in its own system prompt ("never call
+// tools"). The executor's tool-binding text must not override that.
+func agentForbidsTools(systemPrompt string, labelsJSON []byte) bool {
+	var lbl struct {
+		Tools string `json:"tools"`
+	}
+	if json.Unmarshal(labelsJSON, &lbl) == nil && strings.EqualFold(strings.TrimSpace(lbl.Tools), "none") {
+		return true
+	}
+	return noToolsDirective.MatchString(systemPrompt)
 }
 
 func runTotalStatus(outErr error, dbStatus string) string {

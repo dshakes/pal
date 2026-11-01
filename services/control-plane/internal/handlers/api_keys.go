@@ -49,6 +49,7 @@ var knownScopes = map[Scope]bool{
 	ScopeConnectorsRead: true, ScopeConnectorsWrite: true,
 	ScopeBudgetsRead: true, ScopeBudgetsWrite: true,
 	ScopeSettingsRead: true, ScopeSettingsWrite: true,
+	ScopeMCP: true, // ADR 0058: audience binding for the /mcp endpoint
 }
 
 // validateGrantableScopes rejects unknown scopes and any request the caller

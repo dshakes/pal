@@ -68,7 +68,7 @@ import type { Run } from "@/lib/types";
 import { type GuardrailConfig, getGuardrailConfig, saveGuardrailConfig, applyGuardrails, hasActiveGuardrails } from "@/lib/guardrails";
 import { type PromptVersion, getPromptVersions, savePromptVersion, formatVersionDate } from "@/lib/prompt-versions";
 import { estimateCost, formatEstimate } from "@/lib/cost-estimator";
-import { type McpServer, getMcpServers, addMcpServer, removeMcpServer, updateMcpServerStatus } from "@/lib/mcp-servers";
+import { AgentMcpSection } from "@/components/agent-mcp-section";
 import { type SubAgentLink, getSubAgents, addSubAgent, removeSubAgent } from "@/lib/sub-agents";
 import { type MemoryEntry, getAgentMemory, addMemoryEntry, removeMemoryEntry, memoryToContext } from "@/lib/agent-memory";
 import { getAgentInstructions, saveAgentInstructions, mergeInstructionsAndPrompt } from "@/lib/agent-instructions";
@@ -346,15 +346,6 @@ export default function AgentDetailPage() {
   const [instructionsDirty, setInstructionsDirty] = useState(false);
   const [generatingInstructions, setGeneratingInstructions] = useState(false);
 
-  // MCP Servers
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [showAddMcp, setShowAddMcp] = useState(false);
-  const [newMcpName, setNewMcpName] = useState("");
-  const [newMcpUrl, setNewMcpUrl] = useState("");
-  const [newMcpAuth, setNewMcpAuth] = useState<"none" | "bearer" | "api-key">("none");
-  const [newMcpToken, setNewMcpToken] = useState("");
-  const [testingMcpId, setTestingMcpId] = useState<string | null>(null);
-
   // Sub-agents
   const [subAgents, setSubAgents] = useState<SubAgentLink[]>([]);
   const [showAddSubAgent, setShowAddSubAgent] = useState(false);
@@ -465,8 +456,6 @@ export default function AgentDetailPage() {
     // Load instructions
     setInstructions(getAgentInstructions(name));
     setInstructionsDirty(false);
-    // Load MCP servers
-    setMcpServers(getMcpServers(name));
     // Load sub-agents
     setSubAgents(getSubAgents(name));
     // Load memory
@@ -869,49 +858,6 @@ export default function AgentDetailPage() {
     setGuardrails(updated);
     saveGuardrailConfig(name, updated);
   }, [name]);
-
-  // MCP server handlers
-  const handleAddMcpServer = useCallback(() => {
-    if (!newMcpName.trim() || !newMcpUrl.trim()) { toast.error("Name and URL are required"); return; }
-    const updated = addMcpServer(name, { name: newMcpName.trim(), url: newMcpUrl.trim(), authType: newMcpAuth, authToken: newMcpToken || undefined });
-    setMcpServers(updated);
-    setNewMcpName(""); setNewMcpUrl(""); setNewMcpAuth("none"); setNewMcpToken(""); setShowAddMcp(false);
-    toast.success(`MCP server "${newMcpName}" added`);
-  }, [name, newMcpName, newMcpUrl, newMcpAuth, newMcpToken, toast]);
-
-  const handleTestMcpServer = useCallback(async (serverId: string) => {
-    const server = mcpServers.find((s) => s.id === serverId);
-    if (!server) return;
-    setTestingMcpId(serverId);
-    try {
-      // Real probe: GET the MCP server URL. Any 2xx counts as reachable.
-      // We don't introspect tools here — that happens server-side when the
-      // workflow runtime actually invokes the MCP server. The point of this
-      // test is to confirm the URL + token combination works.
-      const resp = await fetch(server.url, {
-        headers: server.authToken
-          ? { Authorization: server.authType === "bearer" ? `Bearer ${server.authToken}` : server.authToken }
-          : undefined,
-      });
-      if (resp.ok) {
-        const updated = updateMcpServerStatus(name, serverId, "connected", []);
-        setMcpServers(updated);
-        toast.success(`Reached ${server.name}`);
-      } else {
-        toast.error(`${server.name} returned HTTP ${resp.status}`);
-      }
-    } catch (err) {
-      toast.error(`Could not reach ${server.name}: ${err instanceof Error ? err.message : "network error"}`);
-    } finally {
-      setTestingMcpId(null);
-    }
-  }, [name, mcpServers, toast]);
-
-  const handleRemoveMcpServer = useCallback((serverId: string) => {
-    const updated = removeMcpServer(name, serverId);
-    setMcpServers(updated);
-    toast.success("MCP server removed");
-  }, [name, toast]);
 
   // Sub-agent handlers
   const handleAddSubAgent = useCallback(() => {
@@ -2154,70 +2100,7 @@ export default function AgentDetailPage() {
               </div>
             </div>
 
-            {/* MCP Servers */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200"><Plug className="h-4 w-4 text-cyan-400" /> MCP Servers</h3>
-                <button onClick={() => setShowAddMcp(!showAddMcp)} className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 px-2.5 py-1 text-[12px] font-medium text-zinc-400 hover:bg-surface-3">
-                  <Plus className="h-3 w-3" /> Add Server
-                </button>
-              </div>
-              <p className="text-[11px] text-zinc-500">Connect to Model Context Protocol servers to give the agent access to external tools and data sources.</p>
-
-              {showAddMcp && (
-                <div className="space-y-2 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
-                  <input type="text" value={newMcpName} onChange={(e) => setNewMcpName(e.target.value)} placeholder="Server name (e.g., My Database Tools)" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-cyan-500/50" />
-                  <input type="text" value={newMcpUrl} onChange={(e) => setNewMcpUrl(e.target.value)} placeholder="Server URL (e.g., https://mcp.example.com/sse)" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm font-mono text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-cyan-500/50" />
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-zinc-400">Auth:</label>
-                    <select value={newMcpAuth} onChange={(e) => setNewMcpAuth(e.target.value as "none" | "bearer" | "api-key")} className="rounded-lg border border-zinc-800 bg-surface-0 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-cyan-500/50">
-                      <option value="none">None</option>
-                      <option value="bearer">Bearer Token</option>
-                      <option value="api-key">API Key</option>
-                    </select>
-                  </div>
-                  {newMcpAuth !== "none" && (
-                    <input type="password" value={newMcpToken} onChange={(e) => setNewMcpToken(e.target.value)} placeholder={newMcpAuth === "bearer" ? "Bearer token" : "API key"} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-cyan-500/50" />
-                  )}
-                  <div className="flex items-center gap-2">
-                    <button onClick={handleAddMcpServer} className="rounded-lg bg-cyan-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-cyan-500">Add Server</button>
-                    <button onClick={() => setShowAddMcp(false)} className="text-[12px] text-zinc-500 hover:text-zinc-300">Cancel</button>
-                  </div>
-                </div>
-              )}
-
-              {mcpServers.length === 0 && !showAddMcp ? (
-                <p className="text-xs text-zinc-600">No MCP servers configured. Add a server to extend agent capabilities.</p>
-              ) : (
-                <div className="space-y-2">
-                  {mcpServers.map((server) => (
-                    <div key={server.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2.5">
-                      <Server className="h-4 w-4 shrink-0 text-cyan-400" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-zinc-200">{server.name}</span>
-                          <span className={clsx("rounded-full px-1.5 py-0.5 text-[9px] font-medium", server.status === "connected" ? "bg-emerald-500/10 text-emerald-400" : server.status === "error" ? "bg-red-500/10 text-red-400" : "bg-zinc-700 text-zinc-500")}>{server.status}</span>
-                        </div>
-                        <p className="font-mono text-[11px] text-zinc-500 truncate">{server.url}</p>
-                        {server.tools && server.tools.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {server.tools.map((tool) => (
-                              <span key={tool} className="rounded bg-surface-2 px-1.5 py-0.5 text-[9px] font-medium text-zinc-400">{tool}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => handleTestMcpServer(server.id)} disabled={testingMcpId === server.id} className="rounded-lg border border-zinc-700 px-2 py-1 text-[11px] font-medium text-zinc-400 hover:bg-surface-3 disabled:opacity-50">
-                          {testingMcpId === server.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                        </button>
-                        <button onClick={() => handleRemoveMcpServer(server.id)} className="rounded p-1 text-zinc-600 hover:text-red-400 hover:bg-red-500/10"><X className="h-3 w-3" /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AgentMcpSection agentName={name} />
 
             {/* Safety & Guardrails */}
             <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">

@@ -20,6 +20,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { href: "/settings?tab=team", label: "Team", icon: "users" },
   { href: "/settings?tab=devices", label: "Devices", icon: "smartphone" },
   { href: "/settings?tab=billing", label: "Billing", icon: "card" },
+  { href: "/settings/mcp", label: "MCP", icon: "shield" },
 ];
 
 /** Whether a nav entry is the current one (path + optional ?tab=). */

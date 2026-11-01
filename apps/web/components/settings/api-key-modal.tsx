@@ -9,6 +9,7 @@ const SCOPE_OPTIONS = [
   { id: "runs:read", label: "Read runs", group: "Runs" },
   { id: "runs:write", label: "Write runs", group: "Runs" },
   { id: "runs:execute", label: "Execute runs", group: "Runs" },
+  { id: "mcp", label: "MCP server access (also needs the tool scopes)", group: "MCP" },
 ];
 
 const EXPIRY_OPTIONS = [

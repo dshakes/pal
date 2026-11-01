@@ -191,6 +191,19 @@ func BuildTrace(run RunInfo, events []Event, children []*Trace) *Trace {
 					TokensIn: int64(numF(p, "tokens_in")), TokensOut: int64(numF(p, "tokens_out")),
 					CostUSD: numF(p, "cost_usd"), LatencyMs: n.DurationMs}
 			}
+		case "tool_call":
+			// One self-contained, already-redacted record per MCP tool call
+			// (ADR 0058): argument keys + hash, never values.
+			n.Type = "tool"
+			n.Name = RedactString(str(p, "tool"))
+			n.Tool = &ToolInfo{Name: n.Name, Args: map[string]any{"argKeys": p["argKeys"], "argsSha256": p["argsSha256"]}}
+			n.DurationMs = int64(numF(p, "durationMs"))
+			n.StartMs = e.At.Sub(run.CreatedAt).Milliseconds() - n.DurationMs
+			n.Status = "ok"
+			if str(p, "status") == "failed" {
+				n.Status = "failed"
+				n.Error = RedactString(str(p, "error"))
+			}
 		case "step_failed":
 			n.Status = "failed"
 			setTool(n, p)

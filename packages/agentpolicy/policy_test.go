@@ -59,7 +59,7 @@ func TestEvaluateTable(t *testing.T) {
 	p := enforce(func(p *Policy) {
 		p.Tools = []string{"web_search", "read_*"}
 		p.Connectors = map[string][]string{"github": {"list_*", "get_issue"}, "slack": {"post_message"}}
-		p.MCPServers = []string{"filesystem"}
+		p.MCPServers = []string{"filesystem", "github.list_*", "linear.get_issue"}
 		p.EgressHosts = []string{"api.github.com", "*.example.org"}
 		p.A2ATargets = []string{"research-agent", "marketplace:summarizer", "spiffe://pal.local/tenant/t2/agent/*"}
 		p.A2AInbound = []string{"tenant:self", "tenant:11111111-1111-1111-1111-111111111111"}
@@ -80,6 +80,12 @@ func TestEvaluateTable(t *testing.T) {
 		{Action{Kind: KindConnector, Target: "gmail", Sub: "list_messages"}, false},
 		{Action{Kind: KindMCP, Target: "filesystem"}, true},
 		{Action{Kind: KindMCP, Target: "browser"}, false},
+		{Action{Kind: KindMCP, Target: "filesystem", Sub: "write_file"}, true},
+		{Action{Kind: KindMCP, Target: "github", Sub: "list_issues"}, true},
+		{Action{Kind: KindMCP, Target: "github", Sub: "create_issue"}, false},
+		{Action{Kind: KindMCP, Target: "github"}, false}, // a tool rule never grants the whole server
+		{Action{Kind: KindMCP, Target: "linear", Sub: "get_issue"}, true},
+		{Action{Kind: KindMCP, Target: "linear", Sub: "get_issue_x"}, false},
 		{Action{Kind: KindEgress, Target: "api.github.com"}, true},
 		{Action{Kind: KindEgress, Target: "API.GitHub.com:443"}, true},
 		{Action{Kind: KindEgress, Target: "evil.com"}, false},

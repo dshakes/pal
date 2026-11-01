@@ -264,8 +264,8 @@ func (s *RunService) ListRuns(ctx context.Context, req *palv1.ListRunsRequest) (
 	}
 
 	if req.GetStatusFilter() != palv1.RunStatus_RUN_STATUS_UNSPECIFIED {
-		query += fmt.Sprintf(" AND r.status = $%d", argIdx)
-		args = append(args, runStatusToString(req.GetStatusFilter()))
+		query += fmt.Sprintf(" AND r.status = ANY($%d)", argIdx)
+		args = append(args, runStatusDBValues(req.GetStatusFilter()))
 		argIdx++
 	}
 
@@ -836,7 +836,9 @@ func parseRunStatus(s string) palv1.RunStatus {
 		return palv1.RunStatus_RUN_STATUS_QUEUED
 	case "running":
 		return palv1.RunStatus_RUN_STATUS_RUNNING
-	case "paused":
+	// waiting (approval/takeover) and resumable (engine-parked) are both
+	// "blocked, not executing"; the proto has no dedicated values for them.
+	case "paused", "waiting", "resumable":
 		return palv1.RunStatus_RUN_STATUS_PAUSED
 	case "succeeded":
 		return palv1.RunStatus_RUN_STATUS_SUCCEEDED
@@ -847,6 +849,15 @@ func parseRunStatus(s string) palv1.RunStatus {
 	default:
 		return palv1.RunStatus_RUN_STATUS_UNSPECIFIED
 	}
+}
+
+// runStatusDBValues returns every runs.status string that maps to s, so a
+// PAUSED filter also matches waiting/resumable rows.
+func runStatusDBValues(s palv1.RunStatus) []string {
+	if s == palv1.RunStatus_RUN_STATUS_PAUSED {
+		return []string{"paused", "waiting", "resumable"}
+	}
+	return []string{runStatusToString(s)}
 }
 
 func runStatusToString(s palv1.RunStatus) string {

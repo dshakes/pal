@@ -526,7 +526,10 @@ func runLoopAgentIfPresent(
 		outputJSON, _ = json.Marshal(map[string]any{"records": recN, "obligations": oblN, "domain": m.Domain})
 
 	case "news_radar":
-		scanned, newN, srcOK, srcFail := runNewsRadar(ctx, pool, logger, tenantID, runID, completeFn, nil)
+		scanned, newN, srcOK, srcFail, skipped := runNewsRadarGuarded(ctx, pool, logger, tenantID, runID, completeFn, nil)
+		if skipped != "" {
+			logger.Info("loop-agent: news_radar skipped", zap.String("run_id", runID), zap.String("reason", skipped))
+		}
 		if scanned == 0 && srcFail > 0 {
 			logger.Warn("loop-agent: news_radar — all sources failed",
 				zap.String("run_id", runID), zap.Int("sources_failed", srcFail))
@@ -536,6 +539,7 @@ func runLoopAgentIfPresent(
 			"new":            newN,
 			"sources_ok":     srcOK,
 			"sources_failed": srcFail,
+			"skipped":        skipped,
 		})
 
 	case "commute_copilot", "energy_guardian", "health_coach", "focus_guardian":
