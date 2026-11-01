@@ -110,12 +110,12 @@ export function AgentMcpSection({ agentName }: { agentName: string }) {
   };
 
   return (
-    <div className="space-y-4 rounded-xl border border-zinc-800 bg-surface-1 p-5">
+    <div className="space-y-4 rounded-xl border border-line bg-panel p-5">
       <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200"><Plug className="h-4 w-4 text-cyan-400" /> MCP Servers</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><Plug className="h-4 w-4 text-accent" /> MCP Servers</h3>
         <Button size="sm" variant="secondary" icon={<Plus className="h-3 w-3" />} onClick={openAttach}>Attach server</Button>
       </div>
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-fg-3">
         Give the agent tools from Model Context Protocol servers. Register your own servers and credentials in{" "}
         <a href="/settings/mcp" className="text-pal-400 hover:underline">Settings → MCP</a>.
       </p>
@@ -123,47 +123,47 @@ export function AgentMcpSection({ agentName }: { agentName: string }) {
       {attached === null ? (
         <Skeleton className="h-14 w-full" />
       ) : attached.length === 0 ? (
-        <p className="text-xs text-zinc-600">No MCP servers attached.</p>
+        <p className="text-xs text-fg-3">No MCP servers attached.</p>
       ) : (
         <div className="space-y-2">
           {attached.map((a) => {
             const t = tests[a.serverSlug];
             return (
-              <div key={a.serverSlug} className="rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2.5">
+              <div key={a.serverSlug} className="rounded-lg border border-line bg-canvas px-3 py-2.5">
                 <div className="flex items-center gap-3">
-                  <Server className="h-4 w-4 shrink-0 text-cyan-400" />
+                  <Server className="h-4 w-4 shrink-0 text-accent" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium text-zinc-200">{a.serverName}</span>
-                      <span className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">{a.serverSlug}</span>
-                      <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-zinc-400">{a.transport}</span>
-                      <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-zinc-400">auth: {a.authType}</span>
-                      {a.category === "custom" && <span className="rounded bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-400">yours</span>}
+                      <span className="text-xs font-medium text-fg">{a.serverName}</span>
+                      <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] text-fg-2">{a.serverSlug}</span>
+                      <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-fg-2">{a.transport}</span>
+                      <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-fg-2">auth: {a.authType}</span>
+                      {a.category === "custom" && <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] text-accent">yours</span>}
                     </div>
-                    {typeof a.config?.vmId === "string" && <p className="mt-0.5 font-mono text-[11px] text-zinc-500">sandbox VM {a.config.vmId}</p>}
+                    {typeof a.config?.vmId === "string" && <p className="mt-0.5 font-mono text-[11px] text-fg-3">sandbox VM {a.config.vmId}</p>}
                   </div>
                   <Button size="sm" variant="secondary" loading={testing === a.serverSlug} onClick={() => test(a.serverSlug)}>Test</Button>
-                  <button aria-label={`Detach ${a.serverName}`} onClick={() => detach(a.serverSlug)} className="rounded p-1 text-zinc-600 hover:bg-red-500/10 hover:text-red-400"><X className="h-3 w-3" /></button>
+                  <button aria-label={`Detach ${a.serverName}`} onClick={() => detach(a.serverSlug)} className="rounded p-1 text-fg-3 hover:bg-bad-soft hover:text-bad"><X className="h-3 w-3" /></button>
                 </div>
 
                 {t?.kind === "auth" && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] text-amber-400">
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-warn-soft px-3 py-2 text-[11px] text-warn">
                     Not connected yet — this server needs authorization.
                     <Button size="sm" variant="primary" onClick={() => connect(a)}>Connect</Button>
                   </div>
                 )}
-                {t?.kind === "error" && <p className="mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">{t.message}</p>}
+                {t?.kind === "error" && <p className="mt-2 rounded-lg bg-bad-soft px-3 py-2 text-[11px] text-bad">{t.message}</p>}
                 {t?.kind === "ok" && (
                   <div className="mt-2 space-y-1">
-                    {t.result.tools.length === 0 && <p className="text-[11px] text-zinc-500">Connected, but the server lists no tools.</p>}
+                    {t.result.tools.length === 0 && <p className="text-[11px] text-fg-3">Connected, but the server lists no tools.</p>}
                     {t.result.tools.map((tool) => (
                       <div key={tool.name} className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="font-mono text-zinc-300">{tool.name}</span>
-                        <span className={clsx("rounded-full px-1.5 py-0.5 text-[9px] font-medium", tool.allowedByPolicy === false ? "bg-amber-500/10 text-amber-400" : "bg-emerald-500/10 text-emerald-400")}>
+                        <span className="font-mono text-fg-2">{tool.name}</span>
+                        <span className={clsx("rounded-full px-1.5 py-0.5 text-[9px] font-medium", tool.allowedByPolicy === false ? "bg-warn-soft text-warn" : "bg-ok-soft text-ok")}>
                           {tool.allowedByPolicy === false ? "blocked by policy" : "allowed"}
                         </span>
                         {tool.allowedByPolicy === false && (
-                          <span className="text-zinc-500">
+                          <span className="text-fg-3">
                             add <code className="font-mono">{policyEntry(a.serverSlug)}</code> or{" "}
                             <code className="font-mono">{policyEntry(a.serverSlug, tool.name)}</code> to MCP servers in the{" "}
                             <a href={`/agents/${encodeURIComponent(agentName)}?tab=security`} className="text-pal-400 hover:underline">Security tab</a>
@@ -192,7 +192,7 @@ export function AgentMcpSection({ agentName }: { agentName: string }) {
         }
       >
         <div className="space-y-3">
-          <select aria-label="MCP server" value={pick} onChange={(e) => setPick(e.target.value)} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/50">
+          <select aria-label="MCP server" value={pick} onChange={(e) => setPick(e.target.value)} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
             <option value="">Select a server…</option>
             {options.some((o) => !o.tenant) && (
               <optgroup label="Catalog">
@@ -207,8 +207,8 @@ export function AgentMcpSection({ agentName }: { agentName: string }) {
           </select>
           {stdio && (
             <div>
-              <input type="text" aria-label="Sandbox VM id" value={vmId} onChange={(e) => setVmId(e.target.value)} placeholder="Sandbox VM id" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-cyan-500/50" />
-              <p className="mt-1 text-[11px] text-zinc-500">stdio servers run only inside a sandbox VM, never on the host. Use the id of a running VM from Sandboxes.</p>
+              <input type="text" aria-label="Sandbox VM id" value={vmId} onChange={(e) => setVmId(e.target.value)} placeholder="Sandbox VM id" className="w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-sm text-fg placeholder:text-fg-3 outline-none focus:border-accent" />
+              <p className="mt-1 text-[11px] text-fg-3">stdio servers run only inside a sandbox VM, never on the host. Use the id of a running VM from Sandboxes.</p>
             </div>
           )}
         </div>

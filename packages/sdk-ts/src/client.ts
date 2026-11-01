@@ -1,5 +1,8 @@
 import { z } from "zod";
 import type {
+  A2AAgentCard,
+  A2AMessage,
+  A2ATask,
   Agent,
   AgentAuditLog,
   AgentIdentity,
@@ -767,6 +770,38 @@ export class PalClient {
       }),
   };
 
+  readonly a2a = {
+    getCard: (agentName: string): Promise<A2AAgentCard> =>
+      this.fetch(`/v1/agents/${encodeURIComponent(agentName)}/a2a/.well-known/agent-card.json`),
+
+    sendMessage: (agentName: string, text: string, opts: { blocking?: boolean } = {}): Promise<A2ATask> => {
+      const message: A2AMessage = {
+        kind: "message",
+        messageId: crypto.randomUUID(),
+        role: "user",
+        parts: [{ kind: "text", text }],
+      };
+      return this.a2aRpc(agentName, "message/send", { message, configuration: { blocking: opts.blocking ?? false } });
+    },
+
+    getTask: (agentName: string, taskId: string, historyLength?: number): Promise<A2ATask> =>
+      this.a2aRpc(agentName, "tasks/get", { id: taskId, ...(historyLength !== undefined ? { historyLength } : {}) }),
+
+    cancelTask: (agentName: string, taskId: string): Promise<A2ATask> =>
+      this.a2aRpc(agentName, "tasks/cancel", { id: taskId }),
+  };
+
+  /** JSON-RPC 2.0 call; errors arrive as HTTP 200 + {error:{code,message}}. */
+  private async a2aRpc(agentName: string, method: string, params: unknown): Promise<A2ATask> {
+    const res = await this.fetch<{ result?: A2ATask; error?: { code: number; message: string } }>(
+      `/v1/agents/${encodeURIComponent(agentName)}/a2a`,
+      { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params }) },
+    );
+    if (res.error) throw new PalApiError(200, res.error.message, res.error.code);
+    if (!res.result) throw new PalApiError(200, "A2A response missing result");
+    return res.result;
+  }
+
   private async *streamSessionMessage(
     sessionId: string,
     params: {
@@ -985,6 +1020,8 @@ export class PalApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: string,
+    /** JSON-RPC error code (A2A), when the failure came from a JSON-RPC envelope. */
+    public readonly code?: number,
   ) {
     super(`PAL API error ${status}: ${body.slice(0, 200)}`);
     this.name = "PalApiError";

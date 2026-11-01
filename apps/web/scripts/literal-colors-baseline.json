@@ -1,0 +1,23 @@
+{
+  "app/(dashboard)/agents/[name]/page.tsx": 8,
+  "app/(dashboard)/agents/create/page.tsx": 4,
+  "app/(dashboard)/embed/page.tsx": 2,
+  "app/(dashboard)/inbox/page.tsx": 20,
+  "app/(dashboard)/personal/auto-reply/page.tsx": 1,
+  "app/(dashboard)/personal/docs/page.tsx": 1,
+  "app/(dashboard)/personal/drafts/page.tsx": 2,
+  "app/(dashboard)/personal/page.tsx": 3,
+  "app/(dashboard)/personal/setup/page.tsx": 1,
+  "app/(dashboard)/personal/vip/page.tsx": 1,
+  "app/(dashboard)/runtime/capacity-map.tsx": 3,
+  "app/(dashboard)/runtime/fleet-grid.tsx": 5,
+  "app/(dashboard)/runtime/page.tsx": 4,
+  "app/auth/auth-shell.tsx": 1,
+  "app/login/page.tsx": 4,
+  "app/welcome/page.tsx": 1,
+  "components/agent-loop.tsx": 13,
+  "components/editor/minimap.tsx": 10,
+  "components/qr-code.tsx": 2,
+  "components/run-waterfall.tsx": 1,
+  "components/whatsapp-pairing.tsx": 2
+}

@@ -43,6 +43,13 @@ export type { Span, Tracer } from "./runtime/tracing.js";
 
 // Types (re-export everything)
 export type {
+  A2AAgentCard,
+  A2AArtifact,
+  A2AMessage,
+  A2APart,
+  A2ASkill,
+  A2ATask,
+  A2ATaskState,
   AgentConfig,
   AgentContext,
   StepOptions,

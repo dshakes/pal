@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import random
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -103,6 +104,7 @@ class PalClient:
         self.receipts = self._Receipts(self)
         self.feedback = self._Feedback(self)
         self.rehearsals = self._Rehearsals(self)
+        self.a2a = self._A2A(self)
         self.runtime = self._Runtime(self)
 
     # ------------------------------------------------------------------
@@ -1414,6 +1416,39 @@ class PalClient:
             return resp.json()
 
     # ------------------------------------------------------------------
+
+    class _A2A:
+        """A2A v0.3 client (JSON-RPC). Tasks/cards are returned as plain dicts."""
+
+        def __init__(self, client: PalClient) -> None:
+            self._c = client
+
+        async def get_card(self, agent: str) -> dict[str, Any]:
+            return await self._c._request("GET", f"/v1/agents/{quote(agent, safe='')}/a2a/.well-known/agent-card.json")
+
+        async def send_message(self, agent: str, text: str, blocking: bool = False) -> dict[str, Any]:
+            message = {
+                "kind": "message",
+                "messageId": str(uuid.uuid4()),
+                "role": "user",
+                "parts": [{"kind": "text", "text": text}],
+            }
+            return await self._rpc(agent, "message/send", {"message": message, "configuration": {"blocking": blocking}})
+
+        async def get_task(self, agent: str, task_id: str) -> dict[str, Any]:
+            return await self._rpc(agent, "tasks/get", {"id": task_id})
+
+        async def cancel_task(self, agent: str, task_id: str) -> dict[str, Any]:
+            return await self._rpc(agent, "tasks/cancel", {"id": task_id})
+
+        async def _rpc(self, agent: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            req = {"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": method, "params": params}
+            data = await self._c._request("POST", f"/v1/agents/{quote(agent, safe='')}/a2a", body=req) or {}
+            if err := data.get("error"):
+                raise PalApiError(200, str(err.get("message", "")), code=err.get("code"))
+            if "result" not in data:
+                raise PalApiError(200, "a2a: response missing result")
+            return data["result"]
 
     class _Rehearsals:
         def __init__(self, client: PalClient) -> None:

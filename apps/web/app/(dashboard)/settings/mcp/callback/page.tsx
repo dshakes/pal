@@ -30,10 +30,10 @@ function Callback() {
   }, [q]);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-surface-1 p-6" role="status">
-      {state.kind === "working" && <p className="text-sm text-zinc-400">Completing authorization…</p>}
-      {state.kind === "ok" && <p className="text-sm text-emerald-400">Connected <span className="font-mono">{state.slug}</span>.</p>}
-      {state.kind === "fail" && <p className="text-sm text-red-400">Authorization failed: {state.message}</p>}
+    <div className="rounded-xl border border-line bg-panel p-6" role="status">
+      {state.kind === "working" && <p className="text-sm text-fg-2">Completing authorization…</p>}
+      {state.kind === "ok" && <p className="text-sm text-ok">Connected <span className="font-mono">{state.slug}</span>.</p>}
+      {state.kind === "fail" && <p className="text-sm text-bad">Authorization failed: {state.message}</p>}
       {state.kind !== "working" && (
         <div className="mt-4"><LinkButton href="/settings/mcp" variant="secondary">Back to MCP settings</LinkButton></div>
       )}

@@ -8,7 +8,7 @@ import { useToast } from "@/components/toast";
 import { HeaderSkeleton, Skeleton } from "@/components/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { api, type McpServer as CatalogMcpServer, type McpAttachment } from "@/lib/api";
-import type { Agent } from "@/lib/mock-data";
+import type { Agent } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Types & helpers
@@ -527,7 +527,7 @@ export default function ConnectorsPage() {
                 type="button"
                 onClick={() => openModal(con)}
                 aria-label={on ? `Configure ${con.name}` : `Connect ${con.name}`}
-                className="connector-card card-hover group text-left cursor-pointer"
+                className="connector-card group text-left cursor-pointer"
               >
                 <div className="flex items-start justify-between">
                   <div className={clsx("flex h-10 w-10 items-center justify-center rounded-xl", con.iconBg)}><I className={clsx("h-5 w-5", con.iconColor)} /></div>

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Loader2, Sparkles, X } from "lucide-react";
 import clsx from "clsx";
 import { api, AssistError, type ExplainRequest } from "@/lib/api";
+import { useCan } from "@/components/role-gate";
 
 export function ExplainInline({
   request, label = "Explain", className, size = "sm",
@@ -22,6 +23,8 @@ export function ExplainInline({
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [text, setText] = useState("");
   const [needsKey, setNeedsKey] = useState(false);
+  // Explaining calls the model (spends money), so read-only roles don't get it.
+  const canRun = useCan("runs:execute");
 
   const run = async () => {
     setState("loading");
@@ -36,6 +39,8 @@ export function ExplainInline({
     }
   };
 
+  if (!canRun) return null;
+
   if (state === "idle" || state === "loading") {
     return (
       <button
@@ -43,7 +48,7 @@ export function ExplainInline({
         onClick={run}
         disabled={state === "loading"}
         className={clsx(
-          "inline-flex items-center gap-1 rounded-md border border-pal-500/30 bg-pal-500/[0.07] font-medium text-pal-400 transition-colors hover:bg-pal-500/15 disabled:opacity-60",
+          "focus-ring inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent-soft font-medium text-accent transition-colors hover:border-accent/60 disabled:opacity-60",
           size === "xs" ? "h-6 px-2 text-[11px]" : "h-7 px-2.5 text-[12px]",
           className,
         )}
@@ -59,12 +64,12 @@ export function ExplainInline({
       role="status"
       className={clsx(
         "relative rounded-lg border px-3 py-2.5 pr-8 text-xs leading-relaxed",
-        state === "done" ? "border-pal-500/25 bg-pal-500/[0.06] text-zinc-200" : "border-amber-500/25 bg-amber-500/5 text-amber-300",
+        state === "done" ? "border-accent/30 bg-accent-soft text-fg" : "border-warn/40 bg-warn-soft text-warn",
         className,
       )}
     >
       {state === "done" && (
-        <span className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-pal-400">
+        <span className="mb-1 flex items-center gap-1 text-[12px] font-medium text-accent">
           <Sparkles className="h-3 w-3" /> PAL explains
         </span>
       )}
@@ -78,7 +83,7 @@ export function ExplainInline({
         type="button"
         aria-label="Dismiss explanation"
         onClick={() => setState("idle")}
-        className="absolute right-2 top-2 rounded p-0.5 text-zinc-500 hover:text-zinc-200"
+        className="focus-ring absolute right-2 top-2 rounded p-0.5 text-fg-3 hover:text-fg"
       >
         <X className="h-3.5 w-3.5" />
       </button>

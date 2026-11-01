@@ -1119,3 +1119,62 @@ export interface AgentPolicyDeniedBody {
   target: string;
   error: string;
 }
+
+// ---------------------------------------------------------------------------
+// A2A v0.3 (JSON-RPC) — see services/control-plane/internal/handlers/a2a_jsonrpc.go
+// ---------------------------------------------------------------------------
+
+export interface A2ASkill {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface A2AAgentCard {
+  protocolVersion: string;
+  name: string;
+  description?: string;
+  url: string;
+  preferredTransport?: string;
+  version?: string;
+  capabilities?: {
+    streaming?: boolean;
+    pushNotifications?: boolean;
+    stateTransitionHistory?: boolean;
+  };
+  securitySchemes?: Record<string, unknown>;
+  security?: Array<Record<string, string[]>>;
+  defaultInputModes?: string[];
+  defaultOutputModes?: string[];
+  skills?: A2ASkill[];
+}
+
+export interface A2APart {
+  kind: string;
+  text?: string;
+}
+
+export interface A2AMessage {
+  kind: "message";
+  messageId: string;
+  role: "user" | "agent";
+  parts: A2APart[];
+}
+
+export type A2ATaskState = "submitted" | "working" | "completed" | "failed" | "canceled";
+
+export interface A2AArtifact {
+  artifactId: string;
+  name?: string;
+  parts: A2APart[];
+}
+
+export interface A2ATask {
+  kind: "task";
+  id: string;
+  contextId: string;
+  status: { state: A2ATaskState; timestamp?: string; message?: A2AMessage };
+  artifacts?: A2AArtifact[];
+  history?: A2AMessage[];
+}

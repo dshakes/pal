@@ -156,23 +156,23 @@ func (h *MCPHandler) ServeMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !slices.Contains(mcpServerVersions, v) {
-		writeJSON(w, http.StatusBadRequest, rpcErr(nil, -32600, "unsupported MCP-Protocol-Version"))
+		writeJSON(w, http.StatusBadRequest, mcpRPCErr(nil, -32600, "unsupported MCP-Protocol-Version"))
 		return
 	}
 	accept := r.Header.Get("Accept")
 	if accept != "" && !strings.Contains(accept, "application/json") && !strings.Contains(accept, "*/*") {
-		writeJSON(w, http.StatusNotAcceptable, rpcErr(nil, -32600, "Accept must include application/json"))
+		writeJSON(w, http.StatusNotAcceptable, mcpRPCErr(nil, -32600, "Accept must include application/json"))
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, mcpServerMaxBody))
 	if err != nil {
-		writeJSON(w, http.StatusRequestEntityTooLarge, rpcErr(nil, -32600, "request too large"))
+		writeJSON(w, http.StatusRequestEntityTooLarge, mcpRPCErr(nil, -32600, "request too large"))
 		return
 	}
 	body = bytes.TrimSpace(body)
 	if len(body) > 0 && body[0] == '[' {
 		// JSON-RPC batching was removed in 2025-06-18.
-		writeJSON(w, http.StatusBadRequest, rpcErr(nil, -32600, "batch requests are not supported"))
+		writeJSON(w, http.StatusBadRequest, mcpRPCErr(nil, -32600, "batch requests are not supported"))
 		return
 	}
 	var msg struct {
@@ -184,7 +184,7 @@ func (h *MCPHandler) ServeMCP(w http.ResponseWriter, r *http.Request) {
 		Error   json.RawMessage `json:"error"`
 	}
 	if err := json.Unmarshal(body, &msg); err != nil || msg.JSONRPC != "2.0" {
-		writeJSON(w, http.StatusBadRequest, rpcErr(nil, -32700, "parse error"))
+		writeJSON(w, http.StatusBadRequest, mcpRPCErr(nil, -32700, "parse error"))
 		return
 	}
 	if msg.Method == "" || len(msg.ID) == 0 || string(msg.ID) == "null" {
@@ -195,13 +195,13 @@ func (h *MCPHandler) ServeMCP(w http.ResponseWriter, r *http.Request) {
 	ctx := storeClaimsInCtx(middleware.InjectTenantID(r.Context(), claims.TenantID), claims)
 	result, rerr := h.mcpDispatch(ctx, r, claims, msg.Method, msg.Params)
 	if rerr != nil {
-		writeJSON(w, http.StatusOK, rpcErr(msg.ID, rerr.Code, rerr.Message))
+		writeJSON(w, http.StatusOK, mcpRPCErr(msg.ID, rerr.Code, rerr.Message))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": result})
 }
 
-func rpcErr(id json.RawMessage, code int, msg string) map[string]any {
+func mcpRPCErr(id json.RawMessage, code int, msg string) map[string]any {
 	if id == nil {
 		id = json.RawMessage("null")
 	}

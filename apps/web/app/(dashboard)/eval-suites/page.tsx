@@ -37,7 +37,7 @@ import { Button } from "@/components/button";
 import { ConfirmModal, Modal, ModalField } from "@/components/modal";
 import { EmptyState } from "@/components/empty-state";
 import { EvalIllustration } from "@/components/illustrations";
-import type { Agent } from "@/lib/mock-data";
+import type { Agent } from "@/lib/types";
 
 function emptyDraft(agentName: string): EvalSuiteInput {
   return {

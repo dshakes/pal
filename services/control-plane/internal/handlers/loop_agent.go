@@ -60,7 +60,7 @@ func finalizeLoopRun(ctx context.Context, pool *pgxpool.Pool, logger *zap.Logger
 	}
 	// rls-exempt: inline executor — runs write keyed by id (authorized run).
 	_, _ = pool.Exec(ctx,
-		`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb, tokens_in = $3, tokens_out = $4, cost_usd = $5 WHERE id = $1`,
+		`UPDATE runs SET status = 'succeeded', finished_at = now(), output = $2::jsonb, tokens_in = $3, tokens_out = $4, cost_usd = $5 WHERE id = $1 AND status <> 'cancelled'`,
 		runID, string(outPayload), u.TokensIn, u.TokensOut, u.CostUsd,
 	)
 	if recErr := RecordUsage(ctx, pool, tenantID, agentName, u.TokensIn, u.TokensOut, u.CostUsd, map[string]int{}); recErr != nil {

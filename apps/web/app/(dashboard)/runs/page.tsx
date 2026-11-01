@@ -17,8 +17,8 @@ import clsx from "clsx";
 import { useRuns, useAgents } from "@/lib/hooks";
 import { useToast } from "@/components/toast";
 import { api } from "@/lib/api";
-import { formatCost, formatDuration } from "@/lib/mock-data";
-import type { Run, RunStatus } from "@/lib/mock-data";
+import { formatCost, formatDuration } from "@/lib/format";
+import type { Run, RunStatus } from "@/lib/types";
 import {
   groupRunsBySession,
   aggregateSession,
