@@ -649,6 +649,10 @@ func main() {
 	// onboarding agent's run explanation.
 	handlers.NewOnboardingHandler(srv, authHandler, llmProxyHandler).RegisterRoutes(httpMux)
 	handlers.NewAssistHandler(srv, authHandler, llmProxyHandler).RegisterRoutes(httpMux)
+	// Post-deployment debug + support agents (ADR 0059): read-only evidence,
+	// grounded root cause, fix PROPOSALS a human applies via existing endpoints.
+	handlers.NewDebugHandler(srv, authHandler, llmProxyHandler).RegisterRoutes(httpMux)
+	handlers.NewSupportHandler(srv, authHandler, llmProxyHandler).RegisterRoutes(httpMux)
 	handlers.NewPalOnboardingHandler(srv, authHandler, llmProxyHandler).RegisterRoutes(httpMux)
 	// The onboarding agent (ADR 0051): a multi-turn conversation whose server
 	// tools call back into this same mux, so every tool is a real endpoint

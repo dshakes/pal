@@ -28,6 +28,7 @@ import { ViewCode, snippetsForCreateRun, snippetsForGetRun } from "@/components/
 import type { StreamState } from "@/lib/sse";
 import { TakeoverPanel } from "@/components/takeover-panel";
 import { ExplainInline } from "@/components/explain-inline";
+import { DebugThis } from "@/components/debug-panel";
 import { RoleGate } from "@/components/role-gate";
 import { useAgentSurface } from "@/components/agent-surface";
 
@@ -272,7 +273,10 @@ export default function RunDetailPage() {
                   <p className="text-[13.5px] font-medium text-bad">{run.error.code}</p>
                   <p className="mt-1 break-words text-[13px] text-fg-2">{run.error.message}</p>
                   {run.error.stepId && <p className="mt-2 font-mono text-[12px] text-fg-3">Failed at step {run.error.stepId}</p>}
-                  <ExplainInline request={{ kind: "run", runId: run.id }} label="Why did this fail?" className="mt-3" />
+                  <div className="mt-3 flex flex-wrap items-start gap-2">
+                    <ExplainInline request={{ kind: "run", runId: run.id }} label="Why did this fail?" />
+                    <DebugThis target={{ kind: "run", runId: run.id }} />
+                  </div>
                 </div>
               ) : run.output !== undefined && run.output !== null ? (
                 <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap break-words rounded-md bg-raised p-3 font-mono text-[13px] leading-relaxed text-fg">{outputText(run.output)}</pre>

@@ -932,3 +932,110 @@ class TestEvalsV2:
         assert _last(t).url.path == "/v1/eval-judge/calibrate"
         assert json.loads(_last(t).content) == {"agentName": "a", "limit": 5}
         assert c.kappa == 0.5 and c.labeled == 4 and c.verdict == "v"
+
+
+# ---------------------------------------------------------------------------
+# Debug agent + support (read-only; proposals are data)
+# ---------------------------------------------------------------------------
+
+
+class TestDebugSupport:
+    async def test_debug_analyze_decodes_proposal_action(self):
+        t = _MockTransport(
+            body={
+                "summary": "s",
+                "rootCause": "rc",
+                "confidence": "high",
+                "grounded": True,
+                "citations": [{"ref": "run:1", "label": "l"}],
+                "proposals": [
+                    {
+                        "id": "p1",
+                        "kind": "rollback",
+                        "title": "t",
+                        "rationale": "r",
+                        "citations": ["run:1"],
+                        "risk": "low",
+                        "action": {"method": "POST", "path": "/v1/x", "body": {"a": 1}, "idempotencyKey": "k"},
+                        "followUp": "f",
+                    }
+                ],
+                "dropped": [],
+                "subject": {"kind": "run", "runId": "1", "agentName": "a"},
+                "evidence": {"runs": 2},
+                "costUsd": 0.01,
+                "requiresApproval": True,
+                "generatedAt": "t",
+            }
+        )
+        rep = await _client(t).debug.analyze("run", run_id="1")
+        req = _last(t)
+        assert req.method == "POST" and req.url.path == "/v1/debug/analyze"
+        assert json.loads(req.content) == {"kind": "run", "runId": "1"}
+        assert rep.root_cause == "rc" and rep.requires_approval and rep.evidence == {"runs": 2}
+        p = rep.proposals[0]
+        assert p.kind == "rollback" and p.action is not None and p.action["path"] == "/v1/x"
+        assert p.action["idempotencyKey"] == "k" and p.follow_up == "f"
+
+    async def test_debug_analyze_402_raises(self):
+        import pytest
+
+        from pal.errors import PalApiError
+
+        t = _MockTransport(status=402, body={"error": "x", "code": "budget_exceeded"})
+        with pytest.raises(PalApiError) as ei:
+            await _client(t).debug.analyze("run", run_id="1")
+        assert ei.value.status == 402
+
+    async def test_support_ask(self):
+        t = _MockTransport(
+            body={
+                "answer": "a",
+                "citations": [],
+                "docs": [{"slug": "s", "title": "T", "path": "/p"}],
+                "actions": [{"kind": "debug_run", "runId": "1"}],
+                "suggestEscalation": True,
+                "grounded": True,
+                "costUsd": 0,
+                "requiresApproval": False,
+            }
+        )
+        a = await _client(t).support.ask("why", run_id="1", history=[{"role": "user", "text": "hi"}])
+        assert _last(t).method == "POST" and _last(t).url.path == "/v1/support/ask"
+        assert json.loads(_last(t).content) == {
+            "question": "why",
+            "runId": "1",
+            "history": [{"role": "user", "text": "hi"}],
+        }
+        assert a.suggest_escalation and a.actions[0]["kind"] == "debug_run" and a.docs[0]["slug"] == "s"
+
+    async def test_support_escalations(self):
+        t = _MockTransport(
+            status=201,
+            body={
+                "id": "e1",
+                "digest": "d",
+                "algorithm": "ed25519",
+                "signature": "s",
+                "createdAt": "t",
+                "bundle": {"q": 1},
+            },
+        )
+        e = await _client(t).support.escalate("help", incident_id="i1")
+        assert _last(t).method == "POST" and _last(t).url.path == "/v1/support/escalations"
+        assert json.loads(_last(t).content) == {"question": "help", "incidentId": "i1"}
+        assert e.id == "e1" and e.bundle == {"q": 1}
+
+        t = _MockTransport(
+            body={
+                "escalations": [{"id": "e1", "subjectKind": "run", "subjectId": "1", "question": "q", "createdBy": "u"}]
+            }
+        )
+        lst = await _client(t).support.list_escalations()
+        assert _last(t).method == "GET" and _last(t).url.path == "/v1/support/escalations"
+        assert lst[0].subject_id == "1" and lst[0].created_by == "u"
+
+        t = _MockTransport(body={"id": "e 1", "signature": "sig", "bundle": {}})
+        g = await _client(t).support.get_escalation("e 1")
+        assert _last(t).url.raw_path == b"/v1/support/escalations/e%201"
+        assert g.signature == "sig"

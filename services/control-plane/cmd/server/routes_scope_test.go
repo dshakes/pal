@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -215,6 +216,32 @@ func TestEveryGetRouteHasScope(t *testing.T) {
 	for route := range getExempt {
 		if !seen[route] {
 			t.Errorf("GET exemption for %q matches no registered route — remove it", route)
+		}
+	}
+}
+
+// TestDebugSupportRouteScopes pins the route-level scopes of the ADR 0059
+// endpoints; the handlers additionally require agents:read + budgets:read
+// (debug/ask) always, whatever PAL_AUTHZ_ENFORCE says.
+func TestDebugSupportRouteScopes(t *testing.T) {
+	want := map[string]string{
+		`"POST /v1/debug/analyze", h.auth.WithScope(ScopeRunsExecute`:                    "../../internal/handlers/debug_agent.go",
+		`"POST /v1/support/ask", h.auth.WithScope(ScopeRunsExecute`:                      "../../internal/handlers/support_agent.go",
+		`"POST /v1/support/escalations", h.auth.WithScope(ScopeSettingsWrite`:            "../../internal/handlers/support_agent.go",
+		`"GET /v1/support/escalations", h.auth.WithScope(ScopeSettingsRead`:              "../../internal/handlers/support_agent.go",
+		`"GET /v1/support/escalations/{id}", h.auth.WithScope(ScopeSettingsRead`:         "../../internal/handlers/support_agent.go",
+		`"GET /v1/support/escalations/{id}/verify", h.auth.WithScope(ScopeSettingsRead`:  "../../internal/handlers/support_agent.go",
+		`if !debugCallerAllowed(claims, debugScopes...) {`:                               "../../internal/handlers/debug_agent.go",
+		`claims, ok := h.supportClaims(w, r, debugScopes...)`:                            "../../internal/handlers/support_agent.go",
+		`var debugScopes = []Scope{ScopeRunsExecute, ScopeAgentsRead, ScopeBudgetsRead}`: "../../internal/handlers/debug_guard.go",
+	}
+	for needle, file := range want {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), needle) {
+			t.Errorf("%s: expected %s", file, needle)
 		}
 	}
 }

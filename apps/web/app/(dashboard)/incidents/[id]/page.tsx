@@ -7,6 +7,7 @@ import { api, type Incident } from "@/lib/api";
 import { apiErrorText, incidentActions, incidentTone, kindLabel, wasRolledBack } from "@/lib/observability";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/button";
+import { DebugThis } from "@/components/debug-panel";
 import { Skeleton } from "@/components/skeleton";
 import { TonePill } from "@/components/tone-pill";
 import { useToast } from "@/components/toast";
@@ -126,6 +127,9 @@ export default function IncidentDetailPage({ params }: { params: Promise<{ id: s
             <TonePill tone="muted">{inc.summarySource === "model" ? "model-written, grounded in linked runs" : "deterministic"}</TonePill>
           </div>
           <p className="text-sm text-zinc-200">{inc.summary}</p>
+          <div className="mt-3">
+            <DebugThis target={{ kind: "incident", incidentId: inc.id }} label="Debug this incident" />
+          </div>
           <dl className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
             <div>
               <dt className="text-zinc-500">First bad version</dt>

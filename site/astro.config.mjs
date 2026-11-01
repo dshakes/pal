@@ -168,6 +168,7 @@ export default defineConfig({
             { slug: 'docs/runtime/sandbox-lifecycle', label: 'Sandbox lifecycle' },
             { slug: 'docs/operate/deployment', label: 'Production deployment' },
             { slug: 'docs/observability', label: 'Observability' },
+            { slug: 'docs/build/debugging', label: 'Debugging and support' },
             { slug: 'docs/operate/operations', label: 'Operations' },
           ] },
         ] },

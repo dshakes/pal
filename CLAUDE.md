@@ -273,6 +273,7 @@ Migrations live in `services/control-plane/internal/db/migrate.go` (idempotent `
 | `run_feedback`          | Per-run RLHF reactions                                                                                                                                                                           | `run_id`, `tenant_id`, `score` (1-5), `comment`, `preferred_output`, `source`                                                |
 | `billing_accounts`      | Stripe customer/subscription, plan, dunning clock (ADR 0049)                                                                                                                                     | `tenant_id`, `stripe_customer_id`, `plan_id`, `status`, `grace_until`, `downgraded_at`                                       |
 | `billing_meter_exports` | One Stripe meter export per (tenant, meter, day); idempotency record                                                                                                                             | `tenant_id`, `meter`, `period_start`, `value`, `idempotency_key`, `status`                                                   |
+| `support_escalations`   | Support hand-offs (ADR 0059): question, subject, whitelisted+masked bundle, digest, signature | `tenant_id`, `subject_kind`, `subject_id`, `bundle` (JSONB), `digest`, `signature`, `algorithm` |
 
 Row-Level Security now covers **all tenant-scoped tables** (migration `0003_rls_all_tenant_tables`), not just `agents`/`runs`. Each gets `ENABLE` + `FORCE ROW LEVEL SECURITY` and a `tenant_isolation` policy with BOTH `USING` and `WITH CHECK` = `tenant_id::text = current_setting('app.tenant_id', true)`. The policies are inert until RLS enforcement is active — see ADR 0042 for the secure-default rules: in production `PAL_APP_DB_PASSWORD` being set implicitly activates RLS (no flag needed); without it the server is FATAL at startup unless `PAL_RLS_ENFORCE=0` is set (acknowledged opt-out with WARN). The privileged `pal` superuser pool bypasses RLS; `pal_app` is subject to it. Use `Server.WithTenant(ctx, fn)` for tenant-scoped queries — it sets the `app.tenant_id` GUC so RLS admits the read/write. The exempt set (no single `tenant_id` or intentionally cross-tenant): `tenants`, `agent_versions`, `journal_events`, `run_locks`, `marketplace_agents`, `mcp_servers`, `marketplace_invocations`, `billing_plans`, `billing_webhook_events`. `TestRLSEnforcement_AllTenantTables` is a permanent catalog gate-test: adding a new tenant table without RLS (or without an explicit exemption) fails it. See ADR 0011.
 
@@ -398,6 +399,43 @@ First sign-in lands on `/welcome` (#396): the Runtime path opens `/onboarding`
 | Method | Path                 | Description |
 | ------ | -------------------- | ----------- |
 | `POST` | `/v1/assist/explain` | `{kind:"run", runId}` or `{kind:"eval_case", case, expected?, actual?, error?}` → `{explanation}`. For runs the SERVER loads the run + last journal events (tenant-scoped, cross-tenant → 404), so the model only sees real state. `runs:execute` (spends tenant money). Errors use the `no_provider`/`llm_failed` codes. `internal/handlers/assist.go` |
+
+### Debug + support agents (ADR 0059)
+
+The debug agent root-causes a failed run / incident / failing eval case; the support agent answers
+"why / how do I" from the tenant's own runs + incidents + the PAL docs index (`support_docs.go`, pinned to
+the site frontmatter by `TestSupportDocsMatchSite`). Evidence is read server-side in ONE `WithTenant` tx
+(cross-tenant → 404), redacted, fenced, then ONE `CompleteInternalWithUsage` call (`auto`); refs the model
+invents are stripped, uncited → `grounded:false`/low. **Proposals are never applied by the server**: each
+is the exact request to an EXISTING endpoint (rollback, `PATCH /v1/agents` working copy, `POST /v1/eval-suites`
+regression case with the run's recorded tool results as mocks, budget raise ≤10x, retry with
+`Idempotency-Key`); policy proposals only link to the editor. Clients send one only on that person's
+confirm, inside `services/testdata/debug_action_allowlist.json` (Go builder, `apps/web/lib/debug.ts` and
+the CLI all test against it), after re-reading the precondition (budget: EVERY field the PUT sends;
+"stale proposal" on change); a prompt patch is sent only if its explicit hunk applied to the shown prompt
+equals the PATCHed prompt. **Authz (always on, not `PAL_AUTHZ_ENFORCE`-gated):** analyze/ask need
+`runs:execute`+`agents:read`+`budgets:read` (a `runs:execute`-only widget key → 403; kiosk refused);
+escalations `settings:write` / `settings:read` (+`runs:read`+`agents:read` to bundle a run/incident or
+read a bundle), rate-limited (`PAL_SUPPORT_ESCALATIONS_PER_HOUR`, 10). Evidence ≤48 KB (journal ≤24 KB, newest kept), redacted
+BEFORE clipping (incl. secret-named JSON keys inside text — `obs.RedactAll`). Spend: per-tenant hourly
+rate limit (`PAL_DEBUG_RATE_PER_HOUR`, 30), tenant cap with a real estimate, own daily cap
+(`PAL_DEBUG_MAX_USD_PER_DAY`, 1.00); the estimate is RESERVED before both caps are read and settled
+after, recorded under `__pal_debug__` (a reserved agent name). Invisible code points (zero-width, bidi,
+Unicode TAG) are stripped and a prompt patch containing any is refused (server, dashboard, CLI). Escalation bundles are
+field-whitelisted (run input/output VALUES never included), `minimizePII`-masked, typed
+(`pal.support_escalation.v1`), signed with the receipt key over `type‖0x00‖canonical` (domain-separated), signed bytes stored verbatim
+(`support_escalations.signed_payload`, migration 0044, RLS), verifiable at `/verify`. Docs index:
+regenerate with `scripts/gen-support-docs.py`. Code: `internal/handlers/{debug_agent,debug_logic,support_agent}.go`;
+dashboard `components/{debug-panel,support-panel}.tsx` ("Debug this" on run/incident/eval failures,
+Support tab in the agent panel); CLI `pal debug run|incident|eval`, `pal support [escalate]`.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/v1/debug/analyze` | `{kind:"run"\|"incident"\|"eval_case", runId?, incidentId?, agentName?, case?, question?}` → grounded report + proposals (`runs:execute`+`agents:read`+`budgets:read`) |
+| `POST` | `/v1/support/ask` | `{question, runId?, history?}` → answer, citations, docs, validated actions, `suggestEscalation` (`runs:execute`+`agents:read`+`budgets:read`) |
+| `POST` | `/v1/support/escalations` | Redacted signed context bundle for a person (`settings:write`) |
+| `GET`  | `/v1/support/escalations[/{id}]` | List / detail incl. bundle (`settings:read`) |
+| `GET`  | `/v1/support/escalations/{id}/verify` | Re-check digest + signature + type over the stored signed bytes (`settings:read`) |
 
 ### pal first-run (ADR 0048)
 

@@ -284,8 +284,10 @@ func (h *RESTHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
-	if body.Name == TenantBudgetAgent {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `agent name "*" is reserved`})
+	if body.Name == TenantBudgetAgent || body.Name == debugUsageBucket {
+		// "*" is the tenant-wide budget row; debugUsageBucket is the debug/support
+		// agents' usage row (ADR 0059) — an agent with that name would accrue to it.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("agent name %q is reserved", body.Name)})
 		return
 	}
 	if body.Model != nil {

@@ -17,6 +17,15 @@ import { isNoSessionPath } from "./no-session-paths";
 import { parseApiErrorBody } from "./eval-format";
 import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
+import {
+  actionAllowed,
+  preconditionHolds,
+  type DebugProposal,
+  type DebugReport,
+  type DebugTarget,
+  type SupportAnswer,
+} from "./debug";
+export type { DebugProposal, DebugReport, DebugTarget, SupportAnswer } from "./debug";
 import type {
   Agent,
   Run,
@@ -1440,6 +1449,78 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
       if (msg.includes("llm_failed") || msg.startsWith("API 502")) throw new AssistError("llm_failed", "The model call failed. Check your provider key in Settings.");
       throw new AssistError("unknown", "Couldn't get an explanation right now.");
     }
+  }
+
+  /** Debug agent (ADR 0059): server-grounded root cause + fix PROPOSALS.
+   *  Never applies anything; see applyDebugProposal. */
+  async debugAnalyze(target: DebugTarget, question?: string): Promise<DebugReport> {
+    try {
+      return await this.request<DebugReport>("/v1/debug/analyze", {
+        method: "POST",
+        body: JSON.stringify({ ...target, ...(question ? { question } : {}) }),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("no_provider")) throw new AssistError("no_provider", "Add a model provider key to use the debug agent.");
+      if (msg.startsWith("API 404")) throw new AssistError("not_found", "Nothing to debug here: it no longer exists or isn't yours.");
+      if (msg.startsWith("API 403")) throw new AssistError("forbidden", "Your key can't run the debug agent (needs runs:execute).");
+      if (msg.startsWith("API 402")) throw new AssistError("unknown", "The workspace spend cap is reached, so the debug agent can't call a model today.");
+      if (msg.includes("llm_failed") || msg.includes("bad_report") || msg.startsWith("API 502")) {
+        throw new AssistError("llm_failed", "The model call failed or returned no usable report. Try again.");
+      }
+      throw new AssistError("unknown", "Couldn't debug this right now.");
+    }
+  }
+
+  /** Apply ONE proposal the person just confirmed, with their own session.
+   *  Refuses anything outside the shared allowlist, and refuses a stale
+   *  proposal (the thing it edits changed since the analysis). */
+  async applyDebugProposal(p: DebugProposal): Promise<unknown> {
+    if (!actionAllowed(p) || !p.action) throw new Error("This proposal can't be applied from the dashboard.");
+    if (p.precondition) {
+      const current = await this.request<Record<string, unknown>>(p.precondition.path);
+      const check = preconditionHolds(p.precondition.expect, current);
+      if (!check.ok) throw new Error(`Stale proposal: ${check.field} changed since the analysis. Run the debug agent again.`);
+    }
+    const headers: Record<string, string> = {};
+    if (p.action.idempotencyKey) headers["Idempotency-Key"] = p.action.idempotencyKey;
+    return this.request<unknown>(p.action.path, {
+      method: p.action.method,
+      headers,
+      ...(p.action.body === undefined ? {} : { body: JSON.stringify(p.action.body) }),
+    });
+  }
+
+  /** Support agent: grounded answer + validated suggested actions. */
+  async supportAsk(question: string, opts: { runId?: string; history?: { role: "user" | "agent"; text: string }[] } = {}): Promise<SupportAnswer> {
+    try {
+      return await this.request<SupportAnswer>("/v1/support/ask", {
+        method: "POST",
+        body: JSON.stringify({ question, ...opts }),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("no_provider")) throw new AssistError("no_provider", "Add a model provider key to ask the support agent.");
+      if (msg.startsWith("API 502")) throw new AssistError("llm_failed", "The model call failed. Try again, or escalate to a person.");
+      throw new AssistError("unknown", "Couldn't get an answer right now.");
+    }
+  }
+
+  /** Package a redacted, signed context bundle for a person. */
+  async supportEscalate(body: {
+    question: string;
+    runId?: string;
+    incidentId?: string;
+    transcript?: { role: "user" | "agent"; text: string }[];
+  }): Promise<{ id: string; digest: string; algorithm: string; createdAt: string }> {
+    return this.request("/v1/support/escalations", { method: "POST", body: JSON.stringify(body) });
+  }
+
+  async listSupportEscalations(): Promise<
+    { id: string; subjectKind: string; subjectId?: string; question: string; digest: string; algorithm: string; createdBy: string; createdAt: string }[]
+  > {
+    const out = await this.request<{ escalations: [] }>("/v1/support/escalations");
+    return out.escalations ?? [];
   }
 
   /** Sign-in discovery. Null when the control-plane predates the endpoint. */

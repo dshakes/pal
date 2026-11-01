@@ -91,6 +91,10 @@ type userJSON struct {
 	Email    string `json:"email"`
 	Name     string `json:"name"`
 	Role     string `json:"role"`
+	// Scopes is set only for scope-limited credentials (API keys), so a client
+	// can tell what it may do before offering an action. Informational: the
+	// server's per-endpoint check stays authoritative.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 // ---------- JWT claims ----------
@@ -436,13 +440,17 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, userJSON{
+	me := userJSON{
 		ID:       claims.Subject,
 		TenantID: claims.TenantID,
 		Email:    claims.Email,
 		Name:     claims.Name,
 		Role:     claims.Role,
-	})
+	}
+	if claims.Role == "service" || claims.Role == kioskRole {
+		me.Scopes = claims.Scopes
+	}
+	writeJSON(w, http.StatusOK, me)
 }
 
 // ---------- OAuth login ----------

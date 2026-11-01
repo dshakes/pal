@@ -1,0 +1,135 @@
+---
+title: Debugging and support
+description: The debug agent that root-causes a failing run, incident or eval case and proposes fixes you approve, and the support agent that answers questions and escalates with a redacted bundle.
+sidebar:
+  order: 12
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Two agents help after an agent ships. The **debug agent** takes a failing run, an incident or a failing eval case, reads the evidence on the server, and returns a root cause that cites that evidence plus fix **proposals**. The **support agent** answers questions about your own workspace from your runs, incidents and these docs, and hands the conversation to a person with a context bundle when it can't answer.
+
+Neither agent changes anything. A proposal is the exact request an existing endpoint would receive. It is sent only when you confirm it, with your own credentials, so that endpoint's scope checks, validation and audit apply. The design is in ADR 0059.
+
+## Debug a run, incident or eval case
+
+```http
+POST /v1/debug/analyze
+Content-Type: application/json
+
+{ "kind": "run", "runId": "3751ade4-…", "question": "why did this start failing?" }
+```
+
+`kind` is `run` (with `runId`), `incident` (with `incidentId`) or `eval_case` (with `agentName` and `case`). `question` is optional. The call needs the `runs:execute` scope because it calls a model.
+
+The server reads the evidence itself. The request carries only the subject id:
+
+| Evidence | Ref the report cites |
+| --- | --- |
+| The run row: status, version, cost, input, output, error | `run:<id>` |
+| Up to 80 journal events, including policy denials | `ev:<seq>` |
+| The trace tree summary | `trace:<run id>` |
+| Prompt, model and workflow diff between the failing version and the last good one | `diff:prompt`, `diff:model`, `diff:workflow` |
+| Promotions and rollbacks, and what each environment serves | `promo:<id>`, `env:<env>` |
+| Failed eval runs of the agent | `eval:<id>` |
+| The agent's budget and today's usage | `budget:<agent>` |
+| Open incidents, or the incident and its timeline | `incident:<id>`, `inc-ev:<id>` |
+| Failures of the agent in the previous 24 hours | `stats:24h` |
+
+For an incident, the "last good" version is the incident's own attribution. For a run, it is the version of the newest earlier successful run on a different version. For an eval case, it is the version where that case last passed.
+
+### The report
+
+```json
+{
+  "summary": "The run failed right after v2 shipped [ev:2].",
+  "rootCause": "The lookup tool timed out [ev:2] and v2 forced French [diff:prompt].",
+  "confidence": "high",
+  "grounded": true,
+  "citations": [{ "ref": "ev:2", "label": "step_failed step=lookup …", "detail": "…" }],
+  "proposals": [ … ],
+  "dropped": [{ "kind": "drop_database", "reason": "not an allowed proposal for this subject" }],
+  "requiresApproval": true
+}
+```
+
+Refs the model invents are removed from the text. A report that cites nothing real has `grounded: false`, and its confidence is always `low`.
+
+### Proposals
+
+Proposals are gated on facts the server read. For example, a rollback is offered only when an environment has a promotion that can actually be rolled back. The model chooses a kind and its parameters. The server builds the request.
+
+| Kind | Offered when | What confirming does |
+| --- | --- | --- |
+| `rollback` | An environment's newest promotion can be rolled back, or the incident suggests a rollback | `POST /v1/agents/{name}/environments/{env}/rollback`, or `POST /v1/incidents/{id}/rollback` for an incident (which re-checks that prod still serves the bad version) |
+| `prompt_patch` | The agent exists | `PATCH /v1/agents/{name}` with the new `systemPrompt`. This edits the working copy only. |
+| `model_change` | The agent exists | `PATCH /v1/agents/{name}` with a capability model (never a vendor id) |
+| `eval_case` | The run has an input and the agent is a tool-loop agent (the kind the hermetic eval runner can replay) | `POST /v1/eval-suites` with a regression case: the run's input, the tool results that run recorded as mocks, and a judge rubric |
+| `budget` | The evidence shows a budget block | `PUT /v1/agents/{name}/budget` raising one limit (above the current value and at most 10x it) |
+| `policy` | The journal has a policy denial | Nothing. It links to the policy editor. |
+| `retry` | The run failed | `POST /v1/runs` with the same input and `Idempotency-Key: debug-retry-<runId>` |
+
+<Aside type="caution">
+A prompt or model change edits the agent's working copy, not production. Production changes only when you freeze and promote the working copy (`pal freeze`, `pal promote`), and promotion runs the eval gate. Create the `eval_case` regression first, then replay it against the working copy with `POST /v1/eval-suites/{id}/run`. That reruns the failing input hermetically, with the recorded tool results.
+</Aside>
+
+A prompt patch shows the exact change, called the **hunk**: where it is, what it removes and what it adds. The removed and added text are never shortened. The dashboard and the CLI send a patch only if that hunk, applied to the current prompt, gives exactly the prompt the request would save. A change you didn't see can't ride along, and a patch containing invisible characters (zero-width, bidi or Unicode tag characters) is never proposed or sent. An `eval_case` proposal shows the input, judge rubric and recorded tool results it will create before you confirm it.
+
+A prompt, model or budget proposal carries a **precondition**: the values it was computed from. For a budget, that is every field the request replaces. Before applying it, the dashboard and the CLI read the agent again. If the value has changed, they refuse with "stale proposal", so an approval never overwrites someone else's edit. PAL never widens an agent's policy in one click.
+
+### Money and limits
+
+The model call uses capability `auto` through the model router. Before it, the server applies three checks:
+
+- A per-tenant hourly rate limit: `PAL_DEBUG_RATE_PER_HOUR`, default 30 per route. Over the limit, HTTP **429**.
+- The tenant-wide daily cap, checked with an estimate of this call. Over it, HTTP **402** `budget_exceeded`.
+- The debug agents' own daily cap: `PAL_DEBUG_MAX_USD_PER_DAY`, default $1.00, `off` to disable. Over it, HTTP **402** `debug_budget_exceeded`.
+
+Spend is recorded under the `__pal_debug__` usage row. It counts toward the workspace cap but not toward the agent being debugged, so an agent blocked by its own budget can still be debugged. Evidence sent to the model is capped at 48 KB, keeping the newest journal events. Without a provider key the endpoint answers `400 {code:"no_provider"}`, and a failed model call answers `502 {code:"llm_failed"}`.
+
+### Who can call it
+
+`/v1/debug/analyze` and `/v1/support/ask` read the agent definition (including its prompt), its budget, runs and incidents. A caller needs `runs:execute`, `agents:read` and `budgets:read`. Signed-in users have them. An API key needs all three, or a coarse `write`/`admin` scope. A key with only `runs:execute`, such as a web-chat widget key, gets **403**. This check always applies, whatever `PAL_AUTHZ_ENFORCE` is set to. Opening an escalation needs `settings:write`. If it is about a run or an incident, it also needs `runs:read` and `agents:read`. Reading a bundle needs `settings:read`, `runs:read` and `agents:read`. Escalations are limited to `PAL_SUPPORT_ESCALATIONS_PER_HOUR` per workspace, default 10.
+
+## Ask the support agent
+
+```http
+POST /v1/support/ask
+
+{ "question": "why are my runs getting 402?", "runId": "…optional…", "history": [{ "role": "user", "text": "…" }] }
+```
+
+The answer cites your runs and incidents (`[run:…]`, `[incident:…]`) and doc pages (`[doc:build/budgets]`). It can suggest up to three actions: `debug_run`, `debug_incident`, or `open` (a dashboard page). Action ids and links must point at things the agent was shown. When the agent can't ground an answer, `suggestEscalation` is true.
+
+## Escalate to a person
+
+```http
+POST /v1/support/escalations
+
+{ "question": "…", "runId": "…", "transcript": [{ "role": "user", "text": "…" }] }
+```
+
+The server builds the bundle from a list of allowed fields:
+
+- Run metadata: status, version, cost, tokens, timestamps, the step list (kind, tool, model, token counts, errors) and the journal hash.
+- The input's **keys** and the output's **size**. The input and output values themselves are never included.
+- Incident fields and timeline, failed eval case names, promotions, and what each environment serves.
+- Your question and the transcript.
+
+Every free-text field has secrets removed, including the values of secret-named keys in JSON text such as `{"password": "…"}`. Control characters are stripped, and emails and phone numbers are masked. The bundle carries `"type": "pal.support_escalation.v1"` and is signed over its canonical JSON with the [receipt](/docs/security/receipts/) key (Ed25519, or HMAC-SHA256 when no seed is set). The exact signed bytes are stored. `GET /v1/support/escalations/{id}/verify` recomputes the digest and checks the signature. List and read escalations with `GET /v1/support/escalations` and `GET /v1/support/escalations/{id}`. Text containing a NUL character is rejected with 400.
+
+## From the dashboard and the CLI
+
+- The dashboard shows **Debug this** on a failed run, an incident and a failing eval case. The agent panel (⌘\\) has a **Support** tab for questions and escalation. Each proposal opens a confirmation card that shows the diff and the request.
+- The CLI:
+
+```bash
+pal debug run <run-id>                   # report + proposals; asks before applying each one
+pal debug incident <incident-id>
+pal debug eval <agent> <case>
+pal debug run <run-id> --json            # machine-readable, never applies anything
+pal support "why are my runs getting 402?" [--run <run-id>]
+pal support escalate "the canary keeps rolling back" [--run <id> | --incident <id>]
+```
+
+The CLI applies a proposal only after you type `y` for that proposal on a terminal. With `--json` or without a terminal, it never applies one.

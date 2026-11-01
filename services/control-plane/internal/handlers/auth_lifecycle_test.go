@@ -261,6 +261,9 @@ func TestExportRedacted_Catalog(t *testing.T) {
 		"mcp_oauth_pending.secret":     true,
 		"mcp_oauth_pending.state_hash": true,
 		"mcp_tenant_servers.auth_type": false,
+		// ADR 0059: a verifiable signature over the tenant's own escalation
+		// bundle, same class as a run receipt's — exportable.
+		"support_escalations.signature": false,
 	}
 	rows, err := h.srv.Pool.Query(context.Background(), `
 		SELECT c.relname, a.attname
