@@ -6,21 +6,24 @@
 // state (which methods are on) and says plainly what is missing; the login
 // page picks up `oauth.sso` the day the server reports it (lib/auth-providers).
 
+import { Skeleton } from "@/components/skeleton";
 import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { api, type AuthProviders } from "@/lib/api";
 import { visibleOAuthProviders } from "@/lib/auth-providers";
-import { useCan } from "@/components/role-gate";
+import { useCan, useRoleReady } from "@/components/role-gate";
 
 const LABEL: Record<string, string> = { google: "Google", github: "GitHub", sso: "Single sign-on" };
 
 export default function SsoSettingsPage() {
   const allowed = useCan("settings:write");
+  const ready = useRoleReady();
   const [providers, setProviders] = useState<AuthProviders | null | undefined>(undefined);
   useEffect(() => {
     if (allowed) void api.getAuthProviders().then(setProviders);
   }, [allowed]);
 
+  if (!ready) return <Skeleton className="h-24 w-full" />;
   if (!allowed) {
     return <div role="status" className="rounded-xl border border-line bg-panel p-5 text-sm text-fg-3">Sign-in settings are for workspace owners and admins.</div>;
   }

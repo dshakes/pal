@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { API_URL, WEB_URL } from "../support/env";
+import { flushRedis } from "../support/redis";
 import { PASSWORD, setRole, uniqueEmail, type DbRole } from "../support/users";
 
 // Dashboard v3 slices 7+8: enterprise settings (audit log, DLP, SSO slot, Team),
@@ -8,6 +9,7 @@ import { PASSWORD, setRole, uniqueEmail, type DbRole } from "../support/users";
 
 async function signup(tag: string): Promise<{ email: string; token: string }> {
   const email = uniqueEmail(tag);
+  await flushRedis(); // /auth/signup is rate limited per IP; several specs sign up
   const r = await fetch(`${API_URL}/auth/signup`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -62,6 +64,22 @@ test.describe("owner", () => {
     await expect(page.getByText("What each role is offered")).toBeVisible();
   });
 
+  test("API key: the key shown is the server's (it authenticates), never client-made", async ({ page }) => {
+    await signedIn(page, token);
+    await page.goto("/settings?tab=api-keys");
+    await page.getByRole("button", { name: "Create API Key" }).first().click();
+    await page.getByPlaceholder(/Production API/).fill("e2e-key");
+    await page.getByRole("button", { name: "Create API Key" }).last().click();
+    const shown = page.locator(".modal-content code").first();
+    await expect(shown).toBeVisible();
+    const key = (await shown.innerText()).trim();
+    expect(key.startsWith("ltn_")).toBe(false);
+    const r = await fetch(`${API_URL}/v1/agents`, { headers: { authorization: `Bearer ${key}` } });
+    expect(r.status).toBe(200); // the displayed key is real
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.getByText("e2e-key").first()).toBeVisible(); // desktop table + mobile card
+  });
+
   test("DLP: add, server rejects a bad regex, edit, delete", async ({ page }) => {
     await signedIn(page, token);
     await page.goto("/settings/dlp");
@@ -72,6 +90,12 @@ test.describe("owner", () => {
     await page.getByLabel("Mode").selectOption("block");
     await page.getByRole("button", { name: "Save rule" }).click();
     await expect(page.getByText("block-cards")).toBeVisible();
+    // adding the same name again is refused (the server would silently overwrite)
+    await page.getByRole("button", { name: "Add rule" }).first().click();
+    await page.getByLabel("Rule name").fill("block-cards");
+    await page.getByRole("button", { name: "Save rule" }).click();
+    await expect(page.getByRole("alert")).toContainText(/exists/i);
+    await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText(/Block rules need the broker egress mode/)).toBeVisible();
 
     // custom_regex: the SERVER owns RE2 validity; its 400 is shown, nothing is saved.
@@ -156,8 +180,11 @@ for (const role of ROLES_UNDER_TEST) {
       await page.goto("/budgets");
       await expect(page.getByRole("button", { name: "New budget" })).toHaveCount(0); // budgets:write is owner/admin only
 
+      // server: sandboxes are readable by member, not viewer; Schedule needs owner|admin (runtime:write)
       await page.goto("/runtime");
-      await expect(page.getByRole("button", { name: "Schedule", exact: true })).toHaveCount(canBuild ? 1 : 0);
+      const schedule = page.getByRole("button", { name: "Schedule", exact: true });
+      if (canBuild) await expect(schedule).toBeDisabled();
+      else await expect(schedule).toHaveCount(0);
 
       await page.goto(`/agents/agent-${role}?tab=security`);
       await expect(page.getByRole("button", { name: "Rotate key" })).toHaveCount(canBuild ? 1 : 0);

@@ -1,7 +1,8 @@
 "use client";
 
+import { Skeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { useCan } from "@/components/role-gate";
+import { useCan, useRoleReady } from "@/components/role-gate";
 import { Suspense, useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Sparkles, Loader2, FileText, Puzzle, Play, Square, Save, CheckCircle2, AlertCircle, Search, Headphones, Code, Mail, BarChart3, PenTool, ClipboardList, ShieldCheck, Star, Link2 } from "lucide-react";
@@ -56,6 +57,8 @@ function ModelSelect({ value, onChange, className }: { value: string; onChange: 
 
 export default function CreatePageWrapper() {
   const canWrite = useCan("agents:write"); // UX gating (lib/rbac-matrix.ts)
+  const ready = useRoleReady();
+  if (!ready) return <div className="p-8"><Skeleton className="h-24 w-full max-w-2xl" /></div>;
   if (!canWrite) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">

@@ -113,10 +113,10 @@ export function AgentA2aCard({ name }: { name: string }) {
 
       {state.kind === "ok" && (
         <div className="space-y-3">
-          <Row label="Card URL">
+          <Row label="Endpoint">
             <span className="flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate font-mono text-fg" title={state.card.url}>{state.card.url}</code>
-              <button type="button" aria-label="Copy card URL" onClick={() => copy(state.card.url, "Card URL")} className="rounded p-1 text-fg-3 hover:text-fg">
+              <button type="button" aria-label="Copy endpoint" onClick={() => copy(state.card.url, "Endpoint")} className="rounded p-1 text-fg-3 hover:text-fg">
                 <Copy className="h-3.5 w-3.5" />
               </button>
             </span>

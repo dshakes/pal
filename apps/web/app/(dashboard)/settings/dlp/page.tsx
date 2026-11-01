@@ -10,10 +10,10 @@ import { Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { runtimeApi } from "@/lib/runtime-api";
 import { parseApiError } from "@/lib/mcp";
 import {
-  DETECTORS, DETECTOR_LABEL, MODES, MODE_LABEL, draftFromRule, emptyDraft, hasBlockRule, parseDlpRules,
+  DETECTORS, DETECTOR_LABEL, duplicateRuleMessage, MODES, MODE_LABEL, draftFromRule, emptyDraft, hasBlockRule, parseDlpRules,
   toUpsertBody, usesThreshold, validateDraft, type DlpRule, type RuleDraft,
 } from "@/lib/dlp";
-import { useCan } from "@/components/role-gate";
+import { useCan, useRoleReady } from "@/components/role-gate";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmModal, Modal, ModalField } from "@/components/modal";
@@ -26,6 +26,7 @@ const card = "rounded-xl border border-line bg-panel p-5";
 export default function DlpSettingsPage() {
   const { toast } = useToast();
   const canWrite = useCan("settings:write");
+  const ready = useRoleReady();
   const [rules, setRules] = useState<DlpRule[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState<RuleDraft | null>(null);
@@ -54,7 +55,7 @@ export default function DlpSettingsPage() {
 
   const save = async () => {
     if (!draft) return;
-    const invalid = validateDraft(draft);
+    const invalid = validateDraft(draft) ?? duplicateRuleMessage(rules, draft, editing);
     if (invalid) { setFormError(invalid); return; }
     setSaving(true);
     setFormError(null);
@@ -138,7 +139,7 @@ export default function DlpSettingsPage() {
             ))
           )}
         </div>
-        {!canWrite && <p className="mt-3 text-[11px] text-fg-3">Only an owner or admin can change these rules.</p>}
+        {ready && !canWrite && <p className="mt-3 text-[11px] text-fg-3">Only an owner or admin can change these rules.</p>}
       </section>
 
       <Modal

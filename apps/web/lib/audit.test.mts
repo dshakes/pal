@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PROMOTION_LIMIT_MAX, filterAudit, mergeAudit, nextPromotionLimit, parsePromotionAudit, parseSandboxAudit, summarizeDetail } from "./audit.ts";
+import { clipToComplete, PROMOTION_LIMIT_MAX, filterAudit, mergeAudit, nextPromotionLimit, parsePromotionAudit, parseSandboxAudit, summarizeDetail } from "./audit.ts";
 
 const promo = [
   { id: 7, agentName: "support", env: "prod", action: "approved", actor: "ada@x.co", actorKind: "human", detail: { note: "ship it", token: "abc123", gates: { a: 1 } }, createdAt: "2026-10-30T10:00:00Z" },
@@ -58,4 +58,25 @@ test("promotion limit grows to the server cap and stops there (over the cap the 
   for (let n = nextPromotionLimit(100); n !== null; n = nextPromotionLimit(n)) { seen.push(n); assert.ok(n <= PROMOTION_LIMIT_MAX); }
   assert.equal(seen[seen.length - 1], PROMOTION_LIMIT_MAX);
   assert.equal(nextPromotionLimit(PROMOTION_LIMIT_MAX), null);
+});
+
+test("clipToComplete: with two capped streams, older rows of the longer-reaching one are clipped", () => {
+  const rows = mergeAudit(
+    parsePromotionAudit([
+      { id: 3, action: "a", createdAt: "2026-10-30T00:00:00Z" },
+      { id: 2, action: "a", createdAt: "2026-10-20T00:00:00Z" },
+    ]),
+    parseSandboxAudit({ events: [
+      { id: 9, action: "x", at: "2026-10-29T00:00:00Z" },
+      { id: 8, action: "x", at: "2026-10-25T00:00:00Z" },
+      { id: 7, action: "x", at: "2026-10-26T00:00:00Z" },
+    ], nextBefore: 7 }).rows,
+  );
+  const both = clipToComplete(rows, { promotion: true, sandbox: true });
+  assert.equal(both.cutoff, Date.parse("2026-10-25T00:00:00Z"));
+  assert.deepEqual(both.rows.map((r) => r.key).sort(), ["promotion:3", "sandbox:7", "sandbox:8", "sandbox:9"]);
+  assert.equal(clipToComplete(rows, { promotion: true }).cutoff, Date.parse("2026-10-20T00:00:00Z"));
+  const none = clipToComplete(rows, {});
+  assert.equal(none.cutoff, null);
+  assert.equal(none.rows.length, rows.length);
 });

@@ -1,7 +1,8 @@
 "use client";
 
+import { Skeleton } from "@/components/skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { useCan } from "@/components/role-gate";
+import { useCan, useRoleReady } from "@/components/role-gate";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -115,6 +116,8 @@ function buildWorkflowFromAgent(agentName: string): WorkflowDefinition | null {
 export default function EditorPage() {
   const canWrite = useCan("agents:write");
   const agent = useParams().name as string;
+  const ready = useRoleReady();
+  if (!ready) return <div className="p-8"><Skeleton className="h-24 w-full max-w-2xl" /></div>;
   if (!canWrite) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">

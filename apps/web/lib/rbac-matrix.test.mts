@@ -31,7 +31,7 @@ test("member builds and runs but is not offered admin surfaces", () => {
   }
   for (const no of [
     "settings.keys", "settings.billing", "settings.devices", "settings.dlp", "settings.audit", "settings.danger",
-    "budget.edit", "connector.manage", "mcp.manage", "runtime.admin", "runtime.drawer", "promote.approve",
+    "budget.edit", "connector.manage", "mcp.manage", "runtime.admin", "runtime.schedule", "promote.approve",
     "dataplane.manage", "surface.manage", "voice.manage", "automation.trust", "agent.mcp.connect", "agent.template",
   ]) {
     assert.ok(!m.includes(no), `member must NOT get ${no}`);
@@ -40,20 +40,29 @@ test("member builds and runs but is not offered admin surfaces", () => {
 
 test("kiosk (demo visitor) never gets admin, spend-cap, connection or audit actions", () => {
   const k = ids("kiosk");
-  for (const no of ["settings.keys", "settings.devices", "settings.billing", "settings.audit", "settings.danger", "budget.edit", "connector.manage", "runtime.admin", "promote.approve", "agent.template"]) {
+  for (const no of ["settings.keys", "settings.devices", "settings.billing", "settings.audit", "settings.danger", "budget.edit", "connector.manage", "runtime.admin", "runtime.schedule", "runtime.read", "promote.approve", "agent.template"]) {
     assert.ok(!k.includes(no), `kiosk must NOT get ${no}`);
   }
   assert.ok(k.includes("agent.run"));
 });
 
-test("actions the server restricts to owner|admin are never offered to member/viewer/kiosk", () => {
-  for (const a of ACTIONS.filter((x) => /owner\|admin|owner only/.test(x.server))) {
-    for (const r of ["member", "viewer", "kiosk"]) assert.equal(actionsFor(r).includes(a), false, `${r} / ${a.id}`);
+test("actions the SERVER restricts by role are never offered below that role", () => {
+  const restricted = ACTIONS.filter((x) => x.serverRole);
+  assert.ok(restricted.length >= 6);
+  for (const a of restricted) {
+    const allowed = a.serverRole === "owner" ? ["owner"] : ["owner", "admin"];
+    for (const r of ROLES) assert.equal(actionsFor(r).includes(a), allowed.includes(r), `${r} / ${a.id}`);
   }
-  // erase is owner-only on the server; admin must not be offered it.
   assert.equal(ids("admin").includes("settings.danger"), false);
   assert.equal(ids("owner").includes("settings.danger"), true);
-  assert.equal(ids("admin").includes("settings.keys"), true);
+});
+
+test("sandbox reads follow the server: member yes, viewer/kiosk no; scheduling is owner|admin only", () => {
+  assert.ok(ids("member").includes("runtime.read"));
+  assert.ok(!ids("viewer").includes("runtime.read"));
+  assert.ok(!ids("kiosk").includes("runtime.read"));
+  assert.ok(!ids("member").includes("runtime.schedule"));
+  assert.ok(ids("admin").includes("runtime.schedule"));
 });
 
 test("buildMatrix covers every role x action", () => {

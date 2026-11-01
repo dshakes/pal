@@ -106,3 +106,21 @@ export function filterAudit(rows: AuditRow[], source: AuditSource | "all", query
 export function nextPromotionLimit(current: number): number | null {
   return current >= PROMOTION_LIMIT_MAX ? null : Math.min(PROMOTION_LIMIT_MAX, current * 2 + (current < PAGE ? 0 : 50));
 }
+
+/**
+ * Rows are only trustworthy back to the point BOTH streams have been loaded to.
+ * A stream that may have older rows (a full page) has a horizon at its oldest loaded
+ * row; anything older than the NEWEST such horizon could be missing the other stream's
+ * rows, so it is clipped. Returns the cutoff (ms, null = nothing clipped) too.
+ */
+export function clipToComplete(rows: AuditRow[], incomplete: Partial<Record<AuditSource, boolean>>): { rows: AuditRow[]; cutoff: number | null } {
+  const horizons: number[] = [];
+  for (const src of ["promotion", "sandbox"] as const) {
+    if (!incomplete[src]) continue;
+    const mine = rows.filter((r) => r.source === src).map((r) => ts(r.at));
+    if (mine.length) horizons.push(Math.min(...mine));
+  }
+  if (!horizons.length) return { rows, cutoff: null };
+  const cutoff = Math.max(...horizons);
+  return { rows: rows.filter((r) => ts(r.at) >= cutoff), cutoff };
+}

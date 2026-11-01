@@ -21,7 +21,8 @@ import {
 import clsx from "clsx";
 // Mock data imports removed — settings start with empty state when API is available
 import { ProviderCard, type ProviderStatus } from "@/components/settings/provider-card";
-import { ApiKeyModal, type CreatedApiKey } from "@/components/settings/api-key-modal";
+import { ApiKeyModal } from "@/components/settings/api-key-modal";
+import { createApiKey, keyErrorMessage, type NewKeyInput } from "@/lib/api-key-create";
 import { ConfirmDialog } from "@/components/settings/confirm-dialog";
 import { api } from "@/lib/api";
 import type { FleetUsage } from "@/lib/api";
@@ -31,7 +32,7 @@ import { BillingPlans } from "@/components/settings/billing-plans";
 import { DevicesTab } from "./devices";
 import { Button } from "@/components/button";
 import { useAuth } from "@/lib/auth";
-import { useCan, RoleGate } from "@/components/role-gate";
+import { useCan, useRoleReady, RoleGate } from "@/components/role-gate";
 import { settingsTabAllowed } from "@/lib/settings-nav";
 import { ACTIONS, ROLES, ROLE_BLURB, actionsFor } from "@/lib/rbac-matrix";
 import { ROLE_LABEL, toRole } from "@/lib/rbac";
@@ -133,11 +134,17 @@ export default function SettingsPage() {
   // Stripe Checkout/Portal return to /settings?tab=billing; the tab is the URL
   // (lib/settings-nav), so no extra deep-link handling is needed.
 
+  const ready = useRoleReady();
   const tabAllowed = settingsTabAllowed(user?.role, activeTab);
 
   // Server state is the only source for providers + keys; there is no local
   // copy to clobber it or to show when the API is down (an error is shown).
   useEffect(() => {
+    // Older builds kept provider keys, API-key lists, members and a budget in this browser.
+    // The server is the only source now; drop the stale copies (they held plaintext provider keys).
+    for (const k of ["providers", "api_keys", "members", "billing"]) {
+      try { localStorage.removeItem(LS_PREFIX + k); } catch { /* storage unavailable */ }
+    }
     // Defaults are the one browser-only setting.
     setGeneral({ ...defaultGeneral, ...loadLS<Partial<GeneralSettings>>("general", {}) });
 
@@ -180,7 +187,7 @@ export default function SettingsPage() {
         setKeysError(null);
       } catch (e) {
         setKeys([]);
-        setKeysError(e instanceof Error ? e.message : "Could not load API keys");
+        setKeysError(keyErrorMessage(e));
       }
     })();
   }, [user, canWrite]);
@@ -195,16 +202,13 @@ export default function SettingsPage() {
     toast("success", "Defaults saved on this device");
   };
 
-  // API Keys - no local fallback: a key that the server didn't create is not a key.
-  const handleKeyCreated = async (created: CreatedApiKey) => {
-    try {
-      const result = await api.createApiKeyReal({ name: created.name, scopes: created.scopes });
-      const stored: StoredApiKey = { id: result.key.id, name: result.key.name, prefix: result.key.prefix, scopes: result.key.scopes ?? [], createdAt: result.key.createdAt, lastUsed: "Never", status: "active" };
-      setKeys((prev) => [stored, ...(prev ?? [])]);
-      toast("success", `API key "${created.name}" created. Key: ${result.rawKey}`);
-    } catch (e) {
-      toast("error", `Could not create the key: ${e instanceof Error ? e.message : "request failed"}`);
+  // API keys: the key shown is the one the control plane returned (lib/api-key-create).
+  const handleCreateKey = async (input: NewKeyInput) => {
+    const out = await createApiKey((i) => api.createApiKeyReal(i), input);
+    if (out.kind === "created") {
+      setKeys((prev) => [{ id: out.id, name: out.name, prefix: out.prefix, scopes: out.scopes, createdAt: out.createdAt, lastUsed: "Never", status: "active" }, ...(prev ?? [])]);
     }
+    return out;
   };
 
   const handleRevokeKey = async () => {
@@ -214,7 +218,7 @@ export default function SettingsPage() {
       setKeys((prev) => (prev ?? []).map((k) => (k.id === revokeTarget.id ? { ...k, status: "revoked" as const } : k)));
       toast("success", `API key "${revokeTarget.name}" revoked`);
     } catch (e) {
-      toast("error", `Could not revoke "${revokeTarget.name}": ${e instanceof Error ? e.message : "request failed"}`);
+      toast("error", `Could not revoke "${revokeTarget.name}": ${keyErrorMessage(e)}`);
     }
     setRevokeTarget(null);
   };
@@ -278,21 +282,22 @@ export default function SettingsPage() {
   return (
     <div>
       <div className="w-full max-w-3xl">
-          {!tabAllowed && (
+          {!ready && <p className="text-sm text-zinc-500">Loading…</p>}
+          {ready && !tabAllowed && (
             <div role="status" className="rounded-xl border border-zinc-800 bg-surface-1 p-5 text-sm text-zinc-400">
               This section is for workspace owners and admins. Your role is {ROLE_LABEL[toRole(user?.role)]}.
             </div>
           )}
-          {tabAllowed && activeTab === "general" && <GeneralTab general={general} setGeneral={setGeneral} saving={generalSaving} onSave={handleSaveGeneral} />}
-          {tabAllowed && activeTab === "api-keys" && <ApiKeysTab keys={keys} error={keysError} copiedKeyId={copiedKeyId} onCreateClick={() => setShowCreateKey(true)} onCopyPrefix={handleCopyPrefix} onRevokeClick={setRevokeTarget} />}
-          {tabAllowed && activeTab === "providers" && <ProvidersTab providers={providers} error={providersError} canWrite={canWrite} saving={providersSaving} onKeyChange={updateProvider} onTest={testProvider} onSave={handleSaveProviders} />}
-          {tabAllowed && activeTab === "team" && <TeamTab />}
-          {tabAllowed && activeTab === "devices" && <DevicesTab />}
-          {tabAllowed && activeTab === "billing" && <BillingTab fleetUsage={fleetUsage} />}
+          {ready && tabAllowed && activeTab === "general" && <GeneralTab general={general} setGeneral={setGeneral} saving={generalSaving} onSave={handleSaveGeneral} />}
+          {ready && tabAllowed && activeTab === "api-keys" && <ApiKeysTab keys={keys} error={keysError} copiedKeyId={copiedKeyId} onCreateClick={() => setShowCreateKey(true)} onCopyPrefix={handleCopyPrefix} onRevokeClick={setRevokeTarget} />}
+          {ready && tabAllowed && activeTab === "providers" && <ProvidersTab providers={providers} error={providersError} canWrite={canWrite} saving={providersSaving} onKeyChange={updateProvider} onTest={testProvider} onSave={handleSaveProviders} />}
+          {ready && tabAllowed && activeTab === "team" && <TeamTab />}
+          {ready && tabAllowed && activeTab === "devices" && <DevicesTab />}
+          {ready && tabAllowed && activeTab === "billing" && <BillingTab fleetUsage={fleetUsage} />}
       </div>
 
       {/* Modals */}
-      <ApiKeyModal open={showCreateKey} onClose={() => setShowCreateKey(false)} onCreated={handleKeyCreated} />
+      <ApiKeyModal open={showCreateKey} onClose={() => setShowCreateKey(false)} onCreate={handleCreateKey} />
       <ConfirmDialog open={!!revokeTarget} title="Revoke API key" message={`Revoke "${revokeTarget?.name}"? Anything using this key stops working immediately.`} confirmLabel="Revoke key" destructive onConfirm={handleRevokeKey} onCancel={() => setRevokeTarget(null)} />
     </div>
   );

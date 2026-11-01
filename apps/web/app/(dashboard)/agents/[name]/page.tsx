@@ -20,7 +20,6 @@ import {
   Zap,
   GitCompare,
   ShieldAlert,
-  DollarSign,
   Plug,
   X,
   Brain,
@@ -1461,22 +1460,10 @@ export default function AgentDetailPage() {
                   <div>
                     <label className="mb-1 block text-xs text-fg-2">Live URL</label>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-ok bg-canvas px-3 py-2 font-mono text-xs text-ok select-all">{cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`); toast.success("URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
+                      <code className="flex-1 truncate rounded-lg border border-ok bg-canvas px-3 py-2 font-mono text-xs text-ok select-all">{cloudDeployUrl || "not reported by the deployment"}</code>
+                      <button disabled={!cloudDeployUrl} onClick={() => { navigator.clipboard.writeText(cloudDeployUrl); toast.success("URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
                         <Copy className="h-3 w-3" /> Copy
                       </button>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-line bg-canvas p-3 space-y-2">
-                    <span className="text-[11px] font-medium text-fg-3 uppercase tracking-wider">Usage This Month</span>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div><p className="text-lg font-semibold text-fg">142</p><p className="text-[11px] text-fg-3">Sessions</p></div>
-                      <div><p className="text-lg font-semibold text-fg">48.2k</p><p className="text-[11px] text-fg-3">Tokens</p></div>
-                      <div><p className="text-lg font-semibold text-fg">3.2h</p><p className="text-[11px] text-fg-3">Compute</p></div>
-                    </div>
-                    <div className="flex items-center gap-2 pt-1 border-t border-line">
-                      <DollarSign className="h-3 w-3 text-fg-3" />
-                      <span className="text-xs text-fg-2">Estimated cost: <span className="font-medium text-fg">$4.82</span>/month</span>
                     </div>
                   </div>
                   {canWrite && <div className="flex items-center gap-2">

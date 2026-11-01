@@ -5,15 +5,16 @@
 // Visible to owner/admin only (actors and principals are shown) - UX gating,
 // lib/rbac-matrix.ts.
 
+import { Skeleton } from "@/components/skeleton";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollText } from "lucide-react";
 import { runtimeApi } from "@/lib/runtime-api";
 import { parseApiError } from "@/lib/mcp";
 import {
-  PAGE, filterAudit, mergeAudit, nextPromotionLimit, parsePromotionAudit, parseSandboxAudit,
+  PAGE, clipToComplete, filterAudit, mergeAudit, nextPromotionLimit, parsePromotionAudit, parseSandboxAudit,
   type AuditRow, type AuditSource,
 } from "@/lib/audit";
-import { useCan } from "@/components/role-gate";
+import { useCan, useRoleReady } from "@/components/role-gate";
 import { Button } from "@/components/button";
 import { DataTable, type Column } from "@/components/data-table";
 
@@ -31,6 +32,7 @@ const COLUMNS: Column<AuditRow>[] = [
 
 export default function AuditLogPage() {
   const allowed = useCan("audit:read");
+  const ready = useRoleReady();
   const [promoRows, setPromoRows] = useState<AuditRow[]>([]);
   const [promoLimit, setPromoLimit] = useState(PAGE);
   const [promoCount, setPromoCount] = useState(0);
@@ -73,11 +75,17 @@ export default function AuditLogPage() {
     void Promise.all([loadPromotions(PAGE), loadSandbox(0)]).finally(() => setLoading(false));
   }, [allowed, loadPromotions, loadSandbox]);
 
-  const rows = useMemo(() => filterAudit(mergeAudit(promoRows, sandboxRows), source, query), [promoRows, sandboxRows, source, query]);
   const nextLimit = nextPromotionLimit(promoLimit);
   const promoMore = promoCount >= promoLimit && nextLimit !== null;
   const promoAtCap = promoCount >= promoLimit && nextLimit === null;
+  // A capped stream may have older rows that would interleave with the other's; clip to where both are complete.
+  const clipped = useMemo(
+    () => clipToComplete(mergeAudit(promoRows, sandboxRows), { promotion: promoCount >= promoLimit, sandbox: sandboxFull }),
+    [promoRows, sandboxRows, promoCount, promoLimit, sandboxFull],
+  );
+  const rows = useMemo(() => filterAudit(clipped.rows, source, query), [clipped, source, query]);
 
+  if (!ready) return <Skeleton className="h-24 w-full" />;
   if (!allowed) {
     return <div role="status" className="rounded-xl border border-line bg-panel p-5 text-sm text-fg-3">The audit log is for workspace owners and admins.</div>;
   }
@@ -98,6 +106,7 @@ export default function AuditLogPage() {
           </select>
           <input aria-label="Filter" className={`${inputCls} min-w-0 flex-1 sm:max-w-xs`} placeholder="Filter by action, actor, subject" value={query} onChange={(e) => setQuery(e.target.value)} />
           <span className="text-[11px] text-fg-3">{rows.length} shown</span>
+          {clipped.cutoff !== null && <span className="text-[11px] text-fg-3">complete back to {new Date(clipped.cutoff).toLocaleString()}; load more to go further</span>}
         </div>
         {promoErr && <p role="alert" className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-xs text-bad">Promotion records could not be loaded: {promoErr}</p>}
         {sandboxErr && <p role="alert" className="mt-3 rounded-lg bg-bad-soft px-3 py-2 text-xs text-bad">Sandbox events could not be loaded: {sandboxErr}</p>}

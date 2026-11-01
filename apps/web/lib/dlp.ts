@@ -88,3 +88,9 @@ export const draftFromRule = (r: DlpRule): RuleDraft => ({ ruleId: r.ruleId, det
 
 /** Block rules are refused at spawn on nodes without the egress broker. */
 export const hasBlockRule = (rules: DlpRule[]): boolean => rules.some((r) => r.mode === "block");
+
+/** Adding (not editing) must not silently overwrite: the server upserts by ruleId. */
+export function duplicateRuleMessage(rules: DlpRule[] | null, d: RuleDraft, editing: boolean): string | null {
+  if (editing) return null;
+  return rules?.some((r) => r.ruleId === d.ruleId.trim()) ? "A rule with this name exists. Edit it instead." : null;
+}

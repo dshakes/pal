@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DETECTORS, MODES, emptyDraft, hasBlockRule, parseDlpRules, toUpsertBody, validateDraft } from "./dlp.ts";
+import { duplicateRuleMessage, DETECTORS, MODES, emptyDraft, hasBlockRule, parseDlpRules, toUpsertBody, validateDraft } from "./dlp.ts";
 
 test("enums match the server validators (handlers/dlp_policy.go)", () => {
   assert.deepEqual([...DETECTORS], ["card_number", "secret_key", "email", "phone", "custom_regex"]);
@@ -47,4 +47,13 @@ test("hasBlockRule", () => {
   const r = parseDlpRules({ rules: [{ ruleId: "a", detector: "email", mode: "audit" }] });
   assert.equal(hasBlockRule(r), false);
   assert.equal(hasBlockRule(parseDlpRules({ rules: [{ ruleId: "a", detector: "email", mode: "block" }] })), true);
+});
+
+test("adding a rule whose name exists is refused; editing it is fine (server upserts by ruleId)", () => {
+  const rules = parseDlpRules({ rules: [{ ruleId: "cards", detector: "card_number", mode: "block" }] });
+  const d = { ...emptyDraft(), ruleId: " cards " };
+  assert.match(duplicateRuleMessage(rules, d, false) ?? "", /exists/);
+  assert.equal(duplicateRuleMessage(rules, d, true), null);
+  assert.equal(duplicateRuleMessage(rules, { ...d, ruleId: "other" }, false), null);
+  assert.equal(duplicateRuleMessage(null, d, false), null);
 });

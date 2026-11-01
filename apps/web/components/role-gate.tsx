@@ -10,6 +10,12 @@ export function useCan(cap: Capability): boolean {
   return can(user?.role, cap);
 }
 
+/** False until /auth/me has answered. Before that the role is unknown and useCan() reads
+ *  as viewer, so a full-page "your role can't..." notice must wait for this (no flash for owners). */
+export function useRoleReady(): boolean {
+  const { isLoading } = useAuth();
+  return !isLoading;
+}
 export function useCanDebug(): boolean {
   const { user } = useAuth();
   return canDebug(user?.role);
