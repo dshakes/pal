@@ -136,3 +136,42 @@ test("approvalEffect mirrors applyPromotion: a canary needs a DIFFERENT stable v
   assert.match(approvalEffect({ ...p, canaryPct: 0 }, prod({})), /for all traffic/);
   assert.match(approvalEffect({ ...p, env: "staging" }, prod({})), /live in staging for all traffic/);
 });
+
+import { canRollback, evaluateOutcome, rollbackCandidate, rollbackOutcome, rollbackSummary } from "./promotion.ts";
+
+test("canRollback: a rolled_back newest promotion makes rollback a server no-op", () => {
+  const env: EnvState = { env: "prod", version: "v1", previousVersion: "v2", status: "active" }; // rollbackTx sets previous = reverted version
+  const p = (status: Promotion["status"], createdAt: string, e = "prod" as const) => promo({ id: createdAt, status, createdAt, env: e });
+  assert.equal(canRollback(env), true); // no list given: old behaviour
+  assert.equal(canRollback(env, [p("promoted", "2026-01-01T00:00:00Z")]), true);
+  assert.equal(canRollback(env, [p("rolled_back", "2026-01-02T00:00:00Z"), p("promoted", "2026-01-01T00:00:00Z")]), false);
+  // order in the array doesn't matter, a newer promotion after the rollback re-enables it
+  assert.equal(canRollback(env, [p("promoted", "2026-01-03T00:00:00Z"), p("rolled_back", "2026-01-02T00:00:00Z")]), true);
+  // another env's rollback is irrelevant
+  assert.equal(canRollback(env, [p("rolled_back", "2026-01-02T00:00:00Z", "staging" as never)]), true);
+  assert.equal(canRollback({ env: "prod", version: "v1", status: "active" }), false);
+});
+
+test("rollback dialog names the canary CANDIDATE, not the stable version the env row holds", () => {
+  const canary: EnvState = { env: "prod", version: "v1", status: "canary", canaryPct: 20, promotionId: "c1" };
+  const list = [promo({ id: "c1", version: "v2", status: "canary" })];
+  assert.equal(rollbackCandidate(canary, list), "v2");
+  assert.match(rollbackSummary("a", canary, list), /abort the canary of v2; v1 keeps serving/);
+  assert.equal(rollbackCandidate({ ...canary, status: "active" }, list), null);
+  assert.equal(rollbackSummary("a", { env: "prod", version: "v2", previousVersion: "v1", status: "active" }, []), "a: v2 → v1");
+});
+
+test("rollbackOutcome / evaluateOutcome report what the server did", () => {
+  const base = { alreadyRolledBack: false, env: "prod", version: "v1", promotionId: "x" };
+  assert.match(rollbackOutcome({ ...base, mode: "reverted" }).message, /Rolled back: prod now serves v1/);
+  assert.match(rollbackOutcome({ ...base, mode: "canary_aborted" }).message, /Canary aborted/);
+  const noop = rollbackOutcome({ ...base, mode: "noop", alreadyRolledBack: true });
+  assert.equal(noop.tone, "warn");
+  assert.match(noop.message, /Nothing changed/);
+  const ev = (action: "none" | "rolled_back" | "completed", reasons: string[] = []) =>
+    ({ verdict: { verdict: "hold", reasons }, action } as unknown as Parameters<typeof evaluateOutcome>[0]);
+  assert.equal(evaluateOutcome(ev("none")), null);
+  assert.match(evaluateOutcome(ev("rolled_back", ["error rate 40%"]))!.message, /rolled back: error rate 40%/);
+  assert.equal(evaluateOutcome(ev("rolled_back"))!.tone, "warn");
+  assert.match(evaluateOutcome(ev("completed"))!.message, /100% of prod/);
+});

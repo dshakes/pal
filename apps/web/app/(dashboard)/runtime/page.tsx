@@ -30,7 +30,7 @@ export default function SandboxesPage() {
   const canRead = useCan("runtime:read");
   const canSchedule = useCan("runtime:admin");
   const [vms, setVms] = useState<VmRow[] | null>(null);
-  const [cluster, setCluster] = useState<ClusterSummary | null | "unavailable">(null);
+  const [cluster, setCluster] = useState<ClusterSummary | null | "unavailable" | "restricted">(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showEnded, setShowEnded] = useState(false);
@@ -38,9 +38,12 @@ export default function SandboxesPage() {
 
   const load = useCallback(async () => {
     try {
+      // /cluster needs runtime:admin; a member polling it would write a denial audit row every 5s.
       const [list, cl] = await Promise.all([
         runtimeApi.get<VmRow[]>(`/v1/runtime/vms?limit=${VM_LIST_LIMIT}`),
-        runtimeApi.get<ClusterSummary>("/v1/runtime/cluster").catch(() => "unavailable" as const),
+        canSchedule
+          ? runtimeApi.get<ClusterSummary>("/v1/runtime/cluster").catch(() => "unavailable" as const)
+          : Promise.resolve("restricted" as const),
       ]);
       setVms(Array.isArray(list) ? list : []);
       setCluster(cl);
@@ -49,7 +52,7 @@ export default function SandboxesPage() {
       if (err instanceof UnauthorizedError) return;
       setError(runtimeFailure(err).message);
     }
-  }, []);
+  }, [canSchedule]);
 
   useEffect(() => {
     if (!canRead) return;
@@ -176,7 +179,9 @@ export default function SandboxesPage() {
               <span><span className="num font-semibold text-fg">{counts.paused}</span> paused</span>
               <span><span className={counts.failed > 0 ? "num font-semibold text-bad" : "num font-semibold text-fg"}>{counts.failed}</span> failed</span>
               <span className="text-fg-3">
-                {cluster === null ? "Capacity: loading" : cluster === "unavailable"
+                {cluster === null ? "Capacity: loading" : cluster === "restricted"
+                  ? "Capacity: owners and admins only"
+                  : cluster === "unavailable"
                   ? "Capacity: unavailable"
                   : `${cluster.nodes?.length ?? 0} node${(cluster.nodes?.length ?? 0) === 1 ? "" : "s"}${cluster.warm_pool ? ` · warm pool ${cluster.warm_pool.available}/${cluster.warm_pool.target}` : ""}`}
               </span>

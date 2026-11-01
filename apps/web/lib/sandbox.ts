@@ -34,12 +34,27 @@ export function vmActions(state: string): VmActions {
   };
 }
 
-/** Server default ceiling is 100 forks per call (PAL_MAX_FORK_COUNT; the server reports its own limit on 400). */
-export const FORK_MAX_DEFAULT = 100;
-
+/** Whole number >= 1. The ceiling (PAL_MAX_FORK_COUNT) is the server's to enforce; its 400 says what it is. */
 export function validateForkCount(raw: string): number | null {
   const n = Number(raw);
-  return raw.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= FORK_MAX_DEFAULT ? n : null;
+  return raw.trim() !== "" && Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/** Reconnect delay for the log stream: 3s doubling to a 60s cap. */
+export function logRetryDelay(attempt: number): number {
+  return Math.min(3000 * 2 ** Math.max(0, attempt), 60_000);
+}
+
+/** A 4xx (auth, not found, bad request) won't fix itself; only network drops and 5xx are retried. */
+export function shouldRetryLogs(err: unknown): boolean {
+  const { status } = runtimeFailure(err);
+  return !(status >= 400 && status < 500);
+}
+
+/** idleTimeoutSecs > 0 means the scheduler may auto-suspend the VM; file requests then resume it. */
+export function autoSuspends(spec: Record<string, unknown> | null | undefined): boolean {
+  const n = Number(spec?.idleTimeoutSecs ?? spec?.idle_timeout_secs ?? 0);
+  return Number.isFinite(n) && n > 0;
 }
 
 export interface ApiFailure { status: number; message: string }

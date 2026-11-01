@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtBytes, formatLogFrame, isDir, joinPath, lifecycleMessage, parentPath, pushLog, runtimeFailure, validateForkCount, vmActions, vmTone } from "./sandbox.ts";
+import { autoSuspends, fmtBytes, logRetryDelay, shouldRetryLogs, formatLogFrame, isDir, joinPath, lifecycleMessage, parentPath, pushLog, runtimeFailure, validateForkCount, vmActions, vmTone } from "./sandbox.ts";
 
 test("vmActions follow the lifecycle", () => {
   assert.deepEqual(vmActions("running"), { pause: true, resume: false, fork: true, terminate: true });
@@ -17,10 +17,27 @@ test("vmTone", () => {
   assert.equal(vmTone("whatever"), "neutral");
 });
 
-test("validateForkCount is 1..100 whole numbers", () => {
+test("validateForkCount is whole numbers >= 1; the server owns the ceiling", () => {
   assert.equal(validateForkCount("1"), 1);
   assert.equal(validateForkCount("100"), 100);
-  for (const bad of ["0", "101", "1.5", "", " ", "abc", "-1"]) assert.equal(validateForkCount(bad), null, bad);
+  assert.equal(validateForkCount("500"), 500); // PAL_MAX_FORK_COUNT may be raised server-side
+  for (const bad of ["0", "1.5", "", " ", "abc", "-1"]) assert.equal(validateForkCount(bad), null, bad);
+});
+
+test("log reconnect backs off to a cap and gives up on 4xx", () => {
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 9].map(logRetryDelay), [3000, 6000, 12000, 24000, 48000, 60000, 60000]);
+  assert.equal(shouldRetryLogs(new Error("API 404: not found")), false);
+  assert.equal(shouldRetryLogs(new Error("API 403: forbidden")), false);
+  assert.equal(shouldRetryLogs(new Error("API 502: bad gateway")), true);
+  assert.equal(shouldRetryLogs(new TypeError("network error")), true);
+});
+
+test("autoSuspends reads idleTimeoutSecs in either casing", () => {
+  assert.equal(autoSuspends({ idleTimeoutSecs: 60 }), true);
+  assert.equal(autoSuspends({ idle_timeout_secs: 5 }), true);
+  assert.equal(autoSuspends({ idleTimeoutSecs: 0 }), false);
+  assert.equal(autoSuspends(null), false);
+  assert.equal(autoSuspends({}), false);
 });
 
 test("runtimeFailure / lifecycleMessage read the server's {error, reason}", () => {

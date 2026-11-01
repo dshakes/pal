@@ -78,9 +78,60 @@ export interface CanaryEvaluation {
   guards: { maxErrorRate: number; maxCostRatio: number; minEvalScore: number; minRuns: number };
 }
 
-/** Rollback needs a version to go back to (or an active canary to abort). */
-export function canRollback(e: EnvState): boolean {
+/**
+ * Rollback needs a version to go back to (or an active canary to abort). The server
+ * (rollbackTx) acts on the NEWEST canary/promoted/rolled_back promotion of the env and
+ * no-ops when that one is already rolled_back, even though previous_version is then set
+ * to the reverted version. So when the list shows that, offering Rollback is a lie.
+ */
+export function canRollback(e: EnvState, promotions: Promotion[] = []): boolean {
+  const newest = [...promotions]
+    .filter((p) => p.env === e.env && (p.status === "canary" || p.status === "promoted" || p.status === "rolled_back"))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  if (newest?.status === "rolled_back") return false;
   return e.status === "canary" || (!!e.previousVersion && e.previousVersion !== e.version);
+}
+
+/**
+ * During a canary the env row keeps the STABLE version (applyPromotion); the thing a
+ * rollback aborts is the candidate, found through the env's promotion id.
+ */
+export function rollbackCandidate(e: EnvState, promotions: Promotion[]): string | null {
+  if (e.status !== "canary") return null;
+  return promotions.find((p) => p.id === e.promotionId)?.version ?? null;
+}
+
+/** One-line description of what the rollback dialog is about to do. */
+export function rollbackSummary(agent: string, e: EnvState, promotions: Promotion[]): string {
+  if (e.status === "canary") {
+    return `${agent}: abort the canary${rollbackCandidate(e, promotions) ? ` of ${rollbackCandidate(e, promotions)}` : ""}; ${e.version} keeps serving all traffic`;
+  }
+  return `${agent}: ${e.version} → ${e.previousVersion ?? "previous"}`;
+}
+
+export interface RollbackResponse {
+  alreadyRolledBack: boolean;
+  env: string;
+  version: string;
+  promotionId: string;
+  mode: "canary_aborted" | "reverted" | "noop";
+}
+
+/** Say what the server actually did; a 200 can be a no-op. */
+export function rollbackOutcome(r: RollbackResponse): { tone: "ok" | "warn"; message: string } {
+  if (r.alreadyRolledBack || r.mode === "noop") {
+    return { tone: "warn", message: `Nothing changed: the latest ${r.env} promotion was already rolled back. ${r.env} serves ${r.version}.` };
+  }
+  if (r.mode === "canary_aborted") return { tone: "ok", message: `Canary aborted: ${r.env} serves ${r.version} for all traffic.` };
+  return { tone: "ok", message: `Rolled back: ${r.env} now serves ${r.version}.` };
+}
+
+/** POST .../canary/evaluate APPLIES its verdict (trip → rollback, pass → 100%), like the server's own loop. */
+export function evaluateOutcome(r: CanaryEvaluation): { tone: "ok" | "warn"; message: string } | null {
+  const why = (r.verdict.reasons ?? []).join("; ");
+  if (r.action === "rolled_back") return { tone: "warn", message: `Canary tripped and was rolled back${why ? `: ${why}` : ""}` };
+  if (r.action === "completed") return { tone: "ok", message: `Canary passed: the candidate now serves 100% of prod${why ? ` (${why})` : ""}` };
+  return null;
 }
 
 export function envBadgeLabel(e: EnvState): string {

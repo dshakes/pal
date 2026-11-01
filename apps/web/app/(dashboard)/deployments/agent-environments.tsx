@@ -28,6 +28,7 @@ import {
   approvalEffect,
   approvalNote,
   canRollback,
+  evaluateOutcome,
   cappedNote,
   envBadgeLabel,
   errorRate,
@@ -37,6 +38,8 @@ import {
   parseApiError,
   promoteBody,
   promoteOutcome,
+  rollbackOutcome,
+  rollbackSummary,
   proposedBy,
   summarizeDetail,
   validatePromote,
@@ -49,6 +52,7 @@ import {
   type PromoteResponse,
   type Promotion,
   type PromoEnv,
+  type RollbackResponse,
 } from "@/lib/promotion";
 
 const INPUT = "focus-ring w-full rounded-lg border border-line bg-canvas px-3 py-2 text-[13.5px] text-fg placeholder:text-fg-3";
@@ -327,8 +331,10 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
     if (!rollback) return;
     setBusy(true);
     try {
-      await runtimeApi.post(`/v1/agents/${encodeURIComponent(agent)}/environments/${rollback.env}/rollback`, { note });
-      toast.success("Rolled back");
+      const res = await runtimeApi.post<RollbackResponse>(`/v1/agents/${encodeURIComponent(agent)}/environments/${rollback.env}/rollback`, { note });
+      const out = rollbackOutcome(res);
+      if (out.tone === "warn") toast.warning(out.message);
+      else toast.success(out.message);
       setRollback(null);
       await load(agent);
     } catch (err) {
@@ -339,11 +345,19 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
   };
 
   const doEvaluate = async () => {
+    const mine = seq.current;
     setEvaluating(true);
     try {
       const r = await runtimeApi.post<CanaryEvaluation>(`/v1/agents/${encodeURIComponent(agent)}/environments/prod/canary/evaluate`);
+      if (mine !== seq.current) return; // switched agents meanwhile
       setEvalRes(r);
-      if (r.action !== "none") await load(agent);
+      const out = evaluateOutcome(r);
+      if (out) {
+        // The panel unmounts once the canary resolves, so say what happened here.
+        if (out.tone === "warn") toast.warning(out.message);
+        else toast.success(out.message);
+        await load(agent);
+      }
     } catch (err) {
       toast.error(parseApiError(err).message);
     } finally {
@@ -422,8 +436,8 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                       variant="danger"
                       size="sm"
                       icon={<RotateCcw className="h-3 w-3" />}
-                      disabled={!canPropose || !canRollback(e)}
-                      title={!canPropose ? "Your role can't roll back" : !canRollback(e) ? "Nothing earlier to roll back to" : undefined}
+                      disabled={!canPropose || !canRollback(e, envs.promotions)}
+                      title={!canPropose ? "Your role can't roll back" : !canRollback(e, envs.promotions) ? "Nothing to roll back: the latest promotion is already rolled back, or there is no earlier version" : undefined}
                       onClick={() => { setNote(""); setRollback(e); }}
                     >
                       Rollback
@@ -441,7 +455,7 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                   Prod canary: {envs.promotions.find((p) => p.id === prodCanary.promotionId)?.version ?? "candidate"} at {prodCanary.canaryPct ?? 0}% (stable {prodCanary.version})
                 </SectionTitle>
                 <Button variant="secondary" size="sm" loading={evaluating} disabled={!canPropose} onClick={doEvaluate}>
-                  Evaluate now
+                  Evaluate and apply
                 </Button>
               </div>
               {evalRes ? (
@@ -470,7 +484,7 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
                   </p>
                 </div>
               ) : (
-                <p className="text-[12px] text-fg-3">Run an evaluation to compare the candidate against stable. The server also evaluates on its own schedule.</p>
+                <p className="text-[12px] text-fg-3">Evaluating compares the candidate with stable and APPLIES the verdict: a tripped guard rolls the canary back, a pass promotes it to 100%. The server runs the same evaluation on its own schedule.</p>
               )}
             </div>
           )}
@@ -485,7 +499,7 @@ export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) 
         open={!!rollback}
         onClose={() => setRollback(null)}
         title={`Roll back ${rollback?.env ?? ""}`}
-        description={rollback ? `${agent}: ${rollback.version} → ${rollback.status === "canary" ? "stable (aborts the canary)" : (rollback.previousVersion ?? "previous")}` : undefined}
+        description={rollback && envs ? rollbackSummary(agent, rollback, envs.promotions) : undefined}
         footer={
           <>
             <Button variant="ghost" onClick={() => setRollback(null)}>Cancel</Button>

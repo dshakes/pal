@@ -24,8 +24,8 @@ import { useToast } from "@/components/toast";
 import { useCan } from "@/components/role-gate";
 import { runtimeApi, UnauthorizedError } from "@/lib/runtime-api";
 import {
-  fmtBytes, formatLogFrame, isDir, joinPath, lifecycleMessage, parentPath, pushLog, runtimeFailure,
-  validateForkCount, vmActions, type FileEntry,
+  autoSuspends, fmtBytes, formatLogFrame, isDir, joinPath, lifecycleMessage, logRetryDelay, parentPath, pushLog,
+  runtimeFailure, shouldRetryLogs, validateForkCount, vmActions, type FileEntry,
 } from "@/lib/sandbox";
 import { VmState } from "../vm-state";
 
@@ -182,10 +182,10 @@ export default function SandboxDetailPage() {
         }
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {can.pause && <Button variant="secondary" size="sm" icon={<Pause className="h-3.5 w-3.5" />} loading={busy === "pause"} disabled={!canAdmin} title={adminHint} onClick={() => act("pause", "Pause")}>Pause</Button>}
-            {can.resume && <Button variant="secondary" size="sm" icon={<Play className="h-3.5 w-3.5" />} loading={busy === "resume"} disabled={!canAdmin} title={adminHint} onClick={() => act("resume", "Resume")}>Resume</Button>}
-            {can.fork && <Button variant="secondary" size="sm" icon={<GitFork className="h-3.5 w-3.5" />} disabled={!canAdmin} title={adminHint} onClick={() => { setForkResult(null); setForkOpen(true); }}>Fork</Button>}
-            {can.terminate && <Button variant="danger" size="sm" icon={<StopCircle className="h-3.5 w-3.5" />} disabled={!canAdmin} title={adminHint} onClick={() => setTerminateOpen(true)}>Terminate</Button>}
+            {can.pause && <Button variant="secondary" size="sm" icon={<Pause className="h-3.5 w-3.5" />} loading={busy === "pause"} disabled={!canAdmin || busy !== null} title={adminHint} onClick={() => act("pause", "Pause")}>Pause</Button>}
+            {can.resume && <Button variant="secondary" size="sm" icon={<Play className="h-3.5 w-3.5" />} loading={busy === "resume"} disabled={!canAdmin || busy !== null} title={adminHint} onClick={() => act("resume", "Resume")}>Resume</Button>}
+            {can.fork && <Button variant="secondary" size="sm" icon={<GitFork className="h-3.5 w-3.5" />} disabled={!canAdmin || busy !== null} title={adminHint} onClick={() => { setForkResult(null); setForkOpen(true); }}>Fork</Button>}
+            {can.terminate && <Button variant="danger" size="sm" icon={<StopCircle className="h-3.5 w-3.5" />} disabled={!canAdmin || busy !== null} title={adminHint} onClick={() => setTerminateOpen(true)}>Terminate</Button>}
           </div>
         }
       />
@@ -219,7 +219,7 @@ export default function SandboxDetailPage() {
         </div>
 
         {tab === "logs" && <LogsPanel vmId={v.vmId} ended={v.state === "terminated" || v.state === "failed"} />}
-        {tab === "files" && <FilesPanel vmId={v.vmId} state={v.state} />}
+        {tab === "files" && <FilesPanel vmId={v.vmId} state={v.state} spec={v.spec} />}
         {tab === "details" && <DetailsPanel detail={detail} />}
       </div>
 
@@ -261,8 +261,8 @@ export default function SandboxDetailPage() {
             ))}
           </ul>
         ) : (
-          <ModalField label="Number of forks" hint="Whole number, 1–100. The server enforces its own limit and says so if it is lower.">
-            <input aria-label="Number of forks" type="number" min={1} max={100} step={1} value={forkCount} onChange={(e) => setForkCount(e.target.value)} className={INPUT} />
+          <ModalField label="Number of forks" hint="Whole number, at least 1. The server enforces the maximum and says what it is.">
+            <input aria-label="Number of forks" type="number" min={1} step={1} value={forkCount} onChange={(e) => setForkCount(e.target.value)} className={INPUT} />
           </ModalField>
         )}
       </Modal>
@@ -274,26 +274,28 @@ export default function SandboxDetailPage() {
 
 function LogsPanel({ vmId, ended }: { vmId: string; ended: boolean }) {
   const [lines, setLines] = useState<string[]>([]);
-  const [conn, setConn] = useState<"connecting" | "open" | "retrying" | "closed">("connecting");
+  const [conn, setConn] = useState<"connecting" | "open" | "retrying" | "closed" | "unavailable">("connecting");
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const ctl = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
     const open = () => {
       setConn("connecting");
       setLines([]); // a reconnect replays from the start; don't duplicate
       let first = true;
       runtimeApi
         .streamSSE(`/v1/runtime/vms/${encodeURIComponent(vmId)}/logs?follow=1`, (d) => {
-          if (first) { first = false; setConn("open"); }
+          if (first) { first = false; attempt = 0; setConn("open"); }
           setLines((prev) => pushLog(prev, formatLogFrame(d)));
         }, ctl.signal)
         .then(() => { if (!ctl.signal.aborted) setConn("closed"); })
         .catch((e) => {
           if (e instanceof UnauthorizedError || ctl.signal.aborted) return;
+          if (!shouldRetryLogs(e)) { setConn("unavailable"); return; }
           setConn("retrying");
-          retry = setTimeout(open, 3000);
+          retry = setTimeout(open, logRetryDelay(attempt++));
         });
     };
     open();
@@ -304,7 +306,7 @@ function LogsPanel({ vmId, ended }: { vmId: string; ended: boolean }) {
     if (box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [lines]);
 
-  const status = conn === "open" ? "streaming" : conn === "closed" ? (ended ? "stream ended (sandbox has ended)" : "stream closed by the server") : conn === "retrying" ? "disconnected, retrying" : "connecting";
+  const status = conn === "open" ? "streaming" : conn === "closed" ? (ended ? "stream ended (sandbox has ended)" : "stream closed by the server") : conn === "unavailable" ? "stream unavailable (the server refused it; reload to retry)" : conn === "retrying" ? "disconnected, retrying with backoff" : "connecting";
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-[12px] text-fg-3">
@@ -326,7 +328,7 @@ function LogsPanel({ vmId, ended }: { vmId: string; ended: boolean }) {
 
 interface Listing { path: string; entries: FileEntry[]; truncated: boolean }
 
-function FilesPanel({ vmId, state }: { vmId: string; state: string }) {
+function FilesPanel({ vmId, state, spec }: { vmId: string; state: string; spec: Record<string, unknown> | null }) {
   const [dir, setDir] = useState(".");
   const [listing, setListing] = useState<Listing | null>(null);
   const [file, setFile] = useState<{ path: string; text: string; truncated: boolean } | null>(null);
@@ -337,6 +339,7 @@ function FilesPanel({ vmId, state }: { vmId: string; state: string }) {
   useEffect(() => {
     if (!running) return;
     let live = true;
+    setListing(null); // never join a new directory with the previous directory's names
     setLoading(true);
     setError(null);
     setFile(null);
@@ -348,15 +351,18 @@ function FilesPanel({ vmId, state }: { vmId: string; state: string }) {
     return () => { live = false; };
   }, [vmId, dir, running]);
 
+  const openSeq = useRef(0);
   const open = async (path: string) => {
+    const mine = ++openSeq.current; // only the latest click may set the preview
     setError(null);
     try {
       const r = await runtimeApi.getText(`/v1/runtime/vms/${encodeURIComponent(vmId)}/files/content?path=${encodeURIComponent(path)}`);
-      setFile({ path, ...r });
+      if (mine === openSeq.current) setFile({ path, ...r });
     } catch (e) {
-      if (!(e instanceof UnauthorizedError)) setError(runtimeFailure(e).message);
+      if (mine === openSeq.current && !(e instanceof UnauthorizedError)) setError(runtimeFailure(e).message);
     }
   };
+  useEffect(() => { openSeq.current++; }, [dir]); // a pending read for another directory is stale
 
   if (!running) {
     return <EmptyState size="compact" title="Files are available while the sandbox is running" description={`This sandbox is ${state}. Resume it (or start a new one) to browse /workspace.`} />;
@@ -364,6 +370,11 @@ function FilesPanel({ vmId, state }: { vmId: string; state: string }) {
   const up = parentPath(dir);
   return (
     <div className="space-y-3">
+      {autoSuspends(spec) && (
+        <p className="rounded-lg border border-line bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
+          This sandbox auto-suspends when idle. Browsing files resumes it if it was suspended, which counts against your sandbox quota.
+        </p>
+      )}
       <p className="flex items-center gap-2 text-[12.5px] text-fg-3">
         <span>/workspace/{dir === "." ? "" : dir}</span>
         {up !== null && <Button variant="ghost" size="sm" onClick={() => setDir(up)}>Up</Button>}

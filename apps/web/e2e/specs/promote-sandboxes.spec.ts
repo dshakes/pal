@@ -144,9 +144,13 @@ test("Promote: gates explain a block, prod waits for a human, an API key can't a
     await expect(page.getByTestId("env-prod")).toContainText("canary 20%");
 
     await page.getByTestId("env-prod").getByRole("button", { name: "Rollback" }).click();
+    // the env row holds the STABLE version; the dialog must name the candidate being aborted
+    await expect(dlg).toContainText("abort the canary of v2");
     await dlg.getByRole("button", { name: "Roll back" }).click();
-    await expect(page.getByText("Rolled back")).toBeVisible();
+    await expect(page.getByText("Canary aborted: prod serves v1 for all traffic.")).toBeVisible();
     await expect(page.getByTestId("env-prod")).not.toContainText("canary");
+    // the newest promotion is now rolled_back: a second rollback would be a server no-op, so it isn't offered
+    await expect(page.getByTestId("env-prod").getByRole("button", { name: "Rollback" })).toBeDisabled();
   });
 });
 
