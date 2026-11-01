@@ -65,6 +65,25 @@ export function parseAgentMessageFrame(dataJson: string): TurnResult | null {
   return null;
 }
 
+/** Best-effort DELETE of a control-plane session row. Logs on any failure; never throws. */
+export async function deleteServerSession(
+  fetchFn: (path: string, init?: RequestInit) => Promise<Response>,
+  logger: Pick<Logger, "debug">,
+  sessionId: string,
+): Promise<boolean> {
+  try {
+    const r = await fetchFn(`/v1/sessions/${sessionId}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 404) {
+      logger.debug({ status: r.status, sessionId }, "throwaway session delete failed");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logger.debug({ err: (err as Error)?.message, sessionId }, "throwaway session delete errored");
+    return false;
+  }
+}
+
 export class AgentClient {
   private agentName: string;
   private logger: Logger;
@@ -326,6 +345,14 @@ export class AgentClient {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /** For a throwaway purpose-keyed jid: forget it locally AND delete the server-side
+   *  session row (clearHistory alone leaks one Postgres row per call). Best-effort. */
+  async discardSession(jid: string): Promise<void> {
+    const id = this.sessions.get(jid);
+    this.clearHistory(jid);
+    if (id) await deleteServerSession(authedFetch, this.logger, id);
   }
 
   clearHistory(jid: string) {

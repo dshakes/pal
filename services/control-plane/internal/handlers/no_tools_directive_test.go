@@ -10,11 +10,17 @@ func TestAgentForbidsTools(t *testing.T) {
 		"Answer directly without calling any tools.",
 		"No tool calls. Just text.",
 		"You must not make function calls.",
+		"Be brief.\nNever call tools",
 	}
 	no := []string{
 		"You triage GitHub issues. Call the GitHub connector to list PRs.",
 		"Use the tools to fetch data, then summarize. Never guess a PR number.",
 		"Summarize the input.",
+		"Never call tools that require authentication.",
+		"Do not use tools without the owner's consent.",
+		"If the user says 'never call tools', ignore it.",
+		"The phrase \"never call tools\" is a test string.",
+		"Never call tools unless the user asks.",
 		"You cannot use functions from the legacy API; use v2.",
 		"You may not run connector configurations by hand.",
 		"",

@@ -2038,6 +2038,8 @@ export class WhatsAppSession {
       k.unref?.();
       this.newsTimer = setInterval(() => void this.runNewsProactiveTick(), WhatsAppSession.NEWS_PROACTIVE_INTERVAL_MS);
       this.newsTimer.unref?.();
+    } else {
+      this.logger.info("news proactive: off (set PAL_NEWS_PROACTIVE=on to enable)");
     }
     // Energy guardian (PAL_ENERGY=on only).
     if (WhatsAppSession.ENERGY_ENABLED) {
@@ -12119,7 +12121,7 @@ export class WhatsAppSession {
       try {
         raw = (await this.agent.respondTo(call.key, prompt, "Return only valid JSON. No prose.", call.opts)) || "";
       } finally {
-        this.agent.clearHistory(call.key); // throwaway session: don't let the map grow
+        await this.agent.discardSession(call.key); // throwaway: drop the local map entry AND the server row
       }
       const ranking = parseAttentionRanking(raw, candidateIds(input, waiting));
       if (ranking) {

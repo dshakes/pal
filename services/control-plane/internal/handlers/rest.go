@@ -3247,7 +3247,11 @@ When the instructions above mention a 'GitHub connector', 'Linear connector',
 DO NOT respond with "I don't have access" — the tools are right here. Call them.`, strings.Join(names, ", "))
 }
 
-var noToolsDirective = regexp.MustCompile(`(?i)\b(?:never|do not|don'?t|must not|mustn'?t|should not|shouldn'?t|cannot|can'?t|may not)\s+(?:ever\s+)?(?:call|use|invoke|run|attempt|make)\s+(?:any\s+|the\s+|a\s+)?(?:tools?|tool[ -]calls?|function[ -]calls?|connector[ -]calls?)\b|\bwithout\s+(?:calling|using|invoking)\s+(?:any\s+)?(?:tools?|functions?)\b|\bno\s+tool[ -]calls?\b`)
+// noToolsDirective matches only an UNCONDITIONAL, clause-final directive at the start of a
+// sentence/clause ("Never call tools." / "do not use any tools; ..."). A trailing qualifier
+// ("never call tools that need auth", "...without consent") or a quoted mention does not match;
+// the precise mechanism is the label tools=none.
+var noToolsDirective = regexp.MustCompile(`(?im)(?:^|[.!?;:\n]\s*)(?:you\s+)?(?:(?:must|should|may|can)\s+)?(?:never|do not|don'?t|not|cannot|can'?t)\s+(?:ever\s+)?(?:call|use|invoke|run|attempt|make)\s+(?:any\s+|the\s+|a\s+)?(?:tools?|tool[ -]calls?|function[ -]calls?|connector[ -]calls?)(?:\s+(?:under any circumstances|at all|ever))?\s*(?:[.!;]|$)|(?:^|[.!?;:\n]\s*)(?:answer|respond|reply)\b[^.!;\n]{0,40}\bwithout\s+(?:calling|using|invoking)\s+(?:any\s+)?(?:tools?|functions?)\s*(?:[.!;]|$)|(?:^|[.!?;:\n]\s*)no\s+tool[ -]calls?\s*(?:[.!;]|$)`)
 
 // agentForbidsTools reports whether the agent itself opts out of tools: label
 // tools=none, or an explicit directive in its own system prompt ("never call

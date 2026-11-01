@@ -435,6 +435,15 @@ func fetchSource(ctx context.Context, src newsSource, get newsHTTPGetFn) ([]news
 // by hand, must never fetch third-party feeds on its own.
 func newsRadarEnabled() bool { return envOn("PAL_NEWS_RADAR") }
 
+// LogNewsRadarState logs one startup line so the opt-in default is never a silent kill.
+func LogNewsRadarState(logger *zap.Logger) {
+	if newsRadarEnabled() {
+		logger.Info("news radar: on (PAL_NEWS_RADAR); one sweeper at a time via advisory lock")
+		return
+	}
+	logger.Info("news radar: off (set PAL_NEWS_RADAR=on to enable)")
+}
+
 // newsRadarLockKey is the Postgres advisory-lock key for the radar sweep (one
 // sweep at a time across all API instances; the lock is per-database).
 const newsRadarLockKey int64 = 0x70616c6e72 // "palnr"

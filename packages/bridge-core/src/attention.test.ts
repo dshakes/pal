@@ -122,3 +122,16 @@ test("attentionRankCall: throwaway key per call, trivial hint, bounded timeout",
   assert.equal(a.opts.turnHint, "trivial");
   assert.equal(a.opts.timeoutMs, 20_000);
 });
+
+test("deleteServerSession: DELETEs the session, logs and never throws on failure", async () => {
+  const { deleteServerSession } = await import("./agent.ts");
+  const logs: unknown[] = [];
+  const logger = { debug: (...a: unknown[]) => void logs.push(a) } as never;
+  const seen: Array<[string, string | undefined]> = [];
+  const ok = async (path: string, init?: RequestInit) => { seen.push([path, init?.method]); return new Response(null, { status: 204 }); };
+  assert.equal(await deleteServerSession(ok, logger, "abc"), true);
+  assert.deepEqual(seen, [["/v1/sessions/abc", "DELETE"]]);
+  assert.equal(await deleteServerSession(async () => new Response(null, { status: 500 }), logger, "abc"), false);
+  assert.equal(await deleteServerSession(async () => { throw new Error("boom"); }, logger, "abc"), false);
+  assert.equal(logs.length, 2);
+});

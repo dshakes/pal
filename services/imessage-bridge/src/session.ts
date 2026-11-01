@@ -1917,7 +1917,7 @@ export class IMessageSession {
 
   private startNewsProactiveLoop(): void {
     if (!IMessageSession.NEWS_PROACTIVE_ENABLED) {
-      this.logger.info("proactive AI news disabled (PAL_NEWS_PROACTIVE=off)");
+      this.logger.info("news proactive: off (set PAL_NEWS_PROACTIVE=on to enable)");
       return;
     }
     this.newsPushedPath = join(this.stateDir, "news-pushed.json");
@@ -2811,7 +2811,7 @@ export class IMessageSession {
       try {
         raw = (await this.agent.respondTo(call.key, prompt, "Return only valid JSON. No prose.", call.opts)) || "";
       } finally {
-        this.agent.clearHistory(call.key); // throwaway session: don't let the map grow
+        await this.agent.discardSession(call.key); // throwaway: drop the local map entry AND the server row
       }
       const ranking = parseAttentionRanking(raw, candidateIds(input, waiting));
       if (ranking) {
