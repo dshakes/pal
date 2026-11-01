@@ -202,3 +202,25 @@ func TestBuildTracePolicyDenied(t *testing.T) {
 		t.Fatalf("secret leaked through policy denial: %s", raw)
 	}
 }
+
+// MCP tool calls (ADR 0058) journal one self-contained tool_call event per call.
+func TestBuildTraceMCPToolCall(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ev := []Event{
+		{Seq: 1, Kind: "tool_call", StepID: "mcp:gh.search#1", At: t0.Add(500 * time.Millisecond), Payload: map[string]any{
+			"tool": "mcp:gh.search", "status": "completed", "durationMs": 200.0, "argKeys": []any{"q"}, "argsSha256": "ab"}},
+		{Seq: 2, Kind: "tool_call", StepID: "mcp:gh.search#2", At: t0.Add(900 * time.Millisecond), Payload: map[string]any{
+			"tool": "mcp:gh.search", "status": "failed", "error": "boom", "durationMs": 100.0}},
+	}
+	tr := BuildTrace(RunInfo{ID: "r", Status: "succeeded", CreatedAt: t0}, ev, nil)
+	if len(tr.Steps) != 2 || tr.Totals.ToolCalls != 2 {
+		t.Fatalf("steps=%d toolCalls=%d", len(tr.Steps), tr.Totals.ToolCalls)
+	}
+	a, b := tr.Steps[0], tr.Steps[1]
+	if a.Type != "tool" || a.Status != "ok" || a.StartMs != 300 || a.DurationMs != 200 || a.Tool == nil || a.Tool.Name != "mcp:gh.search" {
+		t.Fatalf("a=%+v tool=%+v", a, a.Tool)
+	}
+	if b.Status != "failed" || b.Error != "boom" {
+		t.Fatalf("b=%+v", b)
+	}
+}

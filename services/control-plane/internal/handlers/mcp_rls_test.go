@@ -188,7 +188,7 @@ func TestRLSMCPClient_PolicyEgressFencingJournal(t *testing.T) {
 
 	// Journal: one redacted tool_call event, no argument values.
 	var payload string
-	if err := m.e.superPool.QueryRow(context.Background(), `SELECT convert_from(payload, 'UTF8') FROM journal_events WHERE run_id = $1 AND kind = 'tool_call'`, runID).Scan(&payload); err != nil {
+	if err := m.e.superPool.QueryRow(context.Background(), `SELECT convert_from(payload, 'UTF8') FROM journal_events WHERE run_id = $1 AND kind = 'tool_call' AND step_id LIKE 'mcp:fake.echo#%'`, runID).Scan(&payload); err != nil {
 		t.Fatalf("tool_call journal event: %v", err)
 	}
 	if strings.Contains(payload, "secret-arg-value") || !strings.Contains(payload, `"argKeys":["text"]`) || !strings.Contains(payload, "argsSha256") {

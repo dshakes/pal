@@ -564,7 +564,10 @@ func (m *MCPRuntime) journalCall(ctx context.Context, p *AgentPrincipal, ref mcp
 	if p.RunID == "" || strings.HasPrefix(p.RunID, "session:") {
 		return
 	}
-	emitJournalEvent(context.WithoutCancel(ctx), m.srv, p.RunID, "tool_call", "mcp:"+ref.Slug+"."+tool, payload)
+	// Unique step id per call so repeated calls of one tool stay separate
+	// nodes in the run trace (internal/obs).
+	stepID := fmt.Sprintf("mcp:%s.%s#%d", ref.Slug, tool, time.Now().UnixNano())
+	emitJournalEvent(context.WithoutCancel(ctx), m.srv, p.RunID, "tool_call", stepID, payload)
 }
 
 func mcpCallRecord(ref mcpServerRef, tool string, args map[string]any, res *mcp.CallResult, callErr error, d time.Duration) map[string]any {
