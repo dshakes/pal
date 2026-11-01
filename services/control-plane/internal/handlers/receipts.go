@@ -504,10 +504,20 @@ func (h *ReceiptHandler) buildReceipt(ctx context.Context, tenantID, runID strin
 }
 
 func (h *ReceiptHandler) hashJournal(ctx context.Context, runID string) (string, error) {
+	return hashJournalOn(ctx, h.srv.Pool, runID)
+}
+
+// journalQuerier is satisfied by both pgx.Tx and *pgxpool.Pool, so a caller
+// already inside a tenant tx hashes on its own connection (no second checkout).
+type journalQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func hashJournalOn(ctx context.Context, q journalQuerier, runID string) (string, error) {
 	// rls-exempt: journal_events has no tenant_id (child of runs, PK run_id+seq)
 	// and is on the RLS-exempt allowlist per ADR 0011. The run's tenant ownership
 	// is verified by buildReceipt's tenant-scoped runs query before this is called.
-	rows, err := h.srv.Pool.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT seq, kind, COALESCE(payload::text, '')
 		FROM journal_events
 		WHERE run_id = $1

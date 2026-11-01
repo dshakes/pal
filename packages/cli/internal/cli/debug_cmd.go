@@ -37,6 +37,66 @@ var debugPreconditionAllowlist = []string{
 	`^/v1/agents/[A-Za-z0-9._%-]+/budget$`,
 }
 
+// debugRequiredScope mirrors the server's per-endpoint scope for each action
+// kind (cmd/server/main.go). Informational only: the server stays authoritative.
+var debugRequiredScope = map[string]string{
+	"rollback": "agents:write", "prompt_patch": "agents:write", "model_change": "agents:write",
+	"eval_case": "agents:write", "budget": "budgets:write", "retry": "runs:execute",
+}
+
+// scopeCovers mirrors the server's scope lattice (handlers.scopeImplies) for the
+// scopes the debug actions need.
+func scopeCovers(have []string, need string) bool {
+	res, level, _ := strings.Cut(need, ":")
+	for _, h := range have {
+		hr, hl, _ := strings.Cut(h, ":")
+		switch {
+		case h == need, h == "admin":
+			return true
+		case h == "write" && level != "" && need != "write":
+			return true
+		case h == "read" && level == "read":
+			return true
+		case hr == res && hl == "write" && level == "read":
+			return true
+		case h == "runs:execute" && (need == "runs:write" || need == "runs:read"):
+			return true
+		}
+	}
+	return false
+}
+
+// missingDebugScope returns the scope a proposal needs when the credentials
+// are KNOWN to lack it, else "" (unknown or covered -> keep prompting).
+// Interactive sessions (non-service roles) and keys without a scope list are unrestricted.
+func missingDebugScope(kind string, scopes []string, limited bool) string {
+	need := debugRequiredScope[kind]
+	if !limited || len(scopes) == 0 || need == "" || scopeCovers(scopes, need) {
+		return ""
+	}
+	return need
+}
+
+// debugCredScopes asks /auth/me for the credential's scopes. limited=false when
+// unknown (error, interactive session, older server).
+func debugCredScopes() (scopes []string, limited bool) {
+	code, out, err := promoHTTP("GET", "/auth/me", nil)
+	if err != nil || code != 200 {
+		return nil, false
+	}
+	raw, _ := out["scopes"].([]any)
+	for _, v := range raw {
+		if s, ok := v.(string); ok {
+			scopes = append(scopes, s)
+		}
+	}
+	return scopes, len(scopes) > 0
+}
+
+func scopeDeniedMsg(need string) string {
+	return fmt.Sprintf("this credential lacks the %q scope; a human owner/admin should apply this change in the dashboard", need)
+}
+
 type debugReportDTO struct {
 	Summary    string `json:"summary"`
 	RootCause  string `json:"rootCause"`
@@ -278,6 +338,11 @@ func applyDebugProposal(cmd *cobra.Command, p debugProposalDTO) error {
 	if err != nil {
 		return err
 	}
+	if code == 403 {
+		if need := debugRequiredScope[p.Kind]; need != "" {
+			return fmt.Errorf("%s %s: 403: %s", a.Method, a.Path, scopeDeniedMsg(need))
+		}
+	}
 	if code >= 400 {
 		return fmt.Errorf("%s %s: %d %s", a.Method, a.Path, code, firstStr(out["error"], out["code"]))
 	}
@@ -315,8 +380,13 @@ func debugAnalyze(cmd *cobra.Command, body map[string]any, asJSON bool) error {
 		return nil
 	}
 	in := bufio.NewReader(cmd.InOrStdin())
+	scopes, limited := debugCredScopes()
 	for i, p := range r.Proposals {
 		if p.Action == nil {
+			continue
+		}
+		if need := missingDebugScope(p.Kind, scopes, limited); need != "" {
+			fmt.Fprintf(w, "\n#%d [%s] not offered: %s\n", i+1, termSafe(p.Kind), scopeDeniedMsg(need))
 			continue
 		}
 		// The question is built from server-set fields, not the model's title.

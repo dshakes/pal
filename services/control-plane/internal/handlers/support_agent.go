@@ -716,7 +716,7 @@ func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
-			run.JournalHash, err = (&ReceiptHandler{srv: h.srv}).hashJournal(ctx, req.RunID)
+			run.JournalHash, err = hashJournalOn(ctx, tx, req.RunID)
 			if err != nil {
 				return err
 			}

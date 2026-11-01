@@ -161,9 +161,9 @@ func TestDebugRun_TTYApplyAndStale(t *testing.T) {
 		wantReqs           int
 		wantErr            string
 	}{
-		{"yes", "big", "y\n", 3, ""},
-		{"default no", "big", "\n", 1, ""},
-		{"stale", "other", "y\n", 2, "stale proposal: model changed since the analysis"},
+		{"yes", "big", "y\n", 4, ""},
+		{"default no", "big", "\n", 2, ""},
+		{"stale", "other", "y\n", 3, "stale proposal: model changed since the analysis"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var l reqLog
@@ -193,7 +193,7 @@ func TestDebugRun_TTYApplyAndStale(t *testing.T) {
 			if tc.wantErr != "" && !strings.Contains(errb.String(), tc.wantErr) {
 				t.Errorf("stderr %q", errb.String())
 			}
-			if tc.name == "yes" && (l.reqs[2] != "PATCH /v1/agents/a" || l.keys[2] != "k1" || !strings.Contains(out.String(), "applied: PATCH")) {
+			if tc.name == "yes" && (l.reqs[3] != "PATCH /v1/agents/a" || l.keys[3] != "k1" || !strings.Contains(out.String(), "applied: PATCH")) {
 				t.Errorf("apply: %v %v %s", l.reqs, l.keys, out.String())
 			}
 		})
@@ -317,5 +317,93 @@ func TestTermSafe_InvisibleAndSupportOutput(t *testing.T) {
 		"actions": []any{map[string]any{"kind": "open", "label": "L\x1b[31m", "href": "/runs"}}})
 	if strings.ContainsAny(b.String(), "\x1b\x07") || strings.Contains(b.String(), tag) {
 		t.Fatalf("support output not sanitized: %q", b.String())
+	}
+}
+
+func TestScopeCoversAndMissing(t *testing.T) {
+	for _, tc := range []struct {
+		have []string
+		need string
+		ok   bool
+	}{
+		{[]string{"agents:write"}, "agents:write", true},
+		{[]string{"agents:read"}, "agents:write", false},
+		{[]string{"runs:execute"}, "agents:write", false},
+		{[]string{"write"}, "budgets:write", true},
+		{[]string{"read"}, "budgets:write", false},
+		{[]string{"admin"}, "runs:execute", true},
+		{[]string{"runs:write"}, "runs:execute", false},
+		{[]string{"budgets:write"}, "budgets:read", true},
+	} {
+		if got := scopeCovers(tc.have, tc.need); got != tc.ok {
+			t.Errorf("scopeCovers(%v,%s)=%v", tc.have, tc.need, got)
+		}
+	}
+	if missingDebugScope("rollback", []string{"runs:execute"}, true) != "agents:write" {
+		t.Error("must report the missing scope")
+	}
+	if missingDebugScope("rollback", nil, false) != "" || missingDebugScope("rollback", []string{"agents:write"}, true) != "" {
+		t.Error("unknown or covered credentials must keep prompting")
+	}
+}
+
+func scopedServer(me string, applyCode int, hits *[]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*hits = append(*hits, r.Method+" "+r.URL.Path)
+		switch {
+		case r.URL.Path == "/v1/debug/analyze":
+			_, _ = w.Write([]byte(debugReportJSON))
+		case r.URL.Path == "/auth/me":
+			_, _ = w.Write([]byte(me))
+		case r.Method == "GET":
+			_, _ = w.Write([]byte(`{"model":"big"}`))
+		default:
+			w.WriteHeader(applyCode)
+			_, _ = w.Write([]byte(`{"error":"forbidden"}`))
+		}
+	}))
+}
+
+func runDebugTTY(t *testing.T, url, answer string) (string, string) {
+	t.Helper()
+	debugInteractive = func() bool { return true }
+	t.Cleanup(func() { debugInteractive = func() bool { return false } })
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PAL_API_URL", url)
+	t.Setenv("PAL_API_TOKEN", "x")
+	root := NewRootCommand("t", "t", "t")
+	var out, errb strings.Builder
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetIn(strings.NewReader(answer))
+	root.SetArgs([]string{"debug", "run", "r1"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), errb.String()
+}
+
+func TestDebugRun_KnownMissingScopeIsNotOffered(t *testing.T) {
+	var hits []string
+	srv := scopedServer(`{"role":"service","scopes":["runs:execute","agents:read"]}`, 200, &hits)
+	defer srv.Close()
+	out, _ := runDebugTTY(t, srv.URL, "y\n")
+	if strings.Contains(out, "Apply #1") || !strings.Contains(out, `lacks the "agents:write" scope`) || !strings.Contains(out, "owner/admin") {
+		t.Errorf("must explain instead of prompting: %s", out)
+	}
+	for _, h := range hits {
+		if strings.HasPrefix(h, "PATCH") {
+			t.Fatalf("must not attempt the apply: %v", hits)
+		}
+	}
+}
+
+func TestDebugRun_Bare403GetsScopeMessage(t *testing.T) {
+	var hits []string
+	srv := scopedServer(`{"role":"owner"}`, 403, &hits) // scopes unknown -> still prompts
+	defer srv.Close()
+	out, errb := runDebugTTY(t, srv.URL, "y\n")
+	if !strings.Contains(out, "Apply #1") || !strings.Contains(errb, `lacks the "agents:write" scope`) || !strings.Contains(errb, "dashboard") {
+		t.Errorf("403 message: out=%s err=%s", out, errb)
 	}
 }

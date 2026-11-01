@@ -24,7 +24,7 @@ import {
   type DebugTarget,
 } from "@/lib/debug";
 import { ConfirmCard } from "@/components/confirm-card";
-import { useCan } from "@/components/role-gate";
+import { useCanDebug } from "@/components/role-gate";
 
 export function DebugThis({
   target,
@@ -42,7 +42,7 @@ export function DebugThis({
   const [err, setErr] = useState("");
   const [needsKey, setNeedsKey] = useState(false);
   // Analyzing calls the model (spends money), so read-only roles don't get it.
-  const canRun = useCan("runs:execute");
+  const canRun = useCanDebug();
   if (!canRun) return null;
 
   const run = async () => {

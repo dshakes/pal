@@ -12,14 +12,14 @@ import { api, AssistError } from "@/lib/api";
 import { docsHref, safeInternalHref, shortRef, splitRefs, type SupportAnswer } from "@/lib/debug";
 import { ConfirmCard } from "@/components/confirm-card";
 import { DebugThis } from "@/components/debug-panel";
-import { useCan } from "@/components/role-gate";
+import { useCanDebug } from "@/components/role-gate";
 
 type Turn = { role: "user" | "agent"; text: string };
 
 const DOCS_BASE = process.env.NEXT_PUBLIC_DOCS_BASE_URL;
 
 export function SupportPanel({ onNavigate, runId }: { onNavigate?: () => void; runId?: string }) {
-  const canAsk = useCan("runs:execute");
+  const canAsk = useCanDebug();
   const [q, setQ] = useState("");
   const [history, setHistory] = useState<Turn[]>([]);
   const [answer, setAnswer] = useState<SupportAnswer | null>(null);
