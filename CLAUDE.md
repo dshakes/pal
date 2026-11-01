@@ -22,8 +22,8 @@ This is a **polyglot monorepo on purpose**. Pick the right tool for the layer; d
 
 | Layer                                                                | Language                    | Why                                                           |
 | -------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------- |
-| Control plane, workflow engine, scheduler, memory, notifier, billing | **Go 1.23**                 | K8s-native, single binary, mature gRPC + Postgres ecosystem   |
-| Gateway, model router, runtime manager, surface gateway              | **Rust 2024**               | Hot path; Firecracker is Rust; predictable latency and memory |
+| Control plane, workflow engine, scheduler, memory, notifier, billing | **Go 1.26**                 | K8s-native, single binary, mature gRPC + Postgres ecosystem   |
+| Gateway, model router, runtime manager, surface gateway              | **Rust 1.94 (2024)**            | Hot path; Firecracker is Rust; predictable latency and memory |
 | Dashboard (`apps/web`)                                               | **TypeScript / Next.js 15** | RSC + streaming, our SDK's primary language already           |
 | Website: landing + docs (`site/`)                                    | **Astro + Starlight**       | Static, content-first; replaced the Next.js landing/docs apps |
 | Primary SDK                                                          | **TypeScript**              | Where the agent ecosystem lives                               |

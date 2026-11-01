@@ -2,7 +2,7 @@ module github.com/dshakes/pal/services/notifier
 
 go 1.25.0
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require (
 	github.com/jackc/pgx/v5 v5.7.4
