@@ -20,6 +20,14 @@ import type {
   EvalCase,
   EvalCalibrationResult,
   CalibrateEvalJudgeParams,
+  DebugAnalyzeRequest,
+  DebugReport,
+  SupportAnswer,
+  SupportAskRequest,
+  SupportEscalateRequest,
+  SupportEscalateResult,
+  SupportEscalation,
+  SupportEscalationSummary,
   GenerateEvalSuiteParams,
   GenerateEvalSuiteResult,
   RunEvalSuiteParams,
@@ -560,6 +568,31 @@ export class PalClient {
     /** Re-judge runs that carry human feedback; reports agreement and Cohen's kappa. */
     calibrate: (params: CalibrateEvalJudgeParams): Promise<EvalCalibrationResult> =>
       this.fetch("/v1/eval-judge/calibrate", { method: "POST", body: JSON.stringify(params) }),
+  };
+
+  readonly debug = {
+    /** Grounded root-cause report for a run, incident or eval case. Read-only:
+     *  never applies anything; proposals are data a human applies through the
+     *  existing endpoints. Errors: 400 no_provider, 402 budget_exceeded,
+     *  404, 502 llm_failed|bad_report (thrown as PalApiError). */
+    analyze: (req: DebugAnalyzeRequest): Promise<DebugReport> =>
+      this.fetch("/v1/debug/analyze", { method: "POST", body: JSON.stringify(req) }),
+  };
+
+  readonly support = {
+    /** Ask the support agent. Never applies anything; actions are data. */
+    ask: (req: SupportAskRequest): Promise<SupportAnswer> =>
+      this.fetch("/v1/support/ask", { method: "POST", body: JSON.stringify(req) }),
+
+    /** File a signed escalation bundle. Never applies anything. */
+    escalate: (req: SupportEscalateRequest): Promise<SupportEscalateResult> =>
+      this.fetch("/v1/support/escalations", { method: "POST", body: JSON.stringify(req) }),
+
+    listEscalations: (): Promise<{ escalations: SupportEscalationSummary[] }> =>
+      this.fetch("/v1/support/escalations"),
+
+    getEscalation: (id: string): Promise<SupportEscalation> =>
+      this.fetch(`/v1/support/escalations/${encodeURIComponent(id)}`),
   };
 
   readonly evalRuns = {

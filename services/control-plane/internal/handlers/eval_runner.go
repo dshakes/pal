@@ -182,6 +182,21 @@ type evalAgent struct {
 	Labels       []byte
 }
 
+// evalAgentKind classifies an agent for the hermetic runner from its working-copy
+// workflow and its current version's manifest: workflow | loop | tool-loop.
+// Only tool-loop agents can be replayed hermetically.
+func evalAgentKind(wf, manifest []byte) string {
+	var def workflow.Definition
+	if json.Unmarshal(wf, &def) == nil && len(def.Nodes) > 0 {
+		return "workflow"
+	}
+	var lm LoopManifest
+	if json.Unmarshal(manifest, &lm) == nil && lm.Type == "loop" {
+		return "loop"
+	}
+	return "tool-loop"
+}
+
 func (h *EvalHandler) loadEvalAgent(ctx context.Context, tenantID, name string) (*evalAgent, string, error) {
 	var a evalAgent
 	var stored *string
@@ -206,13 +221,8 @@ func (h *EvalHandler) loadEvalAgent(ctx context.Context, tenantID, name string) 
 	}
 	a.Name = name
 	a.Labels = labels
-	var def workflow.Definition
-	if json.Unmarshal(wf, &def) == nil && len(def.Nodes) > 0 {
-		return &a, "workflow", nil
-	}
-	var lm LoopManifest
-	if json.Unmarshal(manifest, &lm) == nil && lm.Type == "loop" {
-		return &a, "loop", nil
+	if kind := evalAgentKind(wf, manifest); kind != "tool-loop" {
+		return &a, kind, nil
 	}
 	if stored != nil && *stored != "" {
 		a.SystemPrompt = *stored

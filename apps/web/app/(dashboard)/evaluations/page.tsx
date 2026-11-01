@@ -1,6 +1,7 @@
 "use client";
 
 import { ExplainInline } from "@/components/explain-inline";
+import { DebugThis } from "@/components/debug-panel";
 import { useState, useEffect, useMemo } from "react";
 import {
   BarChart3,
@@ -624,8 +625,9 @@ export default function EvaluationsPage() {
                           {c.sampleError}
                         </p>
                       )}
-                      <div className="mt-1 flex items-center justify-between gap-2">
+                      <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-[11px] text-fg-3">last seen {relTime(c.lastSeen)}</p>
+                        <DebugThis size="xs" label="Debug" target={{ kind: "eval_case", case: c.case }} />
                         <ExplainInline
                           size="xs"
                           label="Why?"

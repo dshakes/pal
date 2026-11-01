@@ -343,7 +343,7 @@ image digest is required; the sandbox does not build one for you.
 
 The Python SDK's management surface (`agents`, `runs`, `sessions`, `connectors`,
 `budgets`, `evals`, `experiments`, `marketplace`, `mcp`, `receipts`, `feedback`,
-`rehearsals`) is at parity with the TypeScript SDK's HTTP surface — all typed,
+`rehearsals`, plus `debug` and `support`) is at parity with the TypeScript SDK's HTTP surface — all typed,
 none require raw `client._request(...)` calls. The agent definition layer
 (`@agent`, `step`, `tool`) mirrors the TypeScript surface except that `zod`
 schema validation is replaced by plain Python type hints and pydantic models.

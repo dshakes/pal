@@ -11,17 +11,20 @@ export type Role = "owner" | "admin" | "member" | "viewer" | "kiosk";
 export type Capability =
   | "agents:write"     // create / edit / delete agents
   | "runs:execute"     // start runs, ask the LLM (spends money)
+  | "agents:read"
+  | "budgets:read"
   | "runtime:admin"    // pause / resume / terminate / fork sandboxes
   | "settings:write"   // providers, keys, team, billing
   | "owner";           // destructive workspace actions, promotion approval
 
 const MATRIX: Record<Role, readonly Capability[]> = {
-  owner: ["agents:write", "runs:execute", "runtime:admin", "settings:write", "owner"],
-  admin: ["agents:write", "runs:execute", "runtime:admin", "settings:write"],
-  member: ["agents:write", "runs:execute"],
-  // kioskScopes on the server: read, agents:{read,write}, runs:{read,execute}.
-  kiosk: ["agents:write", "runs:execute"],
-  viewer: [],
+  owner: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write", "owner"],
+  admin: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write"],
+  member: ["agents:write", "agents:read", "budgets:read", "runs:execute"],
+  // kioskScopes on the server: read, agents:{read,write}, runs:{read,execute}
+  // (no budgets:read).
+  kiosk: ["agents:write", "agents:read", "runs:execute"],
+  viewer: ["agents:read", "budgets:read"],
 };
 
 /** Unknown / missing roles get the least privilege (viewer). */
@@ -40,3 +43,9 @@ export const ROLE_LABEL: Record<Role, string> = {
   viewer: "Viewer",
   kiosk: "Demo visitor",
 };
+
+/** Debug/Support need runs:execute + agents:read + budgets:read and refuse kiosk
+ *  (server: handlers/debug_agent.go). UI-only mirror; the server stays authoritative. */
+export function canDebug(role: string | null | undefined): boolean {
+  return toRole(role) !== "kiosk" && can(role, "runs:execute") && can(role, "agents:read") && can(role, "budgets:read");
+}

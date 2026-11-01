@@ -53,6 +53,7 @@ const run = await pal.runs.create({
 | `pal.runs.forecast(...)` | Pre-run cost + confidence. HTTP 402 if a hard-fail budget would be exceeded. |
 | `pal.budgets.upsert(...)` | Policy-as-code: per-day cost, per-run cost, tokens/day, per-tool rate limits. |
 | `pal.evalSuites.upsert(...)` + `pal.evalRuns.record(...)` | Declarative eval suites. Record returns `{ regressed: true }` when the score drops below branch baseline. Pairs with `pal test --against=last-green` in CI. |
+| `pal.debug.analyze(...)`, `pal.support.ask/escalate/listEscalations/getEscalation(...)` | Grounded debug reports and support Q&A with signed escalation bundles. Read-only: proposals are data, never applied by the SDK. |
 | `pal.experiments.create(...)` | Deterministic A/B splits. Auto-promote on >2% lift. |
 | `pal.marketplace.*` | Publish / fork / star agents across tenants. |
 | `pal.sessions.*` | Interactive multi-turn agent sessions (create, send message, SSE events). |

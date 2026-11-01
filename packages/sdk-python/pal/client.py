@@ -104,6 +104,8 @@ class PalClient:
         self.receipts = self._Receipts(self)
         self.feedback = self._Feedback(self)
         self.rehearsals = self._Rehearsals(self)
+        self.debug = self._Debug(self)
+        self.support = self._Support(self)
         self.a2a = self._A2A(self)
         self.runtime = self._Runtime(self)
 
@@ -1486,6 +1488,90 @@ class PalClient:
                 reason=(data or {}).get("reason"),
             )
 
+    class _Debug:
+        def __init__(self, client: PalClient) -> None:
+            self._c = client
+
+        async def analyze(
+            self,
+            kind: str,
+            *,
+            run_id: str = "",
+            incident_id: str = "",
+            agent_name: str = "",
+            case: str = "",
+            question: str = "",
+        ) -> DebugReport:
+            """Grounded root-cause report for a run, incident or eval case (``kind``).
+
+            Never applies anything; proposals are data a human applies through the
+            existing endpoints. Errors raise ``PalApiError`` (400 no_provider,
+            402 budget_exceeded, 404, 502 llm_failed/bad_report).
+            """
+            payload = {
+                "kind": kind,
+                "runId": run_id,
+                "incidentId": incident_id,
+                "agentName": agent_name,
+                "case": case,
+                "question": question,
+            }
+            body = {k: v for k, v in payload.items() if v}
+            data = await self._c._request("POST", "/v1/debug/analyze", body=body)
+            return DebugReport.from_dict(data or {})
+
+    class _Support:
+        def __init__(self, client: PalClient) -> None:
+            self._c = client
+
+        async def ask(
+            self,
+            question: str,
+            *,
+            run_id: str = "",
+            history: list[dict[str, str]] | None = None,
+        ) -> SupportAnswer:
+            """Ask the support agent. ``history`` items are ``{"role": "user"|"agent", "text": ...}``.
+
+            Never applies anything; returned actions are data.
+            """
+            body: dict[str, Any] = {"question": question}
+            if run_id:
+                body["runId"] = run_id
+            if history:
+                body["history"] = history
+            data = await self._c._request("POST", "/v1/support/ask", body=body)
+            return SupportAnswer.from_dict(data or {})
+
+        async def escalate(
+            self,
+            question: str,
+            *,
+            run_id: str = "",
+            incident_id: str = "",
+            transcript: list[dict[str, str]] | None = None,
+        ) -> SupportEscalation:
+            """File a signed escalation bundle. Never applies anything."""
+            body: dict[str, Any] = {"question": question}
+            if run_id:
+                body["runId"] = run_id
+            if incident_id:
+                body["incidentId"] = incident_id
+            if transcript:
+                body["transcript"] = transcript
+            data = await self._c._request("POST", "/v1/support/escalations", body=body)
+            return SupportEscalation.from_dict(data or {})
+
+        async def list_escalations(self) -> list[SupportEscalation]:
+            """List escalations (no signature/bundle in list entries)."""
+            data = await self._c._request("GET", "/v1/support/escalations")
+            return [SupportEscalation.from_dict(e) for e in (data or {}).get("escalations") or []]
+
+        async def get_escalation(self, escalation_id: str) -> SupportEscalation:
+            """Fetch one escalation including signature and bundle."""
+            data = await self._c._request("GET", f"/v1/support/escalations/{quote(escalation_id, safe='')}")
+            return SupportEscalation.from_dict(data or {})
+
 
 # ---------------------------------------------------------------------------
 # Response wrappers
@@ -2026,4 +2112,135 @@ class EvalCalibration:
             rubric=d.get("rubric", ""),
             cost_usd=d.get("costUsd", 0.0),
             note=d.get("note", ""),
+        )
+
+
+@dataclass
+class DebugProposal:
+    """One suggested remediation. ``kind`` is rollback|prompt_patch|model_change|
+    eval_case|budget|policy|retry. ``action`` is ``{method, path, body?,
+    idempotencyKey?}`` for a human to send; the SDK never does."""
+
+    id: str = ""
+    kind: str = ""
+    title: str = ""
+    rationale: str = ""
+    citations: list[str] = field(default_factory=list)
+    risk: str = ""
+    action: dict[str, Any] | None = None
+    precondition: dict[str, Any] | None = None
+    href: str = ""
+    diff: dict[str, Any] | None = None
+    preview: str = ""
+    follow_up: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> DebugProposal:
+        return cls(
+            id=d.get("id", ""),
+            kind=d.get("kind", ""),
+            title=d.get("title", ""),
+            rationale=d.get("rationale", ""),
+            citations=d.get("citations") or [],
+            risk=d.get("risk", ""),
+            action=d.get("action"),
+            precondition=d.get("precondition"),
+            href=d.get("href", ""),
+            diff=d.get("diff"),
+            preview=d.get("preview", ""),
+            follow_up=d.get("followUp", ""),
+        )
+
+
+@dataclass
+class DebugReport:
+    """Response of ``debug.analyze``. ``confidence`` is high|medium|low."""
+
+    summary: str = ""
+    root_cause: str = ""
+    confidence: str = ""
+    grounded: bool = False
+    citations: list[dict[str, Any]] = field(default_factory=list)
+    proposals: list[DebugProposal] = field(default_factory=list)
+    dropped: list[dict[str, Any]] = field(default_factory=list)
+    subject: dict[str, Any] = field(default_factory=dict)
+    evidence: dict[str, float] = field(default_factory=dict)
+    cost_usd: float = 0.0
+    requires_approval: bool = True
+    generated_at: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> DebugReport:
+        return cls(
+            summary=d.get("summary", ""),
+            root_cause=d.get("rootCause", ""),
+            confidence=d.get("confidence", ""),
+            grounded=d.get("grounded", False),
+            citations=d.get("citations") or [],
+            proposals=[DebugProposal.from_dict(p) for p in d.get("proposals") or []],
+            dropped=d.get("dropped") or [],
+            subject=d.get("subject") or {},
+            evidence=d.get("evidence") or {},
+            cost_usd=d.get("costUsd", 0.0),
+            requires_approval=d.get("requiresApproval", True),
+            generated_at=d.get("generatedAt", ""),
+        )
+
+
+@dataclass
+class SupportAnswer:
+    """Response of ``support.ask``. Each action is ``{kind: debug_run|debug_incident|open,
+    runId?, incidentId?, href?, label?}``."""
+
+    answer: str = ""
+    citations: list[dict[str, Any]] = field(default_factory=list)
+    docs: list[dict[str, Any]] = field(default_factory=list)
+    actions: list[dict[str, Any]] = field(default_factory=list)
+    suggest_escalation: bool = False
+    grounded: bool = False
+    cost_usd: float = 0.0
+    requires_approval: bool = False
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SupportAnswer:
+        return cls(
+            answer=d.get("answer", ""),
+            citations=d.get("citations") or [],
+            docs=d.get("docs") or [],
+            actions=d.get("actions") or [],
+            suggest_escalation=d.get("suggestEscalation", False),
+            grounded=d.get("grounded", False),
+            cost_usd=d.get("costUsd", 0.0),
+            requires_approval=d.get("requiresApproval", False),
+        )
+
+
+@dataclass
+class SupportEscalation:
+    """An escalation. ``signature`` and ``bundle`` are empty in list entries."""
+
+    id: str = ""
+    subject_kind: str = ""
+    subject_id: str = ""
+    question: str = ""
+    digest: str = ""
+    algorithm: str = ""
+    created_by: str = ""
+    created_at: str = ""
+    signature: str = ""
+    bundle: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SupportEscalation:
+        return cls(
+            id=d.get("id", ""),
+            subject_kind=d.get("subjectKind", ""),
+            subject_id=d.get("subjectId", ""),
+            question=d.get("question", ""),
+            digest=d.get("digest", ""),
+            algorithm=d.get("algorithm", ""),
+            created_by=d.get("createdBy", ""),
+            created_at=d.get("createdAt", ""),
+            signature=d.get("signature", ""),
+            bundle=d.get("bundle") or {},
         )

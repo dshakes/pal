@@ -1178,3 +1178,127 @@ export interface A2ATask {
   artifacts?: A2AArtifact[];
   history?: A2AMessage[];
 }
+
+// ---------------------------------------------------------------------------
+// Debug agent + support (read-only: proposals are data, never applied)
+// ---------------------------------------------------------------------------
+
+export interface DebugCitation {
+  ref: string;
+  label: string;
+  detail?: string;
+}
+
+export type DebugProposalKind =
+  | "rollback"
+  | "prompt_patch"
+  | "model_change"
+  | "eval_case"
+  | "budget"
+  | "policy"
+  | "retry";
+
+export interface DebugProposal {
+  id: string;
+  kind: DebugProposalKind;
+  title: string;
+  rationale: string;
+  citations: string[];
+  risk: string;
+  /** The request a human would send through an existing endpoint. */
+  action?: { method: string; path: string; body?: unknown; idempotencyKey?: string };
+  precondition?: { path: string; expect: Record<string, unknown> };
+  href?: string;
+  /** prompt_patch: `hunk` is the exact edit (removed/added never clipped). */
+  diff?: {
+    field: string;
+    before: unknown;
+    after: unknown;
+    hunk?: { offset: number; contextBefore: string; removed: string; added: string; contextAfter: string };
+  };
+  /** eval_case: the input, judge rubric and recorded tool results it creates. */
+  preview?: string;
+  followUp?: string;
+}
+
+export interface DebugAnalyzeRequest {
+  kind: "run" | "incident" | "eval_case";
+  runId?: string;
+  incidentId?: string;
+  agentName?: string;
+  case?: string;
+  question?: string;
+}
+
+export interface DebugReport {
+  summary: string;
+  rootCause: string;
+  confidence: "high" | "medium" | "low";
+  grounded: boolean;
+  citations: DebugCitation[];
+  proposals: DebugProposal[];
+  dropped: { kind: string; reason: string }[];
+  subject: { kind: string; runId?: string; incidentId?: string; agentName: string; case?: string };
+  evidence: Record<string, number>;
+  costUsd: number;
+  requiresApproval: true;
+  generatedAt: string;
+}
+
+export interface SupportAskRequest {
+  question: string;
+  runId?: string;
+  history?: { role: "user" | "agent"; text: string }[];
+}
+
+export interface SupportAction {
+  kind: "debug_run" | "debug_incident" | "open";
+  runId?: string;
+  incidentId?: string;
+  href?: string;
+  label?: string;
+}
+
+export interface SupportAnswer {
+  answer: string;
+  citations: DebugCitation[];
+  docs: { slug: string; title: string; path: string }[];
+  actions: SupportAction[];
+  suggestEscalation: boolean;
+  grounded: boolean;
+  costUsd: number;
+  requiresApproval: boolean;
+}
+
+export interface SupportEscalateRequest {
+  question: string;
+  runId?: string;
+  incidentId?: string;
+  transcript?: { role: string; text: string }[];
+}
+
+export interface SupportEscalationSummary {
+  id: string;
+  subjectKind: string;
+  subjectId?: string;
+  question: string;
+  digest: string;
+  algorithm: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface SupportEscalation extends SupportEscalationSummary {
+  signature: string;
+  bundle: Record<string, unknown>;
+}
+
+/** POST /v1/support/escalations response (201). */
+export interface SupportEscalateResult {
+  id: string;
+  digest: string;
+  algorithm: string;
+  signature: string;
+  createdAt: string;
+  bundle: Record<string, unknown>;
+}

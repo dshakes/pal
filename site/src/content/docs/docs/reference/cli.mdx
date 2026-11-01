@@ -128,6 +128,18 @@ Stream a run's journal events. For dev-stack containers use `pal dev logs`.
 pal logs <run-id> [-f]   # journal events; -f keeps the stream open
 ```
 
+## debug / support
+
+The debug agent root-causes a failed run, an incident or a failing eval case and proposes fixes; the support agent answers questions from your own data and the docs. See [Debugging and support](/docs/build/debugging/). A proposal is applied only when you answer `y` to it on a terminal; `--json` and non-terminal runs never apply anything.
+
+```bash
+pal debug run <run-id> [-q "why did this start failing?"] [--json]
+pal debug incident <incident-id>
+pal debug eval <agent> <case>
+pal support "why are my runs getting 402?" [--run <run-id>] [--json]
+pal support escalate "the canary keeps rolling back" [--run <id> | --incident <id>]
+```
+
 ## test
 
 Run an agent's eval suite and compare against the branch baseline. Exits non-zero with a regression summary when the score drops below the baseline. Wire it into CI to gate merges. `--set-baseline` pins the run as the branch baseline. `--rehearse` replays past failed or low-score production runs instead of a suite (`--window`, default 7d). Runs execute asynchronously on the control plane, so each case waits for its run to finish; `--timeout` (default 2m) bounds that wait per case, and a failed or timed-out run scores as a failed case with its error.
