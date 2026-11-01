@@ -2660,7 +2660,8 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
 
   // ---- Commitments ----------------------------------------------------------
 
-  async listCommitments(params?: { status?: string; tier?: string; limit?: number }): Promise<Commitment[]> {
+  /** `strict` rethrows instead of returning [] so a caller can say a source is down. */
+  async listCommitments(params?: { status?: string; tier?: string; limit?: number; strict?: boolean }): Promise<Commitment[]> {
     const q = new URLSearchParams();
     if (params?.status) q.set("status", params.status);
     if (params?.tier) q.set("tier", params.tier);
@@ -2668,9 +2669,29 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     const qs = q.toString();
     try {
       return await this.request<Commitment[]>(`/v1/commitments${qs ? `?${qs}` : ""}`);
-    } catch {
+    } catch (err) {
+      if (params?.strict) throw err;
       return [];
     }
+  }
+
+  // ---- People + memory (pal space) -------------------------------------------
+  // Raw payloads: callers narrow with parsePeople / parseMemoryContext (lib/pal-space).
+
+  async listPeople(): Promise<unknown> {
+    return this.request<unknown>(`/v1/people`);
+  }
+
+  async getMemoryContext(personId: string, opts?: { limit?: number; windowDays?: number }): Promise<unknown> {
+    const qs = new URLSearchParams({ personId });
+    if (opts?.limit) qs.set("limit", String(opts.limit));
+    if (opts?.windowDays) qs.set("windowDays", String(opts.windowDays));
+    return this.request<unknown>(`/v1/memory/context?${qs.toString()}`);
+  }
+
+  /** `{enabled:false, deadlines:[]}` unless PAL_IMMIGRATION_SENTINEL is on server-side. */
+  async listImmigrationDeadlines(): Promise<unknown> {
+    return this.request<unknown>(`/v1/immigration/deadlines`);
   }
 
   // ---- Domain Records -------------------------------------------------------

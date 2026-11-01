@@ -68,7 +68,7 @@ const NAV: SubNavItem[] = [
   { href: "/personal/setup", label: "Pair", icon: Smartphone, scope: "per-channel" },
   { href: "/personal/auto-reply", label: "Auto-reply", icon: Zap, scope: "per-channel" },
   { href: "/personal/groups", label: "Groups", icon: Users, scope: "per-channel" },
-  { href: "/personal/contacts", label: "Paused", icon: UserMinus, scope: "per-channel" },
+  { href: "/personal/contacts", label: "People", icon: UserMinus, scope: "per-channel" },
   { href: "/personal/activity", label: "Activity", icon: Activity, scope: "per-channel" },
 ];
 

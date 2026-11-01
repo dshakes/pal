@@ -31,6 +31,7 @@ Iterating: boot the stack once yourself and run with `E2E_REUSE_STACK=1 npx play
 - `auth.spec.ts` sign-up lands logged in (dev mode is auto-verified; the verification gate is prod-only); forgot -> reset via the mailer log -> sign in, reset link is single-use
 - `onboarding.spec.ts` template gallery -> review step; free-text goal -> key test -> design -> create -> first run succeeded with fixture output
 - `settings-danger.spec.ts` delete workspace (typed phrase), then the account is gone
+- `pal-space.spec.ts` pal space: Today / Holds (approve, edit, discard stop at a confirm card; failed delivery reported as not delivered) / People & memory / Documents, against a FIXTURE bridge (`support/fixture-bridge.ts`, `E2E_BRIDGE_WA_PORT` 3412; iMessage port 3413 has no listener so that channel is offline). The control-plane and dashboard are pointed at these explicitly, because both default to the owner's live bridges on :3100/:3200
 - `theme.spec.ts` login renders in light and dark; toggle persists
 
 Helpers: `support/mail.ts` (`mailLink` reads the control-plane log), `support/users.ts` (`signUp`), `support/env.ts`.

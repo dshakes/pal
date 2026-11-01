@@ -4,6 +4,7 @@
 // (the pal_token cookie/localStorage via api.ts).
 
 import { api } from "@/lib/api";
+import { PersonalApiError } from "@/lib/pal-space";
 
 const API_BASE =
   (typeof window !== "undefined"
@@ -24,7 +25,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`whatsapp-personal ${res.status}: ${body.slice(0, 200)}`);
+    throw new PersonalApiError(res.status, body);
   }
   return (await res.json()) as T;
 }

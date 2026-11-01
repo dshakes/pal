@@ -36,3 +36,14 @@ export const REDIS_DB = Number(process.env.E2E_REDIS_DB ?? 13);
 if (/:5432(\/|$)/.test(PG_ADMIN_URL) || REDIS_PORT === 6379) {
   throw new Error("e2e refuses the shared Postgres :5432 / Redis :6379 ports; use a private container.");
 }
+
+// Fixture bridges (e2e/support/fixture-bridge.ts). The control-plane and the dashboard
+// default to the OWNER'S LIVE bridges on :3100/:3200, so every e2e process is pointed
+// here explicitly; the iMessage one is deliberately never started (an offline bridge).
+export const BRIDGE_WA_PORT = port("E2E_BRIDGE_WA_PORT", 3412);
+export const BRIDGE_IM_PORT = port("E2E_BRIDGE_IM_PORT", 3413);
+export const BRIDGE_WA_URL = `http://127.0.0.1:${BRIDGE_WA_PORT}`;
+export const BRIDGE_IM_URL = `http://127.0.0.1:${BRIDGE_IM_PORT}`;
+if ([BRIDGE_WA_PORT, BRIDGE_IM_PORT].some((p) => p === 3100 || p === 3200)) {
+  throw new Error("e2e refuses :3100/:3200 — those are the owner's live bridges.");
+}

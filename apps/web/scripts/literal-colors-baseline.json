@@ -3,8 +3,6 @@
   "app/(dashboard)/embed/page.tsx": 2,
   "app/(dashboard)/inbox/page.tsx": 20,
   "app/(dashboard)/personal/auto-reply/page.tsx": 1,
-  "app/(dashboard)/personal/docs/page.tsx": 1,
-  "app/(dashboard)/personal/drafts/page.tsx": 2,
   "app/(dashboard)/personal/page.tsx": 3,
   "app/(dashboard)/personal/setup/page.tsx": 1,
   "app/(dashboard)/personal/vip/page.tsx": 1,
