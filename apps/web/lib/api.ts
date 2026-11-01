@@ -728,17 +728,16 @@ class PalAPI {
     });
   }
 
+  /**
+   * PATCH /v1/agents/{name}. The server stores only these fields (description,
+   * timeout, token/cost limits are not). manifest.isolation must be "",
+   * "shared" or "microvm" or the server 400s (see lib/agent-settings.ts).
+   */
   async updateAgent(
     name: string,
-    data: { description?: string; systemPrompt?: string; model?: string; isolation?: string; timeout?: string; maxTokens?: number; maxCostUsd?: number; cron?: string; avatarUrl?: string; stylePrompt?: string },
-  ): Promise<Agent> {
-    return this.request<Agent>(
-      `/v1/agents/${encodeURIComponent(name)}`,
-      {
-        method: "PUT",
-        body: JSON.stringify(data),
-      },
-    );
+    data: { systemPrompt?: string; model?: string; avatarUrl?: string; stylePrompt?: string; manifest?: Record<string, unknown> },
+  ): Promise<{ name: string; updated?: boolean }> {
+    return this.request(`/v1/agents/${encodeURIComponent(name)}`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
   async deleteAgent(name: string): Promise<void> {
@@ -2130,10 +2129,12 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     }
   }
 
-  async getWorkflow(agentName: string): Promise<unknown | null> {
+  /** `strict`: only a 404 means "no workflow"; any other failure throws. */
+  async getWorkflow(agentName: string, opts: { strict?: boolean } = {}): Promise<unknown | null> {
     try {
       return await this.request(`/v1/agents/${encodeURIComponent(agentName)}/workflow`);
-    } catch {
+    } catch (err) {
+      if (opts.strict && !(err instanceof Error && err.message.startsWith("API 404"))) throw err;
       return null;
     }
   }

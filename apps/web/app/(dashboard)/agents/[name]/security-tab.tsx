@@ -62,9 +62,9 @@ const errMsg = (e: unknown): string => parseApiError(e).message;
 
 function Card({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="min-w-0 rounded-xl border border-zinc-800 bg-surface-1 p-4 sm:p-5">
+    <section className="min-w-0 rounded-xl border border-line bg-panel p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
+        <h2 className="text-sm font-semibold text-fg">{title}</h2>
         {action}
       </div>
       {children}
@@ -82,9 +82,9 @@ function Banner({
   children: React.ReactNode;
 }) {
   const cls = {
-    warn: "border-amber-500/30 bg-amber-500/[0.08] text-amber-300",
-    info: "border-sky-500/30 bg-sky-500/[0.08] text-sky-300",
-    ok: "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300",
+    warn: "border-warn bg-warn-soft text-warn",
+    info: "border-accent bg-accent-soft text-accent",
+    ok: "border-ok bg-ok-soft text-ok",
   }[tone];
   return (
     <div className={clsx("flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs", cls)} role="status">
@@ -99,9 +99,9 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: "add" | "r
     <span
       className={clsx(
         "inline-block max-w-full break-all rounded-md border px-2 py-0.5 font-mono text-[11px]",
-        tone === "add" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-        tone === "remove" && "border-red-500/30 bg-red-500/10 text-red-300",
-        !tone && "border-zinc-700 bg-surface-2 text-zinc-300",
+        tone === "add" && "border-ok bg-ok-soft text-ok",
+        tone === "remove" && "border-bad bg-bad-soft text-bad",
+        !tone && "border-line-strong bg-raised text-fg-2",
       )}
     >
       {children}
@@ -110,7 +110,7 @@ function Chip({ children, tone }: { children: React.ReactNode; tone?: "add" | "r
 }
 
 function ChipList({ items, tone }: { items: string[]; tone?: "add" | "remove" }) {
-  if (items.length === 0) return <span className="text-xs text-zinc-600">none</span>;
+  if (items.length === 0) return <span className="text-xs text-fg-3">none</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.map((i) => (
@@ -128,8 +128,8 @@ function StatusBadge({ status }: { status: "active" | "revoked" }) {
       className={clsx(
         "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
         status === "active"
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-          : "border-red-500/30 bg-red-500/10 text-red-300",
+          ? "border-ok bg-ok-soft text-ok"
+          : "border-bad bg-bad-soft text-bad",
       )}
     >
       {status}
@@ -138,14 +138,14 @@ function StatusBadge({ status }: { status: "active" | "revoked" }) {
 }
 
 function DecisionBadge({ decision }: { decision: AgentAuditEvent["decision"] }) {
-  if (!decision) return <span className="text-zinc-600">—</span>;
+  if (!decision) return <span className="text-fg-3">—</span>;
   return (
     <span
       className={clsx(
         "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
         decision === "allow"
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-          : "border-red-500/30 bg-red-500/10 text-red-300",
+          ? "border-ok bg-ok-soft text-ok"
+          : "border-bad bg-bad-soft text-bad",
       )}
     >
       {decision}
@@ -163,28 +163,28 @@ function PolicyView({ policy }: { policy: AgentPolicy }) {
     <dl className="grid gap-4 sm:grid-cols-2">
       {LIST_FIELDS.map((f) => (
         <div key={f.key} className="min-w-0">
-          <dt className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">{f.label}</dt>
+          <dt className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">{f.label}</dt>
           <dd>
             <ChipList items={policy[f.key]} />
           </dd>
         </div>
       ))}
       <div className="min-w-0 sm:col-span-2">
-        <dt className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Connectors → actions</dt>
+        <dt className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">Connectors → actions</dt>
         <dd className="space-y-1.5">
-          {connectorIds.length === 0 && <span className="text-xs text-zinc-600">none</span>}
+          {connectorIds.length === 0 && <span className="text-xs text-fg-3">none</span>}
           {connectorIds.map((id) => (
             <div key={id} className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="text-xs font-medium text-zinc-300">{id}</span>
-              <span className="text-zinc-600">→</span>
+              <span className="text-xs font-medium text-fg-2">{id}</span>
+              <span className="text-fg-3">→</span>
               <ChipList items={policy.connectors[id]} />
             </div>
           ))}
         </dd>
       </div>
       <div className="min-w-0 sm:col-span-2">
-        <dt className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Budget</dt>
-        <dd className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-zinc-300">
+        <dt className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">Budget</dt>
+        <dd className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-fg-2">
           <span>
             Tool calls / run:{" "}
             <b className="tabular-nums">{policy.budget.maxToolCallsPerRun || "unlimited"}</b>
@@ -249,7 +249,7 @@ function fromDraft(d: Draft, version: number): { ok: true; policy: AgentPolicy }
 }
 
 const inputCls =
-  "w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-pal-500/50";
+  "w-full rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-fg placeholder:text-fg-3 outline-none focus:border-accent";
 
 function PolicyEditor({
   draft,
@@ -281,7 +281,7 @@ function PolicyEditor({
             className={clsx(inputCls, "font-mono")}
             aria-label={f.label}
           />
-          <p className="mt-1 text-[11px] text-zinc-600">{f.hint}</p>
+          <p className="mt-1 text-[11px] text-fg-3">{f.hint}</p>
         </ModalField>
       ))}
       <div className="sm:col-span-2">
@@ -318,22 +318,22 @@ function PolicyEditor({
 
 function DiffView({ current, next }: { current: AgentPolicy; next: AgentPolicy }) {
   const diff = diffPolicy(current, next);
-  if (diff.length === 0) return <p className="text-xs text-zinc-500">No changes versus the current policy.</p>;
+  if (diff.length === 0) return <p className="text-xs text-fg-3">No changes versus the current policy.</p>;
   return (
     <div className="space-y-3">
       {diff.map((d) => (
         <div key={d.field} className="min-w-0">
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">{d.field}</div>
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">{d.field}</div>
           <div className="space-y-1.5">
             {d.added.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-semibold text-emerald-300">+</span>
+                <span className="text-xs font-semibold text-ok">+</span>
                 <ChipList items={d.added} tone="add" />
               </div>
             )}
             {d.removed.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-semibold text-red-300">−</span>
+                <span className="text-xs font-semibold text-bad">−</span>
                 <ChipList items={d.removed} tone="remove" />
               </div>
             )}
@@ -590,15 +590,15 @@ export function SecurityTab({ name }: { name: string }) {
             <Skeleton className="h-5 w-2/3" />
           </div>
         ) : identityErr || !identity ? (
-          <p className="text-xs text-red-300" role="alert">
+          <p className="text-xs text-bad" role="alert">
             Could not load identity: {identityErr ?? "unknown error"}
           </p>
         ) : (
           <dl className="grid gap-x-6 gap-y-3 text-xs sm:grid-cols-2">
             <div className="min-w-0 sm:col-span-2">
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">SPIFFE ID</dt>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">SPIFFE ID</dt>
               <dd className="flex items-start gap-2">
-                <code className="min-w-0 flex-1 break-all rounded-md bg-surface-2 px-2 py-1 font-mono text-[11px] text-zinc-200">
+                <code className="min-w-0 flex-1 break-all rounded-md bg-raised px-2 py-1 font-mono text-[11px] text-fg">
                   {identity.spiffeId}
                 </code>
                 <Button
@@ -613,42 +613,42 @@ export function SecurityTab({ name }: { name: string }) {
               </dd>
             </div>
             <div>
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Status</dt>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Status</dt>
               <dd className="flex items-center gap-2">
                 <StatusBadge status={identity.status} />
                 {identity.status === "revoked" && identity.revokedReason && (
-                  <span className="min-w-0 break-words text-zinc-500">{identity.revokedReason}</span>
+                  <span className="min-w-0 break-words text-fg-3">{identity.revokedReason}</span>
                 )}
               </dd>
             </div>
             <div>
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Key generation</dt>
-              <dd className="tabular-nums text-zinc-200">{identity.keyGeneration}</dd>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Key generation</dt>
+              <dd className="tabular-nums text-fg">{identity.keyGeneration}</dd>
             </div>
             <div>
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Token TTL</dt>
-              <dd className="tabular-nums text-zinc-200">{identity.tokenTtlSeconds}s</dd>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Token TTL</dt>
+              <dd className="tabular-nums text-fg">{identity.tokenTtlSeconds}s</dd>
             </div>
             <div>
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Created</dt>
-              <dd className="text-zinc-300">{fmtTime(identity.createdAt)}</dd>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Created</dt>
+              <dd className="text-fg-2">{fmtTime(identity.createdAt)}</dd>
             </div>
             <div>
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Last rotated</dt>
-              <dd className="text-zinc-300">{fmtTime(identity.rotatedAt)}</dd>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Last rotated</dt>
+              <dd className="text-fg-2">{fmtTime(identity.rotatedAt)}</dd>
             </div>
             <div>
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Revoked</dt>
-              <dd className="text-zinc-300">{fmtTime(identity.revokedAt)}</dd>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Revoked</dt>
+              <dd className="text-fg-2">{fmtTime(identity.revokedAt)}</dd>
             </div>
             <div className="min-w-0 sm:col-span-2">
-              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Public keys (JWKS)</dt>
+              <dt className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-3">Public keys (JWKS)</dt>
               <dd>
                 <a
                   href={`${api.apiBaseUrl}${identity.jwksUri}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1 break-all text-pal-300 hover:underline"
+                  className="inline-flex max-w-full items-center gap-1 break-all text-accent hover:underline"
                 >
                   {identity.jwksUri} <ExternalLink className="h-3 w-3 shrink-0" />
                 </a>
@@ -686,7 +686,7 @@ export function SecurityTab({ name }: { name: string }) {
             <Skeleton className="h-24 w-full" />
           </div>
         ) : policyErr || !doc || !policy ? (
-          <p className="text-xs text-red-300" role="alert">
+          <p className="text-xs text-bad" role="alert">
             Could not load policy: {policyErr ?? "unknown error"}
           </p>
         ) : (
@@ -733,7 +733,7 @@ export function SecurityTab({ name }: { name: string }) {
               <div className="space-y-4">
                 <PolicyEditor draft={draft} onChange={setDraft} />
                 {editErr && (
-                  <p className="text-xs text-red-300" role="alert">
+                  <p className="text-xs text-bad" role="alert">
                     {editErr}
                   </p>
                 )}
@@ -748,10 +748,10 @@ export function SecurityTab({ name }: { name: string }) {
               </div>
             ) : (
               <>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-500">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-fg-3">
                   <span>
                     Mode:{" "}
-                    <b className={isLegacy ? "text-amber-300" : "text-zinc-300"}>{policy.mode}</b>
+                    <b className={isLegacy ? "text-warn" : "text-fg-2"}>{policy.mode}</b>
                   </span>
                   <span>Version {policy.version}</span>
                   <span>
@@ -760,9 +760,9 @@ export function SecurityTab({ name }: { name: string }) {
                   </span>
                 </div>
                 <PolicyView policy={policy} />
-                <p className="text-[11px] text-zinc-600">
+                <p className="text-[11px] text-fg-3">
                   Cost ceilings live in{" "}
-                  <Link href="/budgets" className="text-pal-300 hover:underline">
+                  <Link href="/budgets" className="text-accent hover:underline">
                     Budgets
                   </Link>
                   .
@@ -771,21 +771,21 @@ export function SecurityTab({ name }: { name: string }) {
             )}
 
             {proposal && policy && (
-              <div className="space-y-4 rounded-lg border border-pal-500/30 bg-surface-2 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
-                  <Sparkles className="h-4 w-4 text-pal-300" /> Proposed policy
+              <div className="space-y-4 rounded-lg border border-accent bg-raised p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-fg">
+                  <Sparkles className="h-4 w-4 text-accent" /> Proposed policy
                 </div>
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-[11px] text-fg-3">
                   Nothing is saved until you apply it. Changes versus the current policy:
                 </p>
                 <DiffView current={policy} next={proposal.proposal} />
                 {proposal.rationale.length > 0 && (
                   <div>
-                    <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Why</div>
-                    <ul className="space-y-1 text-xs text-zinc-300">
+                    <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-3">Why</div>
+                    <ul className="space-y-1 text-xs text-fg-2">
                       {proposal.rationale.map((r, i) => (
                         <li key={`${r.field}-${i}`} className="break-words">
-                          <code className="font-mono text-[11px] text-zinc-400">{r.field}</code> — {r.reason}
+                          <code className="font-mono text-[11px] text-fg-2">{r.field}</code> — {r.reason}
                         </li>
                       ))}
                     </ul>
@@ -798,7 +798,7 @@ export function SecurityTab({ name }: { name: string }) {
                   </Banner>
                 )}
                 {proposal.sources.length > 0 && (
-                  <p className="break-words text-[11px] text-zinc-600">Derived from: {proposal.sources.join(", ")}</p>
+                  <p className="break-words text-[11px] text-fg-3">Derived from: {proposal.sources.join(", ")}</p>
                 )}
                 <div className="flex flex-wrap gap-2">
                   <Button variant="primary" loading={applying} onClick={() => void applyProposal()}>
@@ -824,8 +824,8 @@ export function SecurityTab({ name }: { name: string }) {
                 className={clsx(
                   "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
                   chainValid
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                    : "border-red-500/30 bg-red-500/10 text-red-300",
+                    ? "border-ok bg-ok-soft text-ok"
+                    : "border-bad bg-bad-soft text-bad",
                 )}
                 title="Recomputed hash chain over the append-only audit log"
               >
@@ -837,7 +837,7 @@ export function SecurityTab({ name }: { name: string }) {
               value={eventFilter}
               onChange={(e) => setEventFilter(e.target.value)}
               aria-label="Filter by event"
-              className="rounded-lg border border-zinc-800 bg-surface-0 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-pal-500/50"
+              className="rounded-lg border border-line bg-canvas px-2 py-1 text-xs text-fg outline-none focus:border-accent"
             >
               <option value="">All events</option>
               {AUDIT_EVENTS.map((ev) => (
@@ -856,7 +856,7 @@ export function SecurityTab({ name }: { name: string }) {
             ))}
           </div>
         ) : auditErr ? (
-          <p className="text-xs text-red-300" role="alert">
+          <p className="text-xs text-bad" role="alert">
             Could not load audit log: {auditErr}
           </p>
         ) : audit.length === 0 ? (
@@ -870,7 +870,7 @@ export function SecurityTab({ name }: { name: string }) {
           <div className="max-w-full overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-xs">
               <thead>
-                <tr className="border-b border-zinc-800 text-[11px] uppercase tracking-wide text-zinc-500">
+                <tr className="border-b border-line text-[11px] uppercase tracking-wide text-fg-3">
                   <th className="px-2 py-2 font-medium">Time</th>
                   <th className="px-2 py-2 font-medium">Event</th>
                   <th className="px-2 py-2 font-medium">Kind</th>
@@ -882,24 +882,24 @@ export function SecurityTab({ name }: { name: string }) {
               </thead>
               <tbody>
                 {audit.map((ev) => (
-                  <tr key={ev.id} className="border-b border-zinc-800/60 align-top">
-                    <td className="whitespace-nowrap px-2 py-2 text-zinc-400">{fmtTime(ev.createdAt)}</td>
-                    <td className="px-2 py-2 font-mono text-[11px] text-zinc-200">{ev.event}</td>
-                    <td className="px-2 py-2 text-zinc-300">{ev.actionKind || "—"}</td>
-                    <td className="max-w-[16rem] break-all px-2 py-2 font-mono text-[11px] text-zinc-300">
+                  <tr key={ev.id} className="border-b border-line align-top">
+                    <td className="whitespace-nowrap px-2 py-2 text-fg-2">{fmtTime(ev.createdAt)}</td>
+                    <td className="px-2 py-2 font-mono text-[11px] text-fg">{ev.event}</td>
+                    <td className="px-2 py-2 text-fg-2">{ev.actionKind || "—"}</td>
+                    <td className="max-w-[16rem] break-all px-2 py-2 font-mono text-[11px] text-fg-2">
                       {ev.target || "—"}
                     </td>
                     <td className="px-2 py-2">
                       <DecisionBadge decision={ev.decision} />
                     </td>
-                    <td className="max-w-[18rem] break-words px-2 py-2 text-zinc-400">{ev.reason || "—"}</td>
+                    <td className="max-w-[18rem] break-words px-2 py-2 text-fg-2">{ev.reason || "—"}</td>
                     <td className="whitespace-nowrap px-2 py-2">
                       {ev.runId ? (
-                        <Link href={`/runs/${encodeURIComponent(ev.runId)}`} className="text-pal-300 hover:underline">
+                        <Link href={`/runs/${encodeURIComponent(ev.runId)}`} className="text-accent hover:underline">
                           {ev.runId.slice(0, 8)}
                         </Link>
                       ) : (
-                        <span className="text-zinc-600">—</span>
+                        <span className="text-fg-3">—</span>
                       )}
                     </td>
                   </tr>
@@ -928,7 +928,7 @@ export function SecurityTab({ name }: { name: string }) {
           </>
         }
       >
-        <p className="text-xs text-zinc-400">In-flight runs re-mint their token automatically.</p>
+        <p className="text-xs text-fg-2">In-flight runs re-mint their token automatically.</p>
       </Modal>
 
       <Modal

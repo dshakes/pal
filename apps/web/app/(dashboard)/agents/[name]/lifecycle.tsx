@@ -7,16 +7,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import { formatDistanceToNowStrict } from "date-fns";
-import { AlertTriangle, CheckCircle2, CircleDashed, FlaskConical, XCircle } from "lucide-react";
-import { api, type EvalRun, type EvalSuite } from "@/lib/api";
+import { CheckCircle2, CircleDashed } from "lucide-react";
+import { api } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import { CONFIG, LIFECYCLE, type AgentTab } from "@/lib/lifecycle";
 import { ts } from "@/lib/overview";
 import { apiErrorText, budgetPct, budgetTone, incidentTone, type Incident } from "@/lib/observability";
-import { DataTable } from "@/components/data-table";
 import { ExplainInline } from "@/components/explain-inline";
 import { Skeleton } from "@/components/skeleton";
 import { AgentEnvironments } from "../../deployments/agent-environments";
@@ -102,7 +100,7 @@ export function LifecycleRail({
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
 
-function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+export function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="space-y-2.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -114,7 +112,7 @@ function Section({ title, action, children }: { title: string; action?: React.Re
   );
 }
 
-function Missing({ title, children }: { title: string; children: React.ReactNode }) {
+export function Missing({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 rounded-[12px] border border-dashed border-line-strong bg-panel p-4">
       <CircleDashed className="mt-0.5 h-4 w-4 shrink-0 text-fg-3" aria-hidden />
@@ -126,165 +124,8 @@ function Missing({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function useEvalData(agentName: string) {
-  const [suites, setSuites] = useState<EvalSuite[] | null>(null);
-  const [runs, setRuns] = useState<EvalRun[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let off = false;
-    Promise.all([api.listEvalSuites(agentName), api.listEvalRuns({ agentName })])
-      .then(([s, r]) => { if (!off) { setSuites(s); setRuns(r); } })
-      .catch((e) => { if (!off) setError(e instanceof Error ? e.message : "Couldn’t load evals"); });
-    return () => { off = true; };
-  }, [agentName]);
-  return { suites, runs, error };
-}
-
-const pct = (x: number) => `${Math.round(x * 100)}%`;
-
-// ── Evals ───────────────────────────────────────────────────────────────────
-
-export function EvalsPanel({ agentName }: { agentName: string }) {
-  const router = useRouter();
-  const { suites, runs, error } = useEvalData(agentName);
-  const latestBySuite = useMemo(() => {
-    const m = new Map<string, EvalRun>();
-    for (const r of runs ?? []) {
-      const cur = m.get(r.suiteId);
-      if (!cur || ts(r.createdAt) > ts(cur.createdAt)) m.set(r.suiteId, r);
-    }
-    return m;
-  }, [runs]);
-
-  if (error) return <p role="alert" className="text-[13px] text-bad">{error}</p>;
-  return (
-    <div className="space-y-6">
-      <Section title="Suites" action={<Link href="/eval-suites" className="focus-ring rounded text-[12.5px] font-medium text-accent hover:underline">All suites</Link>}>
-        <DataTable<EvalSuite>
-          label="Eval suites"
-          loading={suites === null}
-          rows={suites ?? []}
-          rowKey={(s) => s.id}
-          pageSize={0}
-          onRowClick={() => router.push(`/eval-suites`)}
-          emptyIcon={FlaskConical}
-          emptyTitle="No eval suites yet"
-          emptyDescription="A suite is a set of inputs with what a good answer looks like. Add one so every change is scored before it ships."
-          emptyAction={<Link href="/eval-suites" className="focus-ring rounded-md bg-action px-3 py-1.5 text-[13px] font-medium text-on-action hover:bg-action/90">Create a suite</Link>}
-          columns={[
-            { key: "name", header: "Suite", render: (s) => <span className="font-medium text-fg">{s.name}</span> },
-            { key: "cases", header: "Cases", align: "right", render: (s) => <span className="num">{s.cases.length}</span> },
-            {
-              key: "latest",
-              header: "Latest score",
-              align: "right",
-              render: (s) => {
-                const r = latestBySuite.get(s.id);
-                return r ? <span className={clsx("num", r.passed ? "text-ok" : "text-bad")}>{pct(r.score)}</span> : <span className="text-fg-3">Not run</span>;
-              },
-            },
-          ]}
-        />
-      </Section>
-      <Section title="Recent eval runs">
-        <EvalRunsTable runs={runs} suites={suites} />
-      </Section>
-    </div>
-  );
-}
-
-function EvalRunsTable({ runs, suites }: { runs: EvalRun[] | null; suites: EvalSuite[] | null }) {
-  const name = (id: string) => suites?.find((s) => s.id === id)?.name ?? id.slice(0, 8);
-  return (
-    <DataTable<EvalRun>
-      label="Eval runs"
-      loading={runs === null}
-      rows={(runs ?? []).slice(0, 20)}
-      rowKey={(r) => r.id}
-      pageSize={10}
-      defaultSort={{ key: "when", dir: "desc" }}
-      emptyTitle="No eval runs yet"
-      emptyDescription="Run a suite from the Evals page or with pal eval run. Results land here."
-      columns={[
-        { key: "suite", header: "Suite", render: (r) => <span className="text-fg">{name(r.suiteId)}</span> },
-        {
-          key: "result",
-          header: "Result",
-          render: (r) => (
-            <span className={clsx("inline-flex items-center gap-1.5", r.passed ? "text-ok" : "text-bad")}>
-              {r.passed ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> : <XCircle className="h-3.5 w-3.5" aria-hidden />}
-              {r.passed ? "Passed" : r.regressed ? "Regressed" : "Failed"}
-            </span>
-          ),
-        },
-        { key: "score", header: "Score", align: "right", render: (r) => <span className="num">{pct(r.score)} <span className="text-fg-3">({r.casesPassed}/{r.casesTotal})</span></span> },
-        { key: "version", header: "Version", hideOnMobile: true, render: (r) => <span className="font-mono text-[12px] text-fg-2">{r.agentVersion || "—"}</span> },
-        {
-          key: "when",
-          header: "When",
-          hideOnMobile: true,
-          sortable: true,
-          sortFn: (a, b) => ts(a.createdAt) - ts(b.createdAt),
-          className: "whitespace-nowrap text-fg-3",
-          render: (r) => formatDistanceToNowStrict(ts(r.createdAt), { addSuffix: true }),
-        },
-      ]}
-    />
-  );
-}
-
-// ── Gate ────────────────────────────────────────────────────────────────────
-
-/**
- * What the gate knows today. The per-version aggregate (regression + policy +
- * injection + secret-lint, plan §4 gap #1) has no endpoint yet, so this shows
- * the one real signal — the latest eval result — and lists the rest as
- * missing rather than guessing a green.
- */
-export function GatePanel({ agentName }: { agentName: string }) {
-  const { runs, error } = useEvalData(agentName);
-  const latest = useMemo(() => [...(runs ?? [])].sort((a, b) => ts(b.createdAt) - ts(a.createdAt))[0], [runs]);
-  if (error) return <p role="alert" className="text-[13px] text-bad">{error}</p>;
-  return (
-    <div className="space-y-4">
-      <Section title="Ship check">
-        <ul className="divide-y divide-line overflow-hidden rounded-[12px] border border-line bg-panel">
-          <li className="flex items-start gap-3 p-4">
-            {runs === null ? (
-              <Skeleton className="h-5 w-full" />
-            ) : latest ? (
-              <>
-                {latest.passed ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-ok" aria-hidden /> : <XCircle className="mt-0.5 h-4 w-4 text-bad" aria-hidden />}
-                <div>
-                  <p className="text-[13.5px] font-medium text-fg">Evals {latest.passed ? "passed" : latest.regressed ? "regressed" : "failed"}</p>
-                  <p className="text-[13px] text-fg-3">
-                    Latest run scored {pct(latest.score)} on {latest.agentVersion || "the working copy"}, {formatDistanceToNowStrict(ts(latest.createdAt), { addSuffix: true })}.
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <AlertTriangle className="mt-0.5 h-4 w-4 text-warn" aria-hidden />
-                <div>
-                  <p className="text-[13.5px] font-medium text-fg">No eval results</p>
-                  <p className="text-[13px] text-fg-3">Nothing has scored this agent yet, so there is no quality signal to gate on.</p>
-                </div>
-              </>
-            )}
-          </li>
-          <li className="flex items-start gap-3 p-4">
-            <CircleDashed className="mt-0.5 h-4 w-4 text-fg-3" aria-hidden />
-            <div>
-              <p className="text-[13.5px] font-medium text-fg-2">Policy check, prompt-injection scan, secret lint</p>
-              <p className="text-[13px] text-fg-3">Not available yet. These checks don’t report a result per version.</p>
-            </div>
-          </li>
-        </ul>
-      </Section>
-      <p className="text-[12.5px] text-fg-3">Promotion still runs its own server-side gates (version, order, budget, evals). They show on the Promote tab when you promote.</p>
-    </div>
-  );
-}
+// Evals + Gate live in ./evals-panel; re-exported so the page keeps one import.
+export { EvalsPanel, GatePanel } from "./evals-panel";
 
 // ── Promote ─────────────────────────────────────────────────────────────────
 

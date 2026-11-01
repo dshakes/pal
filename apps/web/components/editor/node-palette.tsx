@@ -34,19 +34,19 @@ const iconComponents: Record<string, LucideIcon> = {
 
 const paletteColors: Record<string, { bg: string; text: string; border: string }> = {
   emerald: {
-    bg: "bg-emerald-500/10",
-    text: "text-emerald-400",
-    border: "border-emerald-500/20",
+    bg: "bg-ok-soft",
+    text: "text-ok",
+    border: "border-ok",
   },
   indigo: {
-    bg: "bg-indigo-500/10",
-    text: "text-indigo-400",
-    border: "border-indigo-500/20",
+    bg: "bg-accent-soft",
+    text: "text-accent",
+    border: "border-accent",
   },
   blue: {
-    bg: "bg-blue-500/10",
-    text: "text-blue-400",
-    border: "border-blue-500/20",
+    bg: "bg-accent-soft",
+    text: "text-accent",
+    border: "border-accent",
   },
   yellow: {
     bg: "bg-yellow-500/10",
@@ -54,14 +54,14 @@ const paletteColors: Record<string, { bg: string; text: string; border: string }
     border: "border-yellow-500/20",
   },
   purple: {
-    bg: "bg-purple-500/10",
-    text: "text-purple-400",
-    border: "border-purple-500/20",
+    bg: "bg-accent-soft",
+    text: "text-accent",
+    border: "border-accent",
   },
   red: {
-    bg: "bg-red-500/10",
-    text: "text-red-400",
-    border: "border-red-500/20",
+    bg: "bg-bad-soft",
+    text: "text-bad",
+    border: "border-bad",
   },
   teal: {
     bg: "bg-teal-500/10",
@@ -74,8 +74,8 @@ const paletteColors: Record<string, { bg: string; text: string; border: string }
     border: "border-orange-500/20",
   },
   gray: {
-    bg: "bg-zinc-500/10",
-    text: "text-zinc-400",
+    bg: "bg-raised",
+    text: "text-fg-2",
     border: "border-zinc-500/20",
   },
 };
@@ -103,16 +103,16 @@ export function NodePalette() {
   }
 
   return (
-    <aside className="flex w-56 flex-col border-r border-zinc-800 bg-surface-1">
-      <div className="border-b border-zinc-800 px-4 py-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+    <aside className="flex w-56 flex-col border-r border-line bg-panel">
+      <div className="border-b border-line px-4 py-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-3">
           Nodes
         </h2>
       </div>
       <div className="flex-1 overflow-y-auto px-3 py-3">
         {categories.map((cat) => (
           <div key={cat} className="mb-4">
-            <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-zinc-600">
+            <h3 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-fg-3">
               {cat}
             </h3>
             <div className="space-y-1.5">
@@ -127,7 +127,7 @@ export function NodePalette() {
                     onDragStart={(e) => onDragStart(e, config.type)}
                     className={clsx(
                       "flex cursor-grab items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors active:cursor-grabbing",
-                      "border-zinc-800 bg-surface-2 hover:border-zinc-700 hover:bg-surface-3"
+                      "border-line bg-raised hover:border-line-strong hover:bg-hover"
                     )}
                   >
                     <div
@@ -139,7 +139,7 @@ export function NodePalette() {
                     >
                       {Icon && <Icon className="h-3.5 w-3.5" />}
                     </div>
-                    <span className="text-xs font-medium text-zinc-300">
+                    <span className="text-xs font-medium text-fg-2">
                       {config.label}
                     </span>
                   </div>

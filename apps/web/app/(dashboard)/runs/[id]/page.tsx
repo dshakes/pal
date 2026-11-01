@@ -14,6 +14,7 @@ import { format } from "date-fns";
 import { Check, Copy, GitCompare, Loader2, Radio, X, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useRun, useRunEvents } from "@/lib/hooks";
+import { runPageView } from "@/lib/runs-view";
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/button";
@@ -57,7 +58,7 @@ export default function RunDetailPage() {
   const id = params.id as string;
 
   const { run, loading, error, refresh } = useRun(id);
-  const { events, state: streamState } = useRunEvents(id);
+  const { events, state: streamState } = useRunEvents(id, run?.status);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [recorderMode, setRecorderMode] = useState(false);
@@ -105,16 +106,16 @@ export default function RunDetailPage() {
     explain: run?.status === "failed" ? [{ id: run.id, label: `Why run ${run.id.slice(0, 8)} failed`, sub: run.error?.message, request: { kind: "run" as const, runId: run.id } }] : [],
   });
 
-  // Background polls refetch the run; once it has loaded, keep showing it
-  // through a failed poll or a refetch (the stream pill says when the API is
-  // unreachable) instead of flashing a skeleton or "not found".
-  if (!run && loading) return <RunDetailSkeleton />;
+  // Once loaded, the run stays on screen through failed or in-flight polls
+  // (runPageView, unit-tested); the stream pill says when the API is away.
+  const view = runPageView({ hasRun: !!run, loading, error });
+  if (view === "skeleton") return <RunDetailSkeleton />;
 
   if (!run) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center" role="alert">
         <XCircle className="h-5 w-5 text-bad" aria-hidden />
-        {error && !/\b404\b/.test(error.message) ? (
+        {view === "load-failed" ? (
           <>
             <p className="text-[15px] font-semibold text-fg">Couldn’t load this run</p>
             <p className="max-w-sm text-[13px] text-fg-3">The API didn’t answer. Check that it’s running, then reload.</p>

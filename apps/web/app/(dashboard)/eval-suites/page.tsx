@@ -344,22 +344,22 @@ export default function EvalSuitesPage() {
           ) : (
             <div className="space-y-2">
               {suites.map((s) => (
-                <div key={s.id} className="rounded-xl border border-zinc-800 bg-surface-1 transition-colors hover:border-zinc-700">
+                <div key={s.id} className="rounded-xl border border-line bg-panel transition-colors hover:border-line-strong">
                 <div className="group flex flex-wrap items-center justify-between gap-2 p-4">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-pal-500/10 text-pal-400">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
                       <BookCheck className="h-4 w-4" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-zinc-100">
+                        <p className="truncate text-sm font-semibold text-fg">
                           {s.name}
                         </p>
-                        <span className="font-mono text-[11px] text-zinc-500">
+                        <span className="font-mono text-[11px] text-fg-3">
                           {s.agentName}
                         </span>
                       </div>
-                      <p className="text-[12px] text-zinc-500">
+                      <p className="text-[12px] text-fg-3">
                         {s.cases.length} case{s.cases.length === 1 ? "" : "s"}
                         {s.description && ` · ${s.description}`}
                       </p>
@@ -402,7 +402,7 @@ export default function EvalSuitesPage() {
                       variant="ghost"
                       size="sm"
                       onClick={() => setDeleteTarget({ id: s.id, name: s.name })}
-                      className="text-zinc-500 hover:text-red-400"
+                      className="text-fg-3 hover:text-bad"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -425,12 +425,12 @@ export default function EvalSuitesPage() {
           {loading ? (
             <Skeleton className="h-16 w-full" />
           ) : runs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-zinc-800 bg-surface-1 p-8 text-center">
-              <Terminal className="mx-auto mb-2 h-6 w-6 text-zinc-600" />
-              <p className="text-sm text-zinc-400">No runs yet.</p>
-              <p className="mt-2 text-xs text-zinc-500">
+            <div className="rounded-xl border border-dashed border-line bg-panel p-8 text-center">
+              <Terminal className="mx-auto mb-2 h-6 w-6 text-fg-3" />
+              <p className="text-sm text-fg-2">No runs yet.</p>
+              <p className="mt-2 text-xs text-fg-3">
                 Execute{" "}
-                <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[12px] text-zinc-300">
+                <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-[12px] text-fg-2">
                   pal test --suite=name
                 </code>{" "}
                 in CI to record one.
@@ -439,10 +439,10 @@ export default function EvalSuitesPage() {
           ) : (
             <>
               {/* Desktop: table, unchanged */}
-              <div className="hidden overflow-hidden rounded-xl border border-zinc-800 bg-surface-1 md:block">
+              <div className="hidden overflow-hidden rounded-xl border border-line bg-panel md:block">
                 <table className="w-full text-sm">
-                  <thead className="border-b border-zinc-800 bg-surface-0/50">
-                    <tr className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">
+                  <thead className="border-b border-line bg-canvas/50">
+                    <tr className="text-[11px] uppercase tracking-[0.15em] text-fg-3">
                       <th className="px-4 py-2.5 text-left font-medium">Agent</th>
                       <th className="px-4 py-2.5 text-left font-medium">Branch</th>
                       <th className="px-4 py-2.5 text-right font-medium">Score</th>
@@ -456,38 +456,38 @@ export default function EvalSuitesPage() {
                     {runs.slice(0, 30).map((r) => (
                       <tr
                         key={r.id}
-                        className="border-b border-zinc-900 text-[14px] last:border-0 hover:bg-surface-0/50"
+                        className="border-b border-line text-[14px] last:border-0 hover:bg-canvas/50"
                       >
-                        <td className="px-4 py-2.5 font-medium text-zinc-200">
+                        <td className="px-4 py-2.5 font-medium text-fg">
                           {r.agentName}
                         </td>
                         <td className="px-4 py-2.5">
-                          <span className="inline-flex items-center gap-1.5 font-mono text-[12px] text-zinc-400">
-                            <GitBranch className="h-3 w-3 text-zinc-600" />
+                          <span className="inline-flex items-center gap-1.5 font-mono text-[12px] text-fg-2">
+                            <GitBranch className="h-3 w-3 text-fg-3" />
                             {r.branch || "—"}
                             {r.commitSha && (
-                              <span className="text-zinc-600">
+                              <span className="text-fg-3">
                                 @{r.commitSha.slice(0, 7)}
                               </span>
                             )}
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums text-zinc-100">
+                        <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums text-fg">
                           {r.score.toFixed(3)}
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[12px] text-zinc-400">
+                        <td className="px-4 py-2.5 text-right font-mono text-[12px] text-fg-2">
                           <span
                             className={clsx(
                               r.casesPassed === r.casesTotal
-                                ? "text-emerald-400"
-                                : "text-amber-400",
+                                ? "text-ok"
+                                : "text-warn",
                             )}
                           >
                             {r.casesPassed}
                           </span>
-                          <span className="text-zinc-600">/{r.casesTotal}</span>
+                          <span className="text-fg-3">/{r.casesTotal}</span>
                         </td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[12px] text-zinc-400">
+                        <td className="px-4 py-2.5 text-right font-mono text-[12px] text-fg-2">
                           ${r.totalCostUsd.toFixed(4)}
                         </td>
                         <td className="px-4 py-2.5">
@@ -495,8 +495,8 @@ export default function EvalSuitesPage() {
                             className={clsx(
                               "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
                               r.passed
-                                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-                                : "border-red-500/20 bg-red-500/10 text-red-400",
+                                ? "border-ok bg-ok-soft text-ok"
+                                : "border-bad bg-bad-soft text-bad",
                             )}
                           >
                             {r.passed ? (
@@ -536,43 +536,43 @@ export default function EvalSuitesPage() {
               {/* Mobile: stacked cards, same data */}
               <div className="space-y-2 md:hidden">
                 {runs.slice(0, 30).map((r) => (
-                  <div key={r.id} className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
+                  <div key={r.id} className="rounded-xl border border-line bg-panel p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-zinc-200">{r.agentName}</span>
+                      <span className="truncate text-sm font-medium text-fg">{r.agentName}</span>
                       <span
                         className={clsx(
                           "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
                           r.passed
-                            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-                            : "border-red-500/20 bg-red-500/10 text-red-400",
+                            ? "border-ok bg-ok-soft text-ok"
+                            : "border-bad bg-bad-soft text-bad",
                         )}
                       >
                         {r.passed ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                         {r.passed ? "Pass" : "Fail"}
                       </span>
                     </div>
-                    <div className="mt-2.5 flex items-center gap-1.5 font-mono text-[12px] text-zinc-400">
-                      <GitBranch className="h-3 w-3 text-zinc-600" />
+                    <div className="mt-2.5 flex items-center gap-1.5 font-mono text-[12px] text-fg-2">
+                      <GitBranch className="h-3 w-3 text-fg-3" />
                       {r.branch || "—"}
-                      {r.commitSha && <span className="text-zinc-600">@{r.commitSha.slice(0, 7)}</span>}
+                      {r.commitSha && <span className="text-fg-3">@{r.commitSha.slice(0, 7)}</span>}
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2.5">
                       <div>
-                        <p className="text-[12px] uppercase tracking-wide text-zinc-500">Score</p>
-                        <p className="font-mono text-xs font-semibold tabular-nums text-zinc-100">{r.score.toFixed(3)}</p>
+                        <p className="text-[12px] uppercase tracking-wide text-fg-3">Score</p>
+                        <p className="font-mono text-xs font-semibold tabular-nums text-fg">{r.score.toFixed(3)}</p>
                       </div>
                       <div>
-                        <p className="text-[12px] uppercase tracking-wide text-zinc-500">Cases</p>
+                        <p className="text-[12px] uppercase tracking-wide text-fg-3">Cases</p>
                         <p className="font-mono text-xs tabular-nums">
-                          <span className={r.casesPassed === r.casesTotal ? "text-emerald-400" : "text-amber-400"}>
+                          <span className={r.casesPassed === r.casesTotal ? "text-ok" : "text-warn"}>
                             {r.casesPassed}
                           </span>
-                          <span className="text-zinc-600">/{r.casesTotal}</span>
+                          <span className="text-fg-3">/{r.casesTotal}</span>
                         </p>
                       </div>
                       <div>
-                        <p className="text-[12px] uppercase tracking-wide text-zinc-500">Cost</p>
-                        <p className="font-mono text-xs tabular-nums text-zinc-200">${r.totalCostUsd.toFixed(4)}</p>
+                        <p className="text-[12px] uppercase tracking-wide text-fg-3">Cost</p>
+                        <p className="font-mono text-xs tabular-nums text-fg">${r.totalCostUsd.toFixed(4)}</p>
                       </div>
                     </div>
                     <Button
@@ -648,7 +648,7 @@ export default function EvalSuitesPage() {
                   onChange={(e) =>
                     setEditing({ ...editing, agentName: e.target.value })
                   }
-                  className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                  className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                 >
                   <option value="">Select...</option>
                   {agents.map((a) => (
@@ -666,7 +666,7 @@ export default function EvalSuitesPage() {
                     setEditing({ ...editing, name: e.target.value })
                   }
                   placeholder="e.g. golden-set"
-                  className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                  className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                 />
               </ModalField>
             </div>
@@ -677,13 +677,13 @@ export default function EvalSuitesPage() {
                 onChange={(e) =>
                   setEditing({ ...editing, description: e.target.value })
                 }
-                className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
             </ModalField>
 
-            <div className="border-t border-zinc-800 pt-4">
+            <div className="border-t border-line pt-4">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-[12px] font-medium uppercase tracking-[0.15em] text-zinc-500">
+                <h3 className="text-[12px] font-medium uppercase tracking-[0.15em] text-fg-3">
                   Cases ({editing.cases.length})
                 </h3>
                 <Button
@@ -703,7 +703,7 @@ export default function EvalSuitesPage() {
                       ],
                     })
                   }
-                  className="text-pal-400 hover:text-pal-300"
+                  className="text-accent hover:text-accent"
                 >
                   Add case
                 </Button>
@@ -712,10 +712,10 @@ export default function EvalSuitesPage() {
                 {editing.cases.map((c, idx) => (
                   <div
                     key={idx}
-                    className="space-y-2 rounded-lg border border-zinc-800 bg-surface-0 p-3"
+                    className="space-y-2 rounded-lg border border-line bg-canvas p-3"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-3 font-mono text-[11px] text-zinc-500">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-raised font-mono text-[11px] text-fg-3">
                         {idx + 1}
                       </span>
                       <input
@@ -725,7 +725,7 @@ export default function EvalSuitesPage() {
                           updateCase(idx, { name: e.target.value })
                         }
                         placeholder="case name"
-                        className="flex-1 rounded-md border border-zinc-700 bg-surface-2 px-2 py-1 font-mono text-xs text-zinc-100 outline-none focus:border-pal-500"
+                        className="flex-1 rounded-md border border-line-strong bg-raised px-2 py-1 font-mono text-xs text-fg outline-none focus:border-accent"
                       />
                       <button
                         onClick={() =>
@@ -737,7 +737,7 @@ export default function EvalSuitesPage() {
                           })
                         }
                         disabled={editing.cases.length === 1}
-                        className="rounded p-1 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-30"
+                        className="rounded p-1 text-fg-3 transition-colors hover:bg-bad-soft hover:text-bad disabled:opacity-30"
                         title="Remove case"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -750,7 +750,7 @@ export default function EvalSuitesPage() {
                       }
                       placeholder="Input sent to the agent"
                       rows={2}
-                      className="w-full rounded-md border border-zinc-700 bg-surface-2 px-2 py-1.5 font-mono text-xs text-zinc-100 outline-none focus:border-pal-500"
+                      className="w-full rounded-md border border-line-strong bg-raised px-2 py-1.5 font-mono text-xs text-fg outline-none focus:border-accent"
                     />
                     <input
                       type="text"
@@ -759,7 +759,7 @@ export default function EvalSuitesPage() {
                         updateCase(idx, { expected: e.target.value })
                       }
                       placeholder="Expected substring (output must contain)"
-                      className="w-full rounded-md border border-zinc-700 bg-surface-2 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-pal-500"
+                      className="w-full rounded-md border border-line-strong bg-raised px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
                     />
                   </div>
                 ))}
@@ -811,7 +811,7 @@ export default function EvalSuitesPage() {
               <select
                 value={genAgent}
                 onChange={(e) => setGenAgent(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               >
                 {agents.map((a) => (
                   <option key={a.id} value={a.name}>
@@ -826,17 +826,17 @@ export default function EvalSuitesPage() {
                 value={genGoal}
                 onChange={(e) => setGenGoal(e.target.value)}
                 placeholder="e.g. refund policy edge cases"
-                className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
             </ModalField>
-            <p className="text-xs text-zinc-500">Uses LLM tokens (runs:execute). The draft is returned for review only.</p>
+            <p className="text-xs text-fg-3">Uses LLM tokens (runs:execute). The draft is returned for review only.</p>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-400">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn bg-warn-soft p-3 text-xs text-warn">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               <span>Draft only — nothing is saved until you click Approve &amp; save.</span>
-              <span className="font-mono text-zinc-400">
+              <span className="font-mono text-fg-2">
                 {gen.model} · ${gen.costUsd.toFixed(4)} · evidence: {gen.evidence.runs} runs, {gen.evidence.feedback} feedback, {gen.evidence.tools} tools
               </span>
             </div>
@@ -846,7 +846,7 @@ export default function EvalSuitesPage() {
                   type="text"
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                  className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                 />
               </ModalField>
               <ModalField label="Description">
@@ -854,11 +854,11 @@ export default function EvalSuitesPage() {
                   type="text"
                   value={draft.description ?? ""}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                  className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                  className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
                 />
               </ModalField>
             </div>
-            <h3 className="text-[12px] font-medium uppercase tracking-[0.15em] text-zinc-500">
+            <h3 className="text-[12px] font-medium uppercase tracking-[0.15em] text-fg-3">
               Cases ({draft.cases.length})
             </h3>
             <div className="space-y-2">
@@ -866,17 +866,17 @@ export default function EvalSuitesPage() {
                 const prov = gen.provenance.find((p) => p.case === c.name);
                 const chips = assertionSummary(c.assert, c.expected);
                 return (
-                  <div key={idx} className="space-y-2 rounded-lg border border-zinc-800 bg-surface-0 p-3">
+                  <div key={idx} className="space-y-2 rounded-lg border border-line bg-canvas p-3">
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         value={c.name}
                         onChange={(e) => patchDraftCase(idx, { name: e.target.value })}
-                        className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-surface-2 px-2 py-1 font-mono text-xs text-zinc-100 outline-none focus:border-pal-500"
+                        className="min-w-0 flex-1 rounded-md border border-line-strong bg-raised px-2 py-1 font-mono text-xs text-fg outline-none focus:border-accent"
                       />
                       <button
                         onClick={() => setDraft({ ...draft, cases: draft.cases.filter((_, i) => i !== idx) })}
-                        className="rounded p-1 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                        className="rounded p-1 text-fg-3 transition-colors hover:bg-bad-soft hover:text-bad"
                         title="Remove case"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -887,7 +887,7 @@ export default function EvalSuitesPage() {
                         <Pill tone={isGrounded(prov.grounding) ? "ok" : "muted"}>{prov.grounding}</Pill>
                       )}
                       {(prov?.source || c.source) && (
-                        <span className="break-all font-mono text-[11px] text-zinc-500">
+                        <span className="break-all font-mono text-[11px] text-fg-3">
                           source: {prov?.source || c.source}
                         </span>
                       )}
@@ -904,7 +904,7 @@ export default function EvalSuitesPage() {
                       ))}
                     </div>
                     {prov?.notes?.map((n, i) => (
-                      <p key={i} className="break-words text-xs text-zinc-500">
+                      <p key={i} className="break-words text-xs text-fg-3">
                         {n}
                       </p>
                     ))}
@@ -913,28 +913,28 @@ export default function EvalSuitesPage() {
                       onChange={(e) => patchDraftCase(idx, { input: e.target.value })}
                       rows={2}
                       placeholder="Input sent to the agent"
-                      className="w-full rounded-md border border-zinc-700 bg-surface-2 px-2 py-1.5 font-mono text-xs text-zinc-100 outline-none focus:border-pal-500"
+                      className="w-full rounded-md border border-line-strong bg-raised px-2 py-1.5 font-mono text-xs text-fg outline-none focus:border-accent"
                     />
                     <textarea
                       value={getRubric(c.assert)}
                       onChange={(e) => patchDraftCase(idx, { assert: setRubric(c.assert, e.target.value) })}
                       rows={2}
                       placeholder="Judge rubric (empty = no LLM judge)"
-                      className="w-full rounded-md border border-zinc-700 bg-surface-2 px-2 py-1.5 text-xs text-zinc-100 outline-none focus:border-pal-500"
+                      className="w-full rounded-md border border-line-strong bg-raised px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
                     />
                   </div>
                 );
               })}
             </div>
             {gen.dropped.length > 0 && (
-              <div className="rounded-lg border border-zinc-800 p-3">
-                <p className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">
+              <div className="rounded-lg border border-line p-3">
+                <p className="mb-1 text-[11px] uppercase tracking-wide text-fg-3">
                   Dropped by grounding ({gen.dropped.length})
                 </p>
-                <ul className="space-y-1 text-xs text-zinc-400">
+                <ul className="space-y-1 text-xs text-fg-2">
                   {gen.dropped.map((d, i) => (
                     <li key={i} className="break-words">
-                      <span className="font-mono text-zinc-300">{d.name}</span> — {d.reason}
+                      <span className="font-mono text-fg-2">{d.name}</span> — {d.reason}
                     </li>
                   ))}
                 </ul>
@@ -972,7 +972,7 @@ export default function EvalSuitesPage() {
                 placeholder="suite default"
                 value={runOpts.samples || ""}
                 onChange={(e) => setRunOpts({ ...runOpts, samples: e.target.value === "" ? 0 : Math.min(5, Math.max(1, Number(e.target.value) || 1)) })}
-                className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
             </ModalField>
             <ModalField label="Judge samples" hint="1–5; blank = suite default">
@@ -983,7 +983,7 @@ export default function EvalSuitesPage() {
                 placeholder="suite default"
                 value={runOpts.judgeSamples || ""}
                 onChange={(e) => setRunOpts({ ...runOpts, judgeSamples: e.target.value === "" ? 0 : Math.min(5, Math.max(1, Number(e.target.value) || 1)) })}
-                className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+                className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
               />
             </ModalField>
           </div>
@@ -993,10 +993,10 @@ export default function EvalSuitesPage() {
               value={runOpts.branch}
               onChange={(e) => setRunOpts({ ...runOpts, branch: e.target.value })}
               placeholder="main"
-              className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+              className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
             />
           </ModalField>
-          <label className="flex items-center gap-2 text-sm text-zinc-300">
+          <label className="flex items-center gap-2 text-sm text-fg-2">
             <input
               type="checkbox"
               checked={runOpts.setBaseline}
@@ -1004,7 +1004,7 @@ export default function EvalSuitesPage() {
             />
             Set as baseline (only if all cases pass and nothing regressed)
           </label>
-          <p className="text-xs text-zinc-500">Spends LLM tokens (agent + judge); capped at a $1 ceiling per run.</p>
+          <p className="text-xs text-fg-3">Spends LLM tokens (agent + judge); capped at a $1 ceiling per run.</p>
         </div>
       </Modal>
 
@@ -1036,7 +1036,7 @@ export default function EvalSuitesPage() {
             <select
               value={calAgent}
               onChange={(e) => setCalAgent(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+              className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
             >
               {agents.map((a) => (
                 <option key={a.id} value={a.name}>
@@ -1050,13 +1050,13 @@ export default function EvalSuitesPage() {
               value={calRubric}
               onChange={(e) => setCalRubric(e.target.value)}
               rows={2}
-              className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+              className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
             />
           </ModalField>
           {cal && (
-            <div className="space-y-3 rounded-xl border border-zinc-800 bg-surface-1 p-4">
-              {cal.verdict && <p className="text-sm font-medium text-zinc-100">{cal.verdict}</p>}
-              {cal.note && <p className="text-xs text-zinc-500">{cal.note}</p>}
+            <div className="space-y-3 rounded-xl border border-line bg-panel p-4">
+              {cal.verdict && <p className="text-sm font-medium text-fg">{cal.verdict}</p>}
+              {cal.note && <p className="text-xs text-fg-3">{cal.note}</p>}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {(
                   [
@@ -1067,8 +1067,8 @@ export default function EvalSuitesPage() {
                   ] as const
                 ).map(([k, v]) => (
                   <div key={k}>
-                    <p className="text-[11px] uppercase tracking-wide text-zinc-500">{k}</p>
-                    <p className="font-mono text-sm tabular-nums text-zinc-100">{v}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-fg-3">{k}</p>
+                    <p className="font-mono text-sm tabular-nums text-fg">{v}</p>
                   </div>
                 ))}
               </div>
@@ -1119,7 +1119,7 @@ export default function EvalSuitesPage() {
               if (e.key === "Enter" && branchInput.trim()) confirmPinBaseline();
             }}
             placeholder="main"
-            className="w-full rounded-lg border border-zinc-700 bg-surface-2 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500"
+            className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-fg outline-none focus:border-accent"
           />
         </ModalField>
       </Modal>
@@ -1142,12 +1142,12 @@ function Section({
     <section>
       <div className="mb-4 flex items-baseline justify-between">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-sm font-medium text-zinc-200">{title}</h2>
+          <h2 className="text-sm font-medium text-fg">{title}</h2>
           {count != null && count > 0 && (
-            <span className="text-[12px] font-mono text-zinc-600">{count}</span>
+            <span className="text-[12px] font-mono text-fg-3">{count}</span>
           )}
         </div>
-        {subtitle && <p className="text-[12px] text-zinc-500">{subtitle}</p>}
+        {subtitle && <p className="text-[12px] text-fg-3">{subtitle}</p>}
       </div>
       {children}
     </section>
@@ -1164,11 +1164,11 @@ function SuiteHistory({
   onOpen: (r: EvalRun) => void;
 }) {
   if (runs.length === 0) {
-    return <p className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-500">No runs for this suite yet.</p>;
+    return <p className="border-t border-line px-4 py-3 text-xs text-fg-3">No runs for this suite yet.</p>;
   }
   const oldestFirst = [...runs].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return (
-    <div className="space-y-2 border-t border-zinc-800 p-4">
+    <div className="space-y-2 border-t border-line p-4">
       <ScoreTrend values={oldestFirst.map((r) => r.score)} />
       <div className="space-y-1">
         {[...oldestFirst].reverse().slice(0, 10).map((r) => (
@@ -1176,12 +1176,12 @@ function SuiteHistory({
             key={r.id}
             onClick={() => onOpen(r)}
             disabled={loadingId === r.id}
-            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface-2"
+            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-hover"
           >
-            <span className="font-mono text-zinc-400">
+            <span className="font-mono text-fg-2">
               {new Date(r.createdAt).toLocaleString()} · {r.branch || "—"}
             </span>
-            <span className="flex items-center gap-2 font-mono tabular-nums text-zinc-200">
+            <span className="flex items-center gap-2 font-mono tabular-nums text-fg">
               {r.score.toFixed(3)}
               <Pill tone={r.passed ? "ok" : "bad"}>{r.passed ? "Pass" : "Fail"}</Pill>
               {r.regressed && <Pill tone="bad">regressed</Pill>}

@@ -28,3 +28,16 @@ export function sessionSizes(runs: Run[]): Map<string, number> {
   for (const r of runs) if (r.sessionId) m.set(r.sessionId, (m.get(r.sessionId) ?? 0) + 1);
   return m;
 }
+
+/**
+ * What the run-detail page shows. Once a run has loaded it stays on screen:
+ * background polls refetch it every few seconds, and a failed or in-flight
+ * poll must not swap it for a skeleton or "not found".
+ */
+export type RunPageView = "skeleton" | "not-found" | "load-failed" | "run";
+
+export function runPageView(s: { hasRun: boolean; loading: boolean; error: Error | null }): RunPageView {
+  if (s.hasRun) return "run";
+  if (s.loading) return "skeleton";
+  return s.error && !/\b404\b/.test(s.error.message) ? "load-failed" : "not-found";
+}

@@ -20,6 +20,8 @@ export interface Agent {
   avatarUrl?: string;
   stylePrompt?: string;
   systemPrompt?: string;
+  /** Head of the failover chain; empty/"auto" = default chain. */
+  model?: string;
 }
 
 export interface AgentVersion {
@@ -66,6 +68,7 @@ export interface StreamEvent {
     | "step_started"
     | "step_completed"
     | "step_failed"
+    | "step_waiting" // an approval pause; rewritten in place to step_completed on resume
     | "log"
     | "approval"
     | "question"

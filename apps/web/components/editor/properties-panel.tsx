@@ -60,22 +60,22 @@ const typeLabels: Record<NodeType, string> = {
 };
 
 const typeColors: Record<NodeType, string> = {
-  trigger: "text-emerald-400",
-  "ai-step": "text-indigo-400",
-  tool: "text-blue-400",
+  trigger: "text-ok",
+  "ai-step": "text-accent",
+  tool: "text-accent",
   condition: "text-yellow-400",
-  loop: "text-purple-400",
-  approval: "text-red-400",
+  loop: "text-accent",
+  approval: "text-bad",
   connector: "text-teal-400",
   subagent: "text-orange-400",
-  end: "text-zinc-400",
+  end: "text-fg-2",
 };
 
 // ---- Shared field components -----------------------------------------------
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="mb-1 block text-[12px] font-medium uppercase tracking-wider text-zinc-500">
+    <label className="mb-1 block text-[12px] font-medium uppercase tracking-wider text-fg-3">
       {children}
     </label>
   );
@@ -83,7 +83,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 function FieldHelp({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mt-1 flex items-start gap-1 text-[11px] leading-relaxed text-zinc-600">
+    <p className="mt-1 flex items-start gap-1 text-[11px] leading-relaxed text-fg-3">
       <HelpCircle className="mt-0.5 h-3 w-3 shrink-0" />
       <span>{children}</span>
     </p>
@@ -92,7 +92,7 @@ function FieldHelp({ children }: { children: React.ReactNode }) {
 
 function FieldError({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mt-1 text-[11px] text-red-400">{children}</p>
+    <p className="mt-1 text-[11px] text-bad">{children}</p>
   );
 }
 
@@ -116,10 +116,10 @@ function TextInput({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={clsx(
-          "w-full rounded-md border bg-surface-2 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1",
+          "w-full rounded-md border bg-raised px-3 py-1.5 text-sm text-fg placeholder:text-fg-3 focus:outline-none focus:ring-1",
           showError
-            ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/30"
-            : "border-zinc-700 focus:border-pal-500 focus:ring-pal-500/30"
+            ? "border-bad focus:border-bad focus:ring-red-500/30"
+            : "border-line-strong focus:border-accent focus:ring-line-strong"
         )}
       />
       {showError && <FieldError>This field is required</FieldError>}
@@ -149,10 +149,10 @@ function TextArea({
         placeholder={placeholder}
         rows={rows}
         className={clsx(
-          "w-full rounded-md border bg-surface-2 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1",
+          "w-full rounded-md border bg-raised px-3 py-1.5 text-sm text-fg placeholder:text-fg-3 focus:outline-none focus:ring-1",
           showError
-            ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/30"
-            : "border-zinc-700 focus:border-pal-500 focus:ring-pal-500/30"
+            ? "border-bad focus:border-bad focus:ring-red-500/30"
+            : "border-line-strong focus:border-accent focus:ring-line-strong"
         )}
       />
       {showError && <FieldError>This field is required</FieldError>}
@@ -173,7 +173,7 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-zinc-700 bg-surface-2 px-3 py-1.5 text-sm text-zinc-200 focus:border-pal-500 focus:outline-none focus:ring-1 focus:ring-pal-500/30"
+      className="w-full rounded-md border border-line-strong bg-raised px-3 py-1.5 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-line-strong"
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -206,9 +206,9 @@ function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-pal-500"
+        className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-line-strong accent-accent"
       />
-      <span className="min-w-[3rem] text-right text-xs font-mono text-zinc-400">
+      <span className="min-w-[3rem] text-right text-xs font-mono text-fg-2">
         {value}
       </span>
     </div>
@@ -237,10 +237,10 @@ function NumberInput({
         min={min}
         max={max}
         className={clsx(
-          "w-full rounded-md border bg-surface-2 px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:ring-1",
+          "w-full rounded-md border bg-raised px-3 py-1.5 text-sm text-fg focus:outline-none focus:ring-1",
           showError
-            ? "border-red-500/50 focus:border-red-500 focus:ring-red-500/30"
-            : "border-zinc-700 focus:border-pal-500 focus:ring-pal-500/30"
+            ? "border-bad focus:border-bad focus:ring-red-500/30"
+            : "border-line-strong focus:border-accent focus:ring-line-strong"
         )}
       />
       {showError && (
@@ -370,7 +370,7 @@ function AiStepConfig({
         <button
           onClick={handleTestPrompt}
           disabled={testState === "loading" || !data.prompt.trim()}
-          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-500/30 px-2.5 py-1.5 text-[12px] font-medium text-indigo-400 transition-colors hover:bg-indigo-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 rounded-md border border-accent px-2.5 py-1.5 text-[12px] font-medium text-accent transition-colors hover:opacity-90/10 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {testState === "loading" ? (
             <>
@@ -385,7 +385,7 @@ function AiStepConfig({
           )}
         </button>
         {testState === "done" && testOutput && (
-          <pre className="mt-2 max-h-32 overflow-auto rounded border border-zinc-700/50 bg-surface-0 p-2 text-[11px] leading-relaxed text-zinc-400">
+          <pre className="mt-2 max-h-32 overflow-auto rounded border border-line-strong bg-canvas p-2 text-[11px] leading-relaxed text-fg-2">
             {testOutput}
           </pre>
         )}
@@ -496,13 +496,13 @@ function ConditionConfig({
         </FieldHelp>
       </div>
       <div className="flex gap-2">
-        <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1">
-          <div className="h-2 w-2 rounded-full bg-emerald-400" />
-          <span className="text-[11px] text-emerald-400">True</span>
+        <div className="flex items-center gap-1.5 rounded bg-ok-soft px-2 py-1">
+          <div className="h-2 w-2 rounded-full bg-ok" />
+          <span className="text-[11px] text-ok">True</span>
         </div>
-        <div className="flex items-center gap-1.5 rounded bg-red-500/10 px-2 py-1">
-          <div className="h-2 w-2 rounded-full bg-red-400" />
-          <span className="text-[11px] text-red-400">False</span>
+        <div className="flex items-center gap-1.5 rounded bg-bad-soft px-2 py-1">
+          <div className="h-2 w-2 rounded-full bg-bad" />
+          <span className="text-[11px] text-bad">False</span>
         </div>
       </div>
     </div>
@@ -769,8 +769,8 @@ function ConnectorConfig({
 
       {/* Dynamic action-specific input fields */}
       {actionFields.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-zinc-700/50 bg-surface-0/50 p-3">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+        <div className="space-y-2 rounded-lg border border-line-strong bg-canvas/50 p-3">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-fg-3">
             Action Parameters
           </span>
           {actionFields.map((field) => {
@@ -917,9 +917,9 @@ export function PropertiesPanel({
 
   if (!selectedNode) {
     return (
-      <aside className="flex w-72 flex-col border-l border-zinc-800 bg-surface-1">
+      <aside className="flex w-72 flex-col border-l border-line bg-panel">
         <div className="flex flex-1 items-center justify-center p-6">
-          <p className="text-center text-xs text-zinc-600">
+          <p className="text-center text-xs text-fg-3">
             Select a node to view its properties
           </p>
         </div>
@@ -932,25 +932,25 @@ export function PropertiesPanel({
   const data = selectedNode.data as Record<string, unknown>;
 
   return (
-    <aside className="flex w-72 flex-col border-l border-zinc-800 bg-surface-1">
+    <aside className="flex w-72 flex-col border-l border-line bg-panel">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <div className="flex items-center gap-2">
           <Icon className={clsx("h-4 w-4", typeColors[nodeType])} />
-          <span className="text-xs font-semibold text-zinc-200">
+          <span className="text-xs font-semibold text-fg">
             {typeLabels[nodeType]}
           </span>
         </div>
         <button
           onClick={onClose}
-          className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-300"
+          className="rounded-md p-1 text-fg-3 transition-colors hover:bg-hover hover:text-fg"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
       {/* Label field (shared across all types) */}
-      <div className="border-b border-zinc-800 px-4 py-3">
+      <div className="border-b border-line px-4 py-3">
         <FieldLabel>Label</FieldLabel>
         <TextInput
           value={(data.label as string) ?? ""}
@@ -1019,10 +1019,10 @@ export function PropertiesPanel({
       </div>
 
       {/* Delete button */}
-      <div className="border-t border-zinc-800 px-4 py-3">
+      <div className="border-t border-line px-4 py-3">
         <button
           onClick={handleDelete}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-500/30 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10"
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-bad px-3 py-2 text-sm font-medium text-bad transition-colors hover:bg-bad-soft"
         >
           <Trash2 className="h-3.5 w-3.5" />
           Delete Node
