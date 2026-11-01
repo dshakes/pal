@@ -39,9 +39,19 @@ var secretVal = []*regexp.Regexp{
 // {"password":"hunter2"}. The key is kept; the value is masked.
 var jsonSecretPair = regexp.MustCompile(`(?i)("(?:[A-Za-z0-9_\-]*(?:secret|passw|api[_-]?key|authorization|credential|cookie|private[_-]?key|signature|bearer)[A-Za-z0-9_\-]*|[A-Za-z0-9_\-]*token)"\s*:\s*)"(?:[^"\\]|\\.)*"`)
 
-// RedactJSONSecretPairs masks only the values of secret-named JSON keys in text.
+// jsonSecretPairEsc is jsonSecretPair one escaping level down: a JSON
+// object serialized INSIDE a JSON string, e.g. {\"client_secret\":\"x\"}.
+var jsonSecretPairEsc = regexp.MustCompile(`(?i)(\\"(?:[A-Za-z0-9_\-]*(?:secret|passw|api[_-]?key|authorization|credential|cookie|private[_-]?key|signature|bearer)[A-Za-z0-9_\-]*|[A-Za-z0-9_\-]*token)\\"\s*:\s*)\\"(?:[^\\]|\\[^"])*\\"`)
+
+// urlUserinfo matches credentials in a URL's userinfo (scheme://user:pass@host).
+var urlUserinfo = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.\-]*://)[^\s/:@"']+:[^\s@/"']+@`)
+
+// RedactJSONSecretPairs masks the values of secret-named JSON keys in text
+// (plain or escaped one level, as inside a JSON string) and URL userinfo.
 func RedactJSONSecretPairs(s string) string {
-	return jsonSecretPair.ReplaceAllString(s, `${1}"`+Redacted+`"`)
+	s = jsonSecretPair.ReplaceAllString(s, `${1}"`+Redacted+`"`)
+	s = jsonSecretPairEsc.ReplaceAllString(s, `${1}\"`+Redacted+`\"`)
+	return urlUserinfo.ReplaceAllString(s, "${1}"+Redacted+"@")
 }
 
 // RedactAll masks secret-shaped substrings without bounding the length.

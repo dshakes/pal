@@ -415,12 +415,15 @@ the CLI all test against it), after re-reading the precondition (budget: EVERY f
 "stale proposal" on change); a prompt patch is sent only if its explicit hunk applied to the shown prompt
 equals the PATCHed prompt. **Authz (always on, not `PAL_AUTHZ_ENFORCE`-gated):** analyze/ask need
 `runs:execute`+`agents:read`+`budgets:read` (a `runs:execute`-only widget key → 403; kiosk refused);
-escalations `settings:write` / `settings:read`. Evidence ≤48 KB (journal ≤24 KB, newest kept), redacted
+escalations `settings:write` / `settings:read` (+`runs:read`+`agents:read` to bundle a run/incident or
+read a bundle), rate-limited (`PAL_SUPPORT_ESCALATIONS_PER_HOUR`, 10). Evidence ≤48 KB (journal ≤24 KB, newest kept), redacted
 BEFORE clipping (incl. secret-named JSON keys inside text — `obs.RedactAll`). Spend: per-tenant hourly
 rate limit (`PAL_DEBUG_RATE_PER_HOUR`, 30), tenant cap with a real estimate, own daily cap
-(`PAL_DEBUG_MAX_USD_PER_DAY`, 1.00), recorded under `__pal_debug__`. Escalation bundles are
+(`PAL_DEBUG_MAX_USD_PER_DAY`, 1.00); the estimate is RESERVED before both caps are read and settled
+after, recorded under `__pal_debug__` (a reserved agent name). Invisible code points (zero-width, bidi,
+Unicode TAG) are stripped and a prompt patch containing any is refused (server, dashboard, CLI). Escalation bundles are
 field-whitelisted (run input/output VALUES never included), `minimizePII`-masked, typed
-(`pal.support_escalation.v1`), signed with the receipt key, signed bytes stored verbatim
+(`pal.support_escalation.v1`), signed with the receipt key over `type‖0x00‖canonical` (domain-separated), signed bytes stored verbatim
 (`support_escalations.signed_payload`, migration 0044, RLS), verifiable at `/verify`. Docs index:
 regenerate with `scripts/gen-support-docs.py`. Code: `internal/handlers/{debug_agent,debug_logic,support_agent}.go`;
 dashboard `components/{debug-panel,support-panel}.tsx` ("Debug this" on run/incident/eval failures,

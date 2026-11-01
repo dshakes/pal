@@ -113,7 +113,8 @@ func cleanTurns(in []supportTurn, max int) []supportTurn {
 		if t.Role == "agent" {
 			role = "agent"
 		}
-		if s := strings.TrimSpace(sanitizeText(t.Text)); s != "" {
+		// Redact the WHOLE turn before it is clipped.
+		if s := strings.TrimSpace(sanitizeText(redactText(t.Text))); s != "" {
 			out = append(out, supportTurn{Role: role, Text: clip(s, 1000)})
 		}
 	}
@@ -411,17 +412,21 @@ func (h *SupportHandler) Ask(w http.ResponseWriter, r *http.Request) {
 	}
 	nonce := newNonce()
 	user := supportUserPrompt(cleanText(req.Question, supportMaxQuestion), history, items, nonce)
-	if !admitDebugCall(ctx, w, h.auth, h.srv.Pool, tenantID, "support", len(supportSystemPrompt)+len(user)) {
+	reserved, ok := admitDebugCall(ctx, w, h.auth, h.srv.Pool, tenantID, "support", len(supportSystemPrompt)+len(user))
+	if !ok {
 		return
 	}
 	text, tin, tout, cost, err := h.complete(ctx, tenantID, supportSystemPrompt, user)
 	if err != nil {
+		tin, tout, cost = 0, 0, 0 // release the reservation
+	}
+	if recErr := settleDebugCall(ctx, h.srv.Pool, tenantID, reserved, tin, tout, cost); recErr != nil {
+		h.logger().Warn("support: settle usage failed", zap.Error(recErr))
+	}
+	if err != nil {
 		h.logger().Warn("support: model call failed", zap.String("tenant_id", tenantID), zap.Error(err))
 		writeLLMAssistError(w, fmt.Errorf("support: %w", err))
 		return
-	}
-	if recErr := RecordUsageSpend(ctx, h.srv.Pool, tenantID, debugUsageBucket, tin, tout, cost); recErr != nil {
-		h.logger().Warn("support: RecordUsageSpend failed", zap.Error(recErr))
 	}
 	var out supportModelOut
 	if err := json.Unmarshal([]byte(extractJSONObject(text)), &out); err != nil || strings.TrimSpace(out.Answer) == "" {
@@ -673,6 +678,11 @@ func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not contain NUL"})
 		return
 	}
+	// Bundling a run or incident reads run data: settings:write alone is not enough.
+	if (req.RunID != "" || req.IncidentID != "") && !debugCallerAllowed(claims, ScopeSettingsWrite, ScopeRunsRead, ScopeAgentsRead) {
+		writeInsufficientScope(w, ScopeSettingsWrite, ScopeRunsRead, ScopeAgentsRead)
+		return
+	}
 	req.Question = strings.TrimSpace(req.Question)
 	if len(req.Question) < 2 || len(req.Question) > supportMaxQuestion {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("question must be 2-%d characters", supportMaxQuestion)})
@@ -683,6 +693,9 @@ func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := middleware.InjectTenantID(r.Context(), tenantID)
+	if !admitEscalation(ctx, w, h.auth, tenantID) {
+		return
+	}
 	who := firstNonEmpty(claims.Email, claims.Subject, "api-key")
 	b := supportBundle{
 		Type: supportBundleType, Version: 1, TenantID: tenantID, CreatedAt: h.now().UTC().Truncate(time.Millisecond), CreatedBy: who,
@@ -727,11 +740,7 @@ func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
 		}
 		sum := sha256.Sum256(canonical)
 		digest = hex.EncodeToString(sum[:])
-		if k := activeKey(); k.priv != nil {
-			sig, alg = base64.StdEncoding.EncodeToString(ed25519.Sign(k.priv, canonical)), "Ed25519"
-		} else {
-			sig, alg = hmacSign(canonical), "HMAC-SHA256"
-		}
+		sig, alg = signEscalation(canonical)
 		kind, subj := b.Subject["kind"], b.Subject["id"]
 		// signed_payload keeps the exact signed bytes (jsonb would reorder keys).
 		return tx.QueryRow(ctx, `INSERT INTO support_escalations
@@ -945,8 +954,10 @@ func (h *SupportHandler) ListEscalations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"escalations": out})
 }
 
+// GetEscalation returns the bundle, which carries run data: settings:read +
+// runs:read + agents:read.
 func (h *SupportHandler) GetEscalation(w http.ResponseWriter, r *http.Request) {
-	claims, ok := h.supportClaims(w, r, ScopeSettingsRead)
+	claims, ok := h.supportClaims(w, r, ScopeSettingsRead, ScopeRunsRead, ScopeAgentsRead)
 	if !ok {
 		return
 	}
@@ -983,16 +994,34 @@ func (h *SupportHandler) GetEscalation(w http.ResponseWriter, r *http.Request) {
 func verifyEscalationSignature(payload []byte, digest, sig, alg string) (digestOK, sigOK bool) {
 	sum := sha256.Sum256(payload)
 	digestOK = hex.EncodeToString(sum[:]) == digest
+	msg := escalationSigningInput(payload)
 	switch alg {
 	case "Ed25519":
 		if k := activeKey(); k.pub != nil {
 			raw, err := base64.StdEncoding.DecodeString(sig)
-			sigOK = err == nil && ed25519.Verify(k.pub, payload, raw)
+			sigOK = err == nil && ed25519.Verify(k.pub, msg, raw)
 		}
 	case "HMAC-SHA256":
-		sigOK = hmac.Equal([]byte(hmacSign(payload)), []byte(sig))
+		sigOK = hmac.Equal([]byte(hmacSign(msg)), []byte(sig))
 	}
 	return digestOK, sigOK
+}
+
+// escalationSigningInput domain-separates escalation signatures from every
+// other object the receipt key signs: the signature covers
+// "pal.support_escalation.v1" || 0x00 || canonical bundle, so it can never
+// verify as a receipt (or anything else) even for a verifier that checks only
+// key + bytes.
+func escalationSigningInput(canonical []byte) []byte {
+	return append([]byte(supportBundleType+"\x00"), canonical...)
+}
+
+func signEscalation(canonical []byte) (sig, alg string) {
+	msg := escalationSigningInput(canonical)
+	if k := activeKey(); k.priv != nil {
+		return base64.StdEncoding.EncodeToString(ed25519.Sign(k.priv, msg)), "Ed25519"
+	}
+	return hmacSign(msg), "HMAC-SHA256"
 }
 
 // VerifyEscalation handles GET /v1/support/escalations/{id}/verify: recomputes

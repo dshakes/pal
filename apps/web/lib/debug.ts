@@ -49,6 +49,10 @@ export interface DebugHunk {
   contextAfter: string;
 }
 
+/** Text that renders as nothing (controls, zero-width, bidi, Unicode TAG
+ *  "smuggling", private-use) but a model still reads: never sent in a patch. */
+export const HIDDEN_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Cf}\p{Co}\u{E0000}-\u{E007F}]/u;
+
 /** A prompt patch is sendable only if the hunk shown is the WHOLE change: the
  *  shown hunk applied to the shown prompt must equal the prompt the PATCH
  *  sends. Byte offsets come from Go, so compare on UTF-8 bytes. */
@@ -57,6 +61,7 @@ export function promptPatchConsistent(p: Pick<DebugProposal, "diff" | "action">)
   const h = d?.hunk;
   const sent = (p.action?.body as { systemPrompt?: unknown } | undefined)?.systemPrompt;
   if (!d || !h || typeof sent !== "string" || h.offset < 0) return false;
+  if (HIDDEN_TEXT.test(h.added) || HIDDEN_TEXT.test(h.removed)) return false;
   const enc = new TextEncoder();
   const dec = new TextDecoder();
   const before = enc.encode(d.before);

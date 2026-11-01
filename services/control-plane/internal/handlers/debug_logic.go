@@ -139,7 +139,9 @@ Answer with ONLY one JSON object, no prose, no code fence:
 // with a per-request nonce so a payload cannot close the fence.
 func debugUserPrompt(subject string, f debugFacts, items []debugItem, question, nonce string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Subject: %s\nAgent: %s\n", subject, clip(f.AgentName, 80))
+	// Workspace names are quoted (newlines escaped) so a crafted name cannot
+	// forge a line of instructions outside the data fence.
+	fmt.Fprintf(&b, "Subject: %q\nAgent: %q\n", sanitizeText(subject), sanitizeText(clip(f.AgentName, 80)))
 	if q := strings.TrimSpace(question); q != "" {
 		fmt.Fprintf(&b, "Developer's question: %s\n", fenceUntrusted("question", nonce, clip(q, 600)))
 	}
@@ -516,7 +518,12 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		if mp.Find == nil {
 			return p, errors.New("find is required (\"\" appends)")
 		}
-		find, repl := *mp.Find, sanitizeText(mp.Replace)
+		find, repl := *mp.Find, mp.Replace
+		if hasHiddenText(repl) {
+			// Zero-width, bidi, TAG or control characters render as nothing in a
+			// review but a model still reads them: never propose them.
+			return p, errors.New("patch contains invisible or control characters")
+		}
 		if strings.TrimSpace(repl) == "" && find == "" {
 			return p, errors.New("empty patch")
 		}
@@ -591,14 +598,16 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		if err := validateCase(c); err != nil {
 			return p, err
 		}
-		var tools []string
-		for _, m := range f.Mocks {
-			tools = append(tools, m.Tool)
-		}
-		p.Preview = "Input: " + clip(f.InputText, 600) + "\nJudge rubric (pass when): " + clip(rubric, debugMaxRubricRunes) +
+		// The confirm shows everything the suite will store: input, rubric and
+		// each recorded tool result replayed on every later hermetic eval.
+		p.Preview = "Input: " + f.InputText + "\nJudge rubric (pass when): " + rubric +
 			fmt.Sprintf("\nRecorded tool results replayed: %d", len(f.Mocks))
-		if len(tools) > 0 {
-			p.Preview += " (" + strings.Join(tools, ", ") + ")"
+		for _, m := range f.Mocks {
+			if m.Error != "" {
+				p.Preview += "\n- " + m.Tool + " → error: " + fmt.Sprint(m.Error)
+			} else {
+				p.Preview += "\n- " + m.Tool + " → " + fmt.Sprint(m.Result)
+			}
 		}
 		p.Risk = "low"
 		p.Action = &debugAction{Method: "POST", Path: "/v1/eval-suites", Body: map[string]any{
@@ -675,8 +684,10 @@ func snapshotDiffItems(badLabel, goodLabel string, bad, good *agentSnapshot) []d
 	var out []debugItem
 	head := fmt.Sprintf("%s (failing) vs %s (last good)", clip(badLabel, 40), clip(goodLabel, 40))
 	if bad.SystemPrompt != good.SystemPrompt {
+		// Redacted BEFORE each side is clipped (a frozen prompt is not covered by
+		// the working-copy PromptHasSecret gate).
 		out = append(out, debugItem{Ref: "diff:prompt", Label: "system prompt changed, " + head,
-			Detail: "before: " + clip(good.SystemPrompt, 700) + " | after: " + clip(bad.SystemPrompt, 700)})
+			Detail: "before: " + cleanText(good.SystemPrompt, 700) + " | after: " + cleanText(bad.SystemPrompt, 700)})
 	}
 	if firstNonEmpty(bad.Model, "auto") != firstNonEmpty(good.Model, "auto") {
 		out = append(out, debugItem{Ref: "diff:model", Label: "model changed, " + head,

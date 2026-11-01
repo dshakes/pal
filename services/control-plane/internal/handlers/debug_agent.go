@@ -20,8 +20,9 @@ package handlers
 //     it, and the report passes redactSecrets (invariant #10).
 //   - Model + money: CompleteInternalWithUsage with capability "auto" (model
 //     router seam, invariant #6). Before the call: a per-tenant hourly rate
-//     limit, the tenant-wide cap and the debug agents' own daily cap, both with
-//     a real estimate (admitDebugCall). Spend accrues to "__pal_debug__", not to
+//     limit, then the estimate is RESERVED and the tenant-wide cap and the debug
+//     agents' own daily cap are read after it (admitDebugCall), so concurrent
+//     calls cannot all pass one stale check. Spend accrues to "__pal_debug__", not to
 //     the debugged agent, so an agent blocked by its own budget stays debuggable.
 //   - Authorization: runs:execute + agents:read + budgets:read, always enforced
 //     (debugCallerAllowed) — a runs:execute-only widget key gets 403.
@@ -203,14 +204,16 @@ func (h *DebugHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	user := debugUserPrompt(subjectLabel(req, facts), facts, items, cleanText(req.Question, debugMaxQuestion), nonce)
 	// Metering (budgets section of CLAUDE.md): rate limit, tenant cap and the
 	// debug agents' own daily cap, each with a real estimate of this call.
-	if !admitDebugCall(ctx, w, h.auth, h.srv.Pool, tenantID, "analyze", len(debugSystemPrompt)+len(user)) {
+	reserved, ok := admitDebugCall(ctx, w, h.auth, h.srv.Pool, tenantID, "analyze", len(debugSystemPrompt)+len(user))
+	if !ok {
 		return
 	}
 	text, tin, tout, cost, err := h.complete(ctx, tenantID, debugSystemPrompt, user)
-	if err == nil {
-		if recErr := RecordUsageSpend(ctx, h.srv.Pool, tenantID, debugUsageBucket, tin, tout, cost); recErr != nil {
-			h.logger().Warn("debug: RecordUsageSpend failed", zap.Error(recErr))
-		}
+	if err != nil {
+		tin, tout, cost = 0, 0, 0 // release the reservation
+	}
+	if recErr := settleDebugCall(ctx, h.srv.Pool, tenantID, reserved, tin, tout, cost); recErr != nil {
+		h.logger().Warn("debug: settle usage failed", zap.Error(recErr))
 	}
 	if err != nil {
 		h.logger().Warn("debug: model call failed", zap.String("tenant_id", tenantID), zap.Error(err))
@@ -714,7 +717,7 @@ func (g *debugGather) agentContext() error {
 		var failing []string
 		for _, c := range res {
 			if !c.Passed && len(failing) < 6 {
-				failing = append(failing, clip(c.Name, 60))
+				failing = append(failing, cleanText(c.Name, 60))
 			}
 		}
 		g.add("eval:"+id, fmt.Sprintf("eval run failed at %s on version %s, score %.2f", at.UTC().Format(time.RFC3339), firstNonEmpty(ver, "?"), score),

@@ -73,7 +73,7 @@ Proposals are gated on facts the server read. For example, a rollback is offered
 A prompt or model change edits the agent's working copy, not production. Production changes only when you freeze and promote the working copy (`pal freeze`, `pal promote`), and promotion runs the eval gate. Create the `eval_case` regression first, then replay it against the working copy with `POST /v1/eval-suites/{id}/run`. That reruns the failing input hermetically, with the recorded tool results.
 </Aside>
 
-A prompt patch shows the exact change, called the **hunk**: where it is, what it removes and what it adds. The removed and added text are never shortened. The dashboard and the CLI send a patch only if that hunk, applied to the current prompt, gives exactly the prompt the request would save. A change you didn't see can't ride along. An `eval_case` proposal shows the input, judge rubric and recorded tool results it will create before you confirm it.
+A prompt patch shows the exact change, called the **hunk**: where it is, what it removes and what it adds. The removed and added text are never shortened. The dashboard and the CLI send a patch only if that hunk, applied to the current prompt, gives exactly the prompt the request would save. A change you didn't see can't ride along, and a patch containing invisible characters (zero-width, bidi or Unicode tag characters) is never proposed or sent. An `eval_case` proposal shows the input, judge rubric and recorded tool results it will create before you confirm it.
 
 A prompt, model or budget proposal carries a **precondition**: the values it was computed from. For a budget, that is every field the request replaces. Before applying it, the dashboard and the CLI read the agent again. If the value has changed, they refuse with "stale proposal", so an approval never overwrites someone else's edit. PAL never widens an agent's policy in one click.
 
@@ -89,7 +89,7 @@ Spend is recorded under the `__pal_debug__` usage row. It counts toward the work
 
 ### Who can call it
 
-`/v1/debug/analyze` and `/v1/support/ask` read the agent definition (including its prompt), its budget, runs and incidents. A caller needs `runs:execute`, `agents:read` and `budgets:read`. Signed-in users have them. An API key needs all three, or a coarse `write`/`admin` scope. A key with only `runs:execute`, such as a web-chat widget key, gets **403**. This check always applies, whatever `PAL_AUTHZ_ENFORCE` is set to. Opening an escalation needs `settings:write`; reading one needs `settings:read`.
+`/v1/debug/analyze` and `/v1/support/ask` read the agent definition (including its prompt), its budget, runs and incidents. A caller needs `runs:execute`, `agents:read` and `budgets:read`. Signed-in users have them. An API key needs all three, or a coarse `write`/`admin` scope. A key with only `runs:execute`, such as a web-chat widget key, gets **403**. This check always applies, whatever `PAL_AUTHZ_ENFORCE` is set to. Opening an escalation needs `settings:write`. If it is about a run or an incident, it also needs `runs:read` and `agents:read`. Reading a bundle needs `settings:read`, `runs:read` and `agents:read`. Escalations are limited to `PAL_SUPPORT_ESCALATIONS_PER_HOUR` per workspace, default 10.
 
 ## Ask the support agent
 

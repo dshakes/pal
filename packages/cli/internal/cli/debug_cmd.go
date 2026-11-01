@@ -151,10 +151,13 @@ func debugPreconditionHolds(expect, live map[string]any) string {
 var (
 	termEscRe  = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]`)
 	termCtrlRe = regexp.MustCompile(`[\x00-\x08\x0b-\x1f\x7f\x{80}-\x{9f}]`)
+	// Renders as nothing but a model reads it: format chars (zero-width, bidi,
+	// Unicode TAG smuggling), private-use, noncharacters.
+	termHiddenRe = regexp.MustCompile(`[\p{Cf}\p{Co}\x{E0000}-\x{E007F}\x{FDD0}-\x{FDEF}\x{FFFE}\x{FFFF}]`)
 )
 
 func termSafe(s string) string {
-	return termCtrlRe.ReplaceAllString(termEscRe.ReplaceAllString(s, ""), "")
+	return termHiddenRe.ReplaceAllString(termCtrlRe.ReplaceAllString(termEscRe.ReplaceAllString(s, ""), ""), "")
 }
 
 // debugHunkMax bounds what the CLI will ask a person to review in a terminal.
@@ -181,7 +184,7 @@ func checkPromptHunk(p debugProposalDTO) error {
 		return fmt.Errorf("refusing: the request would change more than the change shown")
 	}
 	if termSafe(h.Removed) != h.Removed || termSafe(h.Added) != h.Added {
-		return fmt.Errorf("refusing: patch contains control characters")
+		return fmt.Errorf("refusing: patch contains control or invisible characters")
 	}
 	return nil
 }
@@ -316,7 +319,8 @@ func debugAnalyze(cmd *cobra.Command, body map[string]any, asJSON bool) error {
 		if p.Action == nil {
 			continue
 		}
-		fmt.Fprintf(w, "\nApply #%d %s? [y/N] ", i+1, termSafe(p.Title))
+		// The question is built from server-set fields, not the model's title.
+		fmt.Fprintf(w, "\nApply #%d [%s] %s %s? [y/N] ", i+1, termSafe(p.Kind), termSafe(p.Action.Method), termSafe(p.Action.Path))
 		line, rerr := in.ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(line)); a == "y" || a == "yes" {
 			if err := applyDebugProposal(cmd, p); err != nil {
@@ -403,7 +407,9 @@ func newSupportCommand() *cobra.Command {
 }
 
 func renderSupportAnswer(w io.Writer, out map[string]any) {
-	fmt.Fprintln(w, firstStr(out["answer"]))
+	// Every server string is terminal-sanitized before it is printed.
+	safeStr := func(v ...any) string { return termSafe(firstStr(v...)) }
+	fmt.Fprintln(w, safeStr(out["answer"]))
 	if g, ok := out["grounded"].(bool); ok && !g {
 		fmt.Fprintln(w, "\nWARNING: ungrounded - not backed by cited docs or data.")
 	}
@@ -420,25 +426,25 @@ func renderSupportAnswer(w io.Writer, out map[string]any) {
 	if cs := items("citations"); len(cs) > 0 {
 		fmt.Fprintln(w, "\nCited:")
 		for _, c := range cs {
-			fmt.Fprintf(w, "  [%s] %s\n", firstStr(c["ref"]), firstStr(c["label"]))
+			fmt.Fprintf(w, "  [%s] %s\n", safeStr(c["ref"]), safeStr(c["label"]))
 		}
 	}
 	if ds := items("docs"); len(ds) > 0 {
 		fmt.Fprintln(w, "\nDocs:")
 		for _, d := range ds {
-			fmt.Fprintf(w, "  %s  %s\n", firstStr(d["title"]), firstStr(d["path"]))
+			fmt.Fprintf(w, "  %s  %s\n", safeStr(d["title"]), safeStr(d["path"]))
 		}
 	}
 	if as := items("actions"); len(as) > 0 {
 		fmt.Fprintln(w, "\nSuggested:")
 		for _, a := range as {
-			switch k := firstStr(a["kind"]); k {
+			switch k := safeStr(a["kind"]); k {
 			case "debug_run":
-				fmt.Fprintf(w, "  pal debug run %s\n", firstStr(a["runId"]))
+				fmt.Fprintf(w, "  pal debug run %s\n", safeStr(a["runId"]))
 			case "debug_incident":
-				fmt.Fprintf(w, "  pal debug incident %s\n", firstStr(a["incidentId"]))
+				fmt.Fprintf(w, "  pal debug incident %s\n", safeStr(a["incidentId"]))
 			default:
-				fmt.Fprintf(w, "  %s %s\n", firstStr(a["label"], k), firstStr(a["href"]))
+				fmt.Fprintf(w, "  %s %s\n", safeStr(a["label"], k), safeStr(a["href"]))
 			}
 		}
 	}

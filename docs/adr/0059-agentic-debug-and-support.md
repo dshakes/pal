@@ -116,8 +116,11 @@ coarse `admin`/`write` scope that implies them. A `runs:execute`-only key, for e
 web-chat widget key, gets 403. This check runs inside the handler and is **always** enforced,
 independent of `PAL_AUTHZ_ENFORCE`, because route-level scope enforcement is off by default in dev.
 
-Escalations are workspace support records. Opening one needs `settings:write`; listing, reading and
-verifying need `settings:read`. Kiosk sessions are refused on every route.
+Escalations are workspace support records. Opening one needs `settings:write`; listing and
+verifying need `settings:read`. A bundle carries run data, so opening an escalation about a run or
+incident, or reading a bundle, also needs `runs:read` and `agents:read`. Escalation writes are
+rate-limited (`PAL_SUPPORT_ESCALATIONS_PER_HOUR`, default 10), because the rows are append-only.
+Kiosk sessions are refused on every route.
 
 ### 6. Money and limits
 
@@ -133,6 +136,10 @@ Both agents bound what one call can cost and how often it can happen:
     output at a deliberately high blended price);
   - the debug agents' own daily cap (`PAL_DEBUG_MAX_USD_PER_DAY`, default 1.00, `off` disables).
     This cap keeps a tenant with only per-agent budgets bounded too.
+
+  The estimate is **reserved** in the usage row before both caps are read, so concurrent calls see
+  each other's spend. After the call the reservation is settled to the real cost, or released if
+  the call failed.
 
 Spend is recorded under the `__pal_debug__` usage row. That row counts toward the tenant-wide cap, but
 not toward the agent being debugged: an agent blocked by its own budget is the common case to debug,
@@ -150,8 +157,17 @@ and debugging it must not consume that budget.
 - An `eval_case` proposal shows what it creates (the input, the judge rubric and the recorded tool
   results) before it is confirmed.
 - A rollback proposal's audit note is fixed text plus the proposal id, never model text.
-- Model text is stripped of terminal escapes and control characters on the server, and again in the
-  CLI.
+- Model text is stripped of terminal escapes, control characters and invisible code points on the
+  server, and again in the CLI. Invisible code points are format characters (zero-width, bidi
+  overrides, Unicode TAG "ASCII smuggling"), private-use characters and noncharacters. A prompt patch
+  containing any of them is refused outright on the server, in the dashboard and in the CLI: they
+  render as nothing in a review, but a model still reads them.
+- Workspace names (agent name, subject) are quoted in the prompt, so a crafted name cannot forge an
+  instruction line outside the data fence. `__pal_debug__` is a reserved agent name.
+- The CLI's apply question is built from the server-set kind, method and path, not from the model's
+  title.
+- The escalation signature covers `"pal.support_escalation.v1" 0x00 ‖ canonical bundle`, so it can
+  never verify as a receipt or any other object the receipt key signs.
 - A working-copy prompt that holds a secret-shaped value is redacted for the model and is never
   offered as a patch.
 

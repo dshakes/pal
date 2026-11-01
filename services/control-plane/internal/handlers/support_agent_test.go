@@ -226,7 +226,7 @@ func TestSupportEscalate_BundleIsMinimalSignedAndScoped(t *testing.T) {
 	if hex.EncodeToString(sum[:]) != digest {
 		t.Fatal("stored bundle does not match its digest")
 	}
-	if alg == "HMAC-SHA256" && hmacSign(canon) != sig {
+	if alg == "HMAC-SHA256" && hmacSign(escalationSigningInput(canon)) != sig {
 		t.Fatal("bundle signature does not verify")
 	}
 
