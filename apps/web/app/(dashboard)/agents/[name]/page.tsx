@@ -83,7 +83,7 @@ import { ConfirmModal } from "@/components/modal";
 import { RoleGate } from "@/components/role-gate";
 import { useAgentSurface } from "@/components/agent-surface";
 import { resolveTab, type AgentTab } from "@/lib/lifecycle";
-import { DebugPanel, EvalsPanel, GatePanel, LifecycleRail, PromotePanel } from "./lifecycle";
+import { DebugPanel, EvalsPanel, GatePanel, LifecycleRail, PromotePanel, ReliabilityStrip } from "./lifecycle";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -182,6 +182,7 @@ const RUNS_PER_PAGE = 10;
 const routeTabs = [
   { key: "channels", label: "Channels", icon: Plug, suffix: "/channels" as const },
   { key: "workflow", label: "Workflow", icon: GitBranch, suffix: "/editor" as const },
+  { key: "reliability", label: "Reliability", icon: Activity, suffix: "/reliability" as const },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1796,6 +1797,7 @@ export default function AgentDetailPage() {
         {/* RUNS TAB */}
         {activeTab === "observe" && (
           <div className="space-y-4">
+            <ReliabilityStrip agentName={name} />
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={async () => {
