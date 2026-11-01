@@ -1,534 +1,203 @@
 "use client";
 
-// /personal/drafts — pending VIP drafts awaiting approve / edit /
-// discard. The dashboard is where these get resolved; the bridge
-// queues them when an inbound from a VIP arrives.
+// /personal/drafts — Holds: replies PAL parked for the owner instead of sending
+// (commitment / grounding gates, draft-confirm, VIP drafts).
 //
-// UX rules:
-//   - Show inbound + draft side-by-side so the user can compare tone.
-//   - One-tap approve is the dominant action — large, primary button.
-//   - Edit-in-place: clicking the draft body switches to a textarea
-//     with the same content + Save/Cancel.
-//   - History tab so the user can see what was sent vs discarded.
-//   - Auto-refresh every 6s while pending tab is open (no WS yet —
-//     drafts are low-frequency enough that polling is fine).
+// GET /v1/whatsapp/drafts?status=… (newest 100, both channels mixed), acted on
+// with POST /v1/whatsapp/drafts/{id}/act. Approve / edit / discard stop at a
+// confirm card (components/personal/hold-card); a delivery failure is shown as
+// "not delivered", never as success (lib/pal-space.holdOutcome).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import {
-  Check,
-  Clock,
-  Crown,
-  Edit3,
-  FileText,
-  Inbox,
-  MessageCircle,
-  RefreshCw,
-  Send,
-  Smartphone,
-  Trash2,
-  X,
-} from "lucide-react";
-
-import {
-  actOnDraft,
-  listDrafts,
-  prettyJid,
-  type Draft,
-} from "@/lib/whatsapp-personal-client";
+import { AlertTriangle, Check, Edit3, Inbox, RefreshCw, X } from "lucide-react";
+import { listDrafts, prettyJid, type Draft } from "@/lib/whatsapp-personal-client";
+import { DRAFTS_CAP, capNote, makeLatest, reconcileResolved, timeAgo } from "@/lib/pal-space";
 import { useToast } from "@/components/toast";
+import { useCan } from "@/components/role-gate";
+import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/skeleton";
+import { Tabs } from "@/components/tabs";
+import { ChannelTag, FailedSendNote, HoldCard, type FailedSend } from "@/components/personal/hold-card";
 
-type StatusTab = "pending" | "approved" | "edited" | "discarded";
-type ChannelFilter = "all" | "whatsapp" | "imessage";
+type StatusTab = Draft["status"];
+type ChannelFilter = "all" | Draft["channel"];
 
-const TABS: { id: StatusTab; label: string }[] = [
-  { id: "pending", label: "Pending" },
-  { id: "approved", label: "Sent" },
+const TABS = [
+  { id: "pending", label: "Waiting on you" },
+  { id: "approved", label: "Approved" },
   { id: "edited", label: "Edited" },
   { id: "discarded", label: "Discarded" },
-];
+] as const;
 
-export default function DraftsPage() {
+const EMPTY: Record<StatusTab, { title: string; hint: string }> = {
+  pending: { title: "No replies are being held", hint: "When PAL parks a reply for your OK, it shows up here and on Today." },
+  approved: { title: "Nothing approved yet", hint: "Replies you approve land here. The server records approval, not delivery, so a send that failed still appears here." },
+  edited: { title: "Nothing edited yet", hint: "Replies you changed before sending land here." },
+  discarded: { title: "Nothing discarded yet", hint: "Drafts you chose not to send land here." },
+};
+
+export default function HoldsPage() {
+  const toast = useToast();
+  const canAct = useCan("runs:execute");
   const [tab, setTab] = useState<StatusTab>("pending");
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
+  const [channel, setChannel] = useState<ChannelFilter>("all");
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
 
-  const toast = useToast();
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Only the latest request may write state (a slow answer for a tab the owner
+  // already left must not overwrite the current one), and drafts acted on this
+  // session stay hidden from polls that were already in flight.
+  const latest = useRef(makeLatest());
+  const resolvedIds = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(
     async (silent = false) => {
+      const req = latest.current.begin();
       if (!silent) setLoading(true);
       try {
-        const { drafts } = await listDrafts(tab);
-        setDrafts(drafts);
+        const { drafts: next } = await listDrafts(tab);
+        if (!latest.current.isLatest(req)) return;
+        let rows = next ?? [];
+        if (tab === "pending") {
+          const r = reconcileResolved(rows, resolvedIds.current);
+          resolvedIds.current = r.resolved;
+          rows = r.rows;
+        }
+        setDrafts(rows);
         setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load drafts");
+        if (!latest.current.isLatest(req)) return;
+        // Keep whatever was already on screen; say the refresh failed.
+        setError(e instanceof Error ? e.message : "Couldn't load holds");
       } finally {
-        if (!silent) setLoading(false);
+        if (latest.current.isLatest(req)) setLoading(false);
       }
     },
     [tab],
   );
 
   useEffect(() => {
-    refresh();
+    setDrafts([]);
+    void refresh();
   }, [refresh]);
 
-  // Poll only while the Pending tab is open — minimizes load and the
-  // user only cares about live updates when they're actively triaging.
+  // Poll only while triaging the pending queue.
   useEffect(() => {
-    if (tab !== "pending") {
-      if (pollTimer.current) clearInterval(pollTimer.current);
-      pollTimer.current = null;
-      return;
-    }
-    pollTimer.current = setInterval(() => refresh(true), 6000);
-    return () => {
-      if (pollTimer.current) clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    };
+    if (tab !== "pending") return;
+    const id = setInterval(() => void refresh(true), 8000);
+    return () => clearInterval(id);
   }, [tab, refresh]);
 
-  const handleAction = async (
-    id: string,
-    action: "approve" | "edit" | "discard",
-    finalText?: string,
-  ) => {
-    try {
-      const result = await actOnDraft(id, action, finalText);
-      if (result.sendError) {
-        toast.warning(`Resolved, but bridge send failed: ${result.sendError}`);
-      } else {
-        const verb =
-          action === "approve" ? "Sent" : action === "edit" ? "Sent (edited)" : "Discarded";
-        toast.success(verb);
-      }
-      await refresh(true);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Action failed");
+  const onOutcome: React.ComponentProps<typeof HoldCard>["onOutcome"] = (draft, _action, outcome, sentText) => {
+    if (outcome.kind === "error") {
+      toast.error(outcome.message);
+      return;
     }
+    resolvedIds.current.add(draft.id);
+    setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+    if (outcome.kind === "delivery_failed" && sentText) {
+      setFailedSends((prev) => [
+        ...prev,
+        { id: draft.id, who: draft.displayName || prettyJid(draft.jid), channel: draft.channel, text: sentText, message: outcome.message },
+      ]);
+    } else if (outcome.kind === "gone") toast.info(outcome.message);
+    else toast.success(outcome.message);
   };
 
-  const filtered = useMemo(
-    () =>
-      channelFilter === "all"
-        ? drafts
-        : drafts.filter((d) => d.channel === channelFilter),
-    [drafts, channelFilter],
+  const visible = useMemo(() => (channel === "all" ? drafts : drafts.filter((d) => d.channel === channel)), [drafts, channel]);
+  const counts = useMemo(
+    () => ({ whatsapp: drafts.filter((d) => d.channel === "whatsapp").length, imessage: drafts.filter((d) => d.channel === "imessage").length }),
+    [drafts],
   );
-  const pendingCount = useMemo(() => (tab === "pending" ? filtered.length : null), [tab, filtered.length]);
-  const totalByChannel = useMemo(() => {
-    let wa = 0, im = 0;
-    for (const d of drafts) {
-      if (d.channel === "whatsapp") wa++;
-      else if (d.channel === "imessage") im++;
-    }
-    return { wa, im };
-  }, [drafts]);
+  const note = capNote("drafts", drafts.length, DRAFTS_CAP);
 
   return (
-    <div className="space-y-6">
-      <Intro pendingCount={pendingCount} />
-
-      <div className="rounded-2xl border border-zinc-800/80 bg-surface-1">
-        <div className="flex items-center justify-between border-b border-zinc-800/60 px-4">
-          <nav className="flex items-center gap-1">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
-                  tab === t.id
-                    ? "border-violet-500 text-zinc-50"
-                    : "border-transparent text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
-          <button
-            type="button"
-            onClick={() => refresh()}
-            className="inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-zinc-200"
-          >
-            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-fg">Holds</h2>
+          <p className="mt-0.5 max-w-2xl text-[13px] text-fg-3">
+            Replies PAL parked instead of sending. Approving sends the text through the channel that queued it, and nothing goes out until you confirm.
+          </p>
         </div>
-
-        {error && (
-          <div className="m-4 rounded-md border border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-200">
-            {error}
-          </div>
-        )}
-
-        {drafts.length > 0 && (
-          <div className="flex items-center gap-1 border-b border-zinc-800/60 px-4 py-2">
-            <span className="mr-1 text-[11px] uppercase tracking-wide text-zinc-500">channel</span>
-            <FilterChip active={channelFilter === "all"} onClick={() => setChannelFilter("all")}>
-              all <span className="text-zinc-500">({drafts.length})</span>
-            </FilterChip>
-            {totalByChannel.wa > 0 && (
-              <FilterChip
-                active={channelFilter === "whatsapp"}
-                onClick={() => setChannelFilter("whatsapp")}
-                tone="emerald"
-              >
-                WhatsApp <span className="text-zinc-500">({totalByChannel.wa})</span>
-              </FilterChip>
-            )}
-            {totalByChannel.im > 0 && (
-              <FilterChip
-                active={channelFilter === "imessage"}
-                onClick={() => setChannelFilter("imessage")}
-                tone="blue"
-              >
-                iMessage <span className="text-zinc-500">({totalByChannel.im})</span>
-              </FilterChip>
-            )}
-          </div>
-        )}
-
-        {loading ? (
-          <SkeletonCards />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={Inbox}
-            title={EMPTY_COPY[tab].title}
-            description={EMPTY_COPY[tab].hint}
-            size="compact"
-            {...(tab === "pending" ? { actionLabel: "Manage VIPs", actionHref: "/personal/vip" } : {})}
-          />
-        ) : (
-          <ul className="divide-y divide-zinc-800/60">
-            {filtered.map((d) => (
-              <DraftCard
-                key={d.id}
-                draft={d}
-                onApprove={() => handleAction(d.id, "approve")}
-                onEdit={(text) => handleAction(d.id, "edit", text)}
-                onDiscard={() => handleAction(d.id, "discard")}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  tone = "violet",
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  tone?: "violet" | "emerald" | "blue";
-  children: React.ReactNode;
-}) {
-  const activeColors = {
-    violet: "border-violet-500/30 bg-violet-500/15 text-violet-200",
-    emerald: "border-emerald-500/30 bg-emerald-500/15 text-emerald-200",
-    blue: "border-blue-500/30 bg-blue-500/15 text-blue-200",
-  }[tone];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-md border px-2 py-0.5 text-xs transition-colors ${
-        active ? activeColors : "border-zinc-800 text-zinc-400 hover:text-zinc-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-// -------------------------------------------------------------- intro
-
-function Intro({ pendingCount }: { pendingCount: number | null }) {
-  return (
-    <div className="rounded-2xl border border-zinc-800/80 bg-surface-1 p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-300">
-            <Crown className="h-6 w-6" />
-          </div>
-          <div>
-            <h2 className="text-lg font-medium text-zinc-50">
-              Drafts awaiting your call
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-zinc-400">
-              When a{" "}
-              <Link href="/personal/vip" className="text-violet-300 underline">
-                VIP contact
-              </Link>{" "}
-              messages you, the assistant drafts a reply in your style but doesn't send. Approve as-is, edit, or discard.
-            </p>
-          </div>
-        </div>
-        {pendingCount !== null && pendingCount > 0 && (
-          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-300">
-            {pendingCount} pending
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// --------------------------------------------------------- DraftCard
-
-function DraftCard({
-  draft,
-  onApprove,
-  onEdit,
-  onDiscard,
-}: {
-  draft: Draft;
-  onApprove: () => void;
-  onEdit: (text: string) => void;
-  onDiscard: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState(draft.draftText);
-  const [busy, setBusy] = useState<"approve" | "edit" | "discard" | null>(null);
-
-  const isPending = draft.status === "pending";
-  const senderLabel = draft.displayName || prettyJid(draft.jid);
-
-  const handleApprove = async () => {
-    setBusy("approve");
-    try { await onApprove(); } finally { setBusy(null); }
-  };
-  const handleEdit = async () => {
-    setBusy("edit");
-    try { await onEdit(editText.trim()); setEditing(false); } finally { setBusy(null); }
-  };
-  const handleDiscard = async () => {
-    setBusy("discard");
-    try { await onDiscard(); } finally { setBusy(null); }
-  };
-
-  return (
-    <li className="px-5 py-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Crown className="h-3.5 w-3.5 text-amber-300" />
-            <span className="text-sm font-medium text-zinc-100">{senderLabel}</span>
-            <ChannelBadge channel={draft.channel} />
-            {senderLabel !== prettyJid(draft.jid) && (
-              <span className="font-mono text-[11px] text-zinc-600">
-                {prettyJid(draft.jid)}
-              </span>
-            )}
-            <span className="ml-auto flex items-center gap-1 text-[11px] uppercase tracking-wide text-zinc-500">
-              <Clock className="h-3 w-3" />
-              {timeAgo(draft.createdAt)}
-            </span>
-          </div>
-
-          {/* Inbound */}
-          <div className="mt-3 rounded-lg border border-zinc-800/60 bg-zinc-900/40 p-3">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
-              <Inbox className="h-3 w-3" />
-              They wrote
-            </div>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-300">
-              {draft.inboundText || <em className="text-zinc-600">(empty)</em>}
-            </p>
-          </div>
-
-          {/* Draft / Edit */}
-          <div className="mt-3 rounded-lg border border-violet-500/30 bg-violet-500/[0.03] p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-violet-300">
-                <FileText className="h-3 w-3" />
-                Assistant draft
-              </div>
-              {isPending && !editing && (
-                <button
-                  type="button"
-                  onClick={() => { setEditText(draft.draftText); setEditing(true); }}
-                  className="inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400 hover:text-zinc-200"
-                >
-                  <Edit3 className="h-3 w-3" /> Edit
-                </button>
-              )}
-            </div>
-            {editing ? (
-              <div className="mt-2">
-                <textarea
-                  autoFocus
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  rows={Math.min(8, Math.max(3, editText.split("\n").length))}
-                  className="w-full rounded-md border border-violet-500/40 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-violet-500 focus:outline-none"
-                />
-                <div className="mt-2 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setEditing(false); setEditText(draft.draftText); }}
-                    className="rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEdit}
-                    disabled={busy === "edit" || !editText.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-violet-500 px-3 py-1 text-xs font-medium text-white hover:bg-violet-400 disabled:opacity-50"
-                  >
-                    <Send className="h-3 w-3" />
-                    {busy === "edit" ? "Sending…" : "Send edited"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">
-                {draft.status === "approved" || draft.status === "edited"
-                  ? draft.finalText || draft.draftText
-                  : draft.draftText}
-              </p>
-            )}
-          </div>
-        </div>
+        <Button variant="ghost" size="sm" icon={<RefreshCw className="h-3 w-3" />} onClick={() => void refresh()}>
+          Refresh
+        </Button>
       </div>
 
-      {/* Actions row — only on pending */}
-      {isPending && !editing && (
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleDiscard}
-            disabled={!!busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {busy === "discard" ? "Discarding…" : "Discard"}
-          </button>
-          <button
-            type="button"
-            onClick={handleApprove}
-            disabled={!!busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-400 disabled:opacity-50"
-          >
-            <Check className="h-3.5 w-3.5" />
-            {busy === "approve" ? "Sending…" : "Approve & Send"}
-          </button>
-        </div>
+      <Tabs tabs={TABS} value={tab} onChange={(id) => setTab(id as StatusTab)} />
+
+      {error && (
+        <p role="alert" className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-warn">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          Couldn&apos;t refresh holds ({error}).{drafts.length > 0 ? " Showing the last list that loaded." : ""}
+        </p>
       )}
+      {note && <p className="text-xs text-fg-3">{note}</p>}
 
-      {!isPending && (
-        <div className="mt-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-zinc-500">
-          <ResolvedBadge status={draft.status} />
-        </div>
-      )}
-    </li>
-  );
-}
-
-// Small chip showing which channel queued the draft so the user knows
-// where the approved reply will go out. Emerald = WhatsApp, blue =
-// iMessage (matches the channel-switcher color palette).
-function ChannelBadge({ channel }: { channel: Draft["channel"] }) {
-  const isWA = channel === "whatsapp";
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium ${
-        isWA
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-          : "border-blue-500/30 bg-blue-500/10 text-blue-300"
-      }`}
-      title={isWA ? "queued from WhatsApp" : "queued from iMessage"}
-    >
-      {isWA ? <MessageCircle className="h-2.5 w-2.5" /> : <Smartphone className="h-2.5 w-2.5" />}
-      {isWA ? "WhatsApp" : "iMessage"}
-    </span>
-  );
-}
-
-function ResolvedBadge({ status }: { status: Draft["status"] }) {
-  switch (status) {
-    case "approved":
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
-          <Check className="h-3 w-3" /> sent
-        </span>
-      );
-    case "edited":
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-violet-300">
-          <Edit3 className="h-3 w-3" /> sent (edited)
-        </span>
-      );
-    case "discarded":
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-800/40 px-2 py-0.5 text-zinc-400">
-          <X className="h-3 w-3" /> discarded
-        </span>
-      );
-    default:
-      return null;
-  }
-}
-
-// ----------------------------------------------------------- empty state
-
-const EMPTY_COPY: Record<StatusTab, { title: string; hint: string }> = {
-  pending: {
-    title: "No drafts to review",
-    hint: "When a VIP contact messages you, the assistant's draft will appear here for your call.",
-  },
-  approved: {
-    title: "Nothing sent yet",
-    hint: "Drafts you approve land here.",
-  },
-  edited: {
-    title: "Nothing edited yet",
-    hint: "Drafts you tweak before sending land here.",
-  },
-  discarded: {
-    title: "Nothing discarded yet",
-    hint: "Drafts you decided not to send land here.",
-  },
-};
-
-function SkeletonCards() {
-  return (
-    <ul className="divide-y divide-zinc-800/60">
-      {[0, 1].map((i) => (
-        <li key={i} className="px-5 py-5">
-          <div className="space-y-3">
-            <Skeleton className="h-3 w-32" />
-            <Skeleton className="h-16 rounded-lg" />
-            <Skeleton className="h-20 rounded-lg" />
-          </div>
-        </li>
+      {failedSends.map((f) => (
+        <FailedSendNote
+          key={f.id}
+          item={f}
+          onCopy={(t) => void navigator.clipboard.writeText(t).then(() => toast.success("Copied."), () => toast.error("Couldn't copy."))}
+          onDismiss={() => setFailedSends((prev) => prev.filter((x) => x.id !== f.id))}
+        />
       ))}
-    </ul>
+
+      {drafts.length > 0 && (
+        <div className="flex items-center gap-1.5" role="group" aria-label="Filter by channel">
+          {([["all", `All (${drafts.length})`], ["whatsapp", `WhatsApp (${counts.whatsapp})`], ["imessage", `iMessage (${counts.imessage})`]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={channel === id}
+              onClick={() => setChannel(id)}
+              className={`focus-ring rounded-md border px-2 py-0.5 text-xs ${channel === id ? "border-accent/40 bg-accent-soft text-accent" : "border-line text-fg-3 hover:text-fg"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2" aria-busy="true">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+      ) : visible.length === 0 ? (
+        <EmptyState icon={Inbox} title={EMPTY[tab].title} description={EMPTY[tab].hint} size="compact" />
+      ) : tab === "pending" ? (
+        <ul className="space-y-3" aria-label="Held replies">
+          {visible.map((d) => (
+            <li key={d.id}>
+              <HoldCard draft={d} onOutcome={onOutcome} canAct={canAct} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="divide-y divide-line rounded-[12px] border border-line bg-panel" aria-label="Resolved replies">
+          {visible.map((d) => (
+            <li key={d.id} className="px-4 py-3">
+              <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-fg">
+                {d.displayName.trim() || prettyJid(d.jid)}
+                <ChannelTag channel={d.channel} />
+                <span className="inline-flex items-center gap-1 text-[11px] font-normal text-fg-3">
+                  {d.status === "discarded" ? <X className="h-3 w-3" aria-hidden /> : d.status === "edited" ? <Edit3 className="h-3 w-3" aria-hidden /> : <Check className="h-3 w-3" aria-hidden />}
+                  queued {timeAgo(d.createdAt)}
+                </span>
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-xs text-fg-3">They said: {d.inboundText}</p>
+              {d.status !== "discarded" && (
+                <p className="mt-1 whitespace-pre-wrap text-sm text-fg">{d.finalText || d.draftText}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
-}
-
-// ---------------------------------------------------------------- helpers
-
-function timeAgo(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return iso;
-  const diff = Date.now() - t;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
-  return `${Math.floor(diff / 86_400_000)}d`;
 }

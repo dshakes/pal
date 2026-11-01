@@ -1,43 +1,52 @@
 "use client";
 
-// /brief — pal home: today's Brief.
+// /brief — Today. The pal home: one ranked list of what needs the owner.
 //
-// One ranked list of what needs the owner, with the acting buttons inline:
-// approve / edit / discard a held reply, dismiss a suggestion, copy the chat
-// command for a waiting thread (chat stays the acting surface for those).
-// Ranking = deterministic base order + one control-plane LLM pass that may
-// only reorder/annotate (lib/brief). Nothing here fabricates: every row is a
-// real server record; a source that is down is named, not faked.
+// Sources, each of which can fail on its own (a down source is NAMED, never
+// faked, and the rest still render):
+//   held replies   GET /v1/whatsapp/drafts?status=pending   (newest 100)
+//   suggestions    GET /v1/life-events?status=suggested
+//   commitments    GET /v1/commitments?status=open          (urgency-first)
+//   threads        each bridge's attention snapshot, READ-ONLY via /api/bridge
+// Ranking = deterministic base order + at most one control-plane LLM pass that
+// may only reorder/annotate (lib/brief). Acting on a held reply or dismissing a
+// suggestion always stops at a confirm card. Threads are copy-a-chat-command
+// only: chat is their acting surface and the dashboard never mutates a bridge.
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCan } from "@/components/role-gate";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
-import {
-  AlertTriangle, ArrowRight, Check, Clock, Copy, Edit3, Inbox, Loader2, MessageCircle, RefreshCw, Smartphone,
-  Sparkles, Trash2, X, Zap, CheckCircle2,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Copy, Inbox, Loader2, MessageCircle, RefreshCw, Smartphone, Sparkles, X, Zap } from "lucide-react";
 import { api, type Commitment, type LifeEvent } from "@/lib/api";
-import { actOnDraft, listDrafts, type Draft } from "@/lib/whatsapp-personal-client";
-import { fetchAttention, fetchHealth, type AttentionItem } from "@/lib/bridge-client";
-import type { BridgeChannel } from "@/lib/bridge-types";
+import { listDrafts, prettyJid, type Draft } from "@/lib/whatsapp-personal-client";
+import { fetchAttention, fetchHealth } from "@/lib/bridge-client";
+import { BRIDGE_CHANNELS, type BridgeChannel } from "@/lib/bridge-types";
 import { useAuth } from "@/lib/auth";
 import { useModels } from "@/lib/model-context";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/button";
 import { Skeleton } from "@/components/skeleton";
+import { PageHeader } from "@/components/page-header";
+import { ConfirmCard } from "@/components/confirm-card";
+import { EmptyState } from "@/components/empty-state";
 import { AskBar } from "@/components/ask-bar";
 import { SuggestedSteps } from "@/components/suggested-steps";
+import { FailedSendNote, HoldCard, type FailedSend } from "@/components/personal/hold-card";
 import {
-  RANK_SYSTEM_PROMPT, applyRank, buildBriefItems, buildRankPrompt, greeting, parseRank, rankCacheKey,
-  type BriefItem,
+  RANK_SYSTEM_PROMPT, applyRank, buildBriefItems, buildRankPrompt, greeting, parseRank, rankCacheKey, type BriefItem,
 } from "@/lib/brief";
+import {
+  BRIEF_SOURCE_LIMIT, DRAFTS_CAP, bridgeLinkFromError, capNote, dataOr, failedLabels, itemSetKey, makeLatest, needsRank, reconcileResolved, settle, threadsFromSnapshots,
+  timeAgo, type BridgeLink, type SnapshotThread,
+} from "@/lib/pal-space";
 
-const CHANNELS: BridgeChannel[] = ["whatsapp", "imessage"];
-type ChannelHealth = Record<BridgeChannel, "online" | "offline" | "unknown">;
+type Rank = { order: string[]; why: Record<string, string>; covered: ReadonlySet<string> };
+type StaleSnap = { channel: string; generatedAt: number };
+const CHANNEL_NAME: Record<BridgeChannel, string> = { whatsapp: "WhatsApp", imessage: "iMessage" };
 
-export default function BriefPage() {
-  const canAct = useCan("runs:execute");
+export default function TodayPage() {
+  const canAct = useCan("runs:execute"); // approve/edit/discard + dismiss (UX gating, lib/rbac-matrix.ts)
   const { user } = useAuth();
   const { isConfigured } = useModels();
   const toast = useToast();
@@ -46,44 +55,57 @@ export default function BriefPage() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [events, setEvents] = useState<LifeEvent[]>([]);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
-  const [threads, setThreads] = useState<Array<AttentionItem & { channel: BridgeChannel }>>([]);
-  const [health, setHealth] = useState<ChannelHealth>({ whatsapp: "unknown", imessage: "unknown" });
+  const [threads, setThreads] = useState<SnapshotThread[]>([]);
+  const [stale, setStale] = useState<StaleSnap[]>([]);
+  const [link, setLink] = useState<Record<BridgeChannel, BridgeLink>>({ whatsapp: "unknown", imessage: "unknown" });
   const [failed, setFailed] = useState<string[]>([]);
-  const [ranked, setRanked] = useState<BriefItem[] | null>(null);
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  const [rank, setRank] = useState<Rank | null>(null);
   const [ranking, setRanking] = useState(false);
+  const [dismissing, setDismissing] = useState<string | null>(null);
+  const [dismissBusy, setDismissBusy] = useState(false);
+
+  const tenantId = user?.tenantId;
+  // Late polls must not overwrite newer ones, nor resurrect a draft acted on this session.
+  const latestLoad = useRef(makeLatest());
+  const resolvedIds = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
-    const down: string[] = [];
-    const tenantId = user?.tenantId;
+    const req = latestLoad.current.begin();
     const [d, e, c] = await Promise.all([
-      listDrafts("pending").then((r) => r.drafts ?? []).catch(() => (down.push("held replies"), [] as Draft[])),
-      api.listLifeEvents({ status: "suggested", limit: 30 }).catch(() => (down.push("automations"), [] as LifeEvent[])),
-      api.listCommitments({ status: "open", limit: 30 }).catch(() => (down.push("commitments"), [] as Commitment[])),
+      settle(listDrafts("pending").then((r) => r.drafts ?? [])),
+      settle(api.listLifeEvents({ status: "suggested", limit: BRIEF_SOURCE_LIMIT })),
+      settle(api.listCommitments({ status: "open", limit: BRIEF_SOURCE_LIMIT, strict: true })),
     ]);
-    const h: ChannelHealth = { whatsapp: "unknown", imessage: "unknown" };
-    const t: Array<AttentionItem & { channel: BridgeChannel }> = [];
-    await Promise.all(
-      CHANNELS.map(async (ch) => {
+    // Bridges: health first, then the read-only attention snapshot. Any failure
+    // degrades to "offline"/no threads — never to an error page.
+    const nextLink: Record<BridgeChannel, BridgeLink> = { whatsapp: "unknown", imessage: "unknown" };
+    const snaps = await Promise.all(
+      BRIDGE_CHANNELS.map(async (ch) => {
         try {
           await fetchHealth(ch);
-          h[ch] = "online";
-          if (tenantId) {
-            const snap = await fetchAttention(tenantId, ch).catch(() => null);
-            for (const it of snap?.items ?? []) if (it.ref === "thread") t.push({ ...it, channel: ch });
-          }
-        } catch {
-          h[ch] = "offline";
+          nextLink[ch] = "online";
+        } catch (err) {
+          nextLink[ch] = bridgeLinkFromError(err);
+          return null;
         }
+        if (!tenantId) return null;
+        return fetchAttention(tenantId, ch).catch(() => null);
       }),
     );
-    setDrafts(d);
-    setEvents(e);
-    setCommitments(c);
-    setThreads(t);
-    setHealth(h);
-    setFailed(down);
+    if (!latestLoad.current.isLatest(req)) return;
+    const t = threadsFromSnapshots(snaps, Date.now());
+    const rec = d.ok ? reconcileResolved(d.data, resolvedIds.current) : { rows: [] as Draft[], resolved: resolvedIds.current };
+    resolvedIds.current = rec.resolved;
+    setDrafts(rec.rows);
+    setEvents(dataOr(e, []));
+    setCommitments(dataOr(c, []));
+    setThreads(t.threads);
+    setStale(t.stale);
+    setLink(nextLink);
+    setFailed(failedLabels([["held replies", d], ["suggestions", e], ["commitments", c]]));
     setLoading(false);
-  }, [user?.tenantId]);
+  }, [tenantId]);
 
   useEffect(() => {
     void load();
@@ -94,40 +116,47 @@ export default function BriefPage() {
   const base = useMemo(
     () =>
       buildBriefItems({
-        holds: drafts,
+        holds: drafts.map((x) => ({ ...x, displayName: x.displayName || prettyJid(x.jid) })),
         lifeEvents: events,
         commitments,
-        threads: threads.map((t) => ({ id: `${t.id}`, label: t.label, why: t.why, channel: t.channel })),
+        threads: threads.map((t) => ({ id: t.id, label: t.label, why: t.why, channel: t.channel })),
       }),
     [drafts, events, commitments, threads],
   );
+  const baseSig = itemSetKey(base); // sorted: a reorder is not a new set
+  const baseRef = useRef(base);
+  baseRef.current = base;
+  const rankRef = useRef(rank);
+  rankRef.current = rank;
 
-  // AI rank: one call per distinct item set, cached for the session.
+  // One reorder-only LLM pass per distinct item set. Resolving a card shrinks
+  // the set and never re-ranks; a failed pass is remembered (covered) so the
+  // 30s poll does not retry it.
   useEffect(() => {
-    if (!isConfigured || base.length < 2) {
-      setRanked(null);
-      return;
-    }
-    const key = rankCacheKey(base);
+    const items = baseRef.current;
+    if (!isConfigured || !needsRank(items, rankRef.current?.covered ?? null)) return;
+    const covered = new Set(items.map((i) => i.key));
+    const cacheKey = rankCacheKey(items);
     try {
-      const hit = sessionStorage.getItem(key);
-      if (hit) {
-        setRanked(applyRank(base, JSON.parse(hit)));
+      const hit = sessionStorage.getItem(cacheKey);
+      const cached = hit ? parseRank(hit, items) : null;
+      if (cached) {
+        setRank({ ...cached, covered });
         return;
       }
     } catch {
-      /* ignore */
+      /* storage unavailable: just rank */
     }
     let cancelled = false;
     setRanking(true);
-    void api.assistJSON(RANK_SYSTEM_PROMPT, buildRankPrompt(base), { maxTokens: 500 }).then((raw) => {
+    void api.assistJSON(RANK_SYSTEM_PROMPT, buildRankPrompt(items), { maxTokens: 500 }).then((raw) => {
       if (cancelled) return;
-      const rank = raw ? parseRank(raw, base) : null;
-      setRanked(rank ? applyRank(base, rank) : null);
+      const parsed = raw ? parseRank(raw, items) : null;
+      setRank({ order: parsed?.order ?? [], why: parsed?.why ?? {}, covered });
       setRanking(false);
-      if (rank) {
+      if (parsed) {
         try {
-          sessionStorage.setItem(key, JSON.stringify(rank));
+          sessionStorage.setItem(cacheKey, JSON.stringify(parsed));
         } catch {
           /* ignore */
         }
@@ -135,97 +164,93 @@ export default function BriefPage() {
     });
     return () => {
       cancelled = true;
+      setRanking(false);
     };
-  }, [base, isConfigured]);
+  }, [baseSig, isConfigured]);
 
-  // Ranked order, but always the CURRENT item set (resolved rows drop out).
-  const items = useMemo(() => {
-    if (!ranked) return base;
-    const live = new Map(base.map((b) => [b.key, b]));
-    const out: BriefItem[] = ranked.filter((r) => live.has(r.key)).map((r) => ({ ...live.get(r.key)!, why: r.why }));
-    for (const b of base) if (!out.some((o) => o.key === b.key)) out.push(b);
-    return out;
-  }, [base, ranked]);
-
+  const items = useMemo(() => applyRank(base, rank), [base, rank]);
   const draftById = useMemo(() => new Map(drafts.map((d) => [d.id, d])), [drafts]);
   const threadByKey = useMemo(() => new Map(threads.map((t) => [`thread:${t.channel}:${t.id}`, t])), [threads]);
 
-  const resolveDraft = async (d: Draft, action: "approve" | "edit" | "discard", text?: string) => {
-    try {
-      const res = await actOnDraft(d.id, action, text);
-      setDrafts((prev) => prev.filter((x) => x.id !== d.id));
-      if (res.sendError) toast.warning(`Saved, but sending failed: ${res.sendError}`);
-      else toast.success(action === "discard" ? "Discarded" : `Sent to ${d.displayName || "contact"}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't update the reply");
+  const onHoldOutcome: React.ComponentProps<typeof HoldCard>["onOutcome"] = (draft, _action, outcome, sentText) => {
+    if (outcome.kind === "error") {
+      toast.error(outcome.message);
+      return;
     }
+    resolvedIds.current.add(draft.id);
+    setDrafts((prev) => prev.filter((x) => x.id !== draft.id));
+    if (outcome.kind === "delivery_failed" && sentText) {
+      setFailedSends((prev) => [
+        ...prev,
+        { id: draft.id, who: draft.displayName || prettyJid(draft.jid), channel: draft.channel, text: sentText, message: outcome.message },
+      ]);
+    } else if (outcome.kind === "gone") toast.info(outcome.message);
+    else toast.success(outcome.message);
   };
 
   const dismissEvent = async (id: string) => {
+    setDismissBusy(true);
     try {
       await api.dismissLifeEvent(id);
       setEvents((prev) => prev.filter((e) => e.id !== id));
-      toast.success("Dismissed");
-    } catch {
-      toast.error("Couldn't dismiss that");
+      setDismissing(null);
+      toast.success("Dismissed.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't dismiss that.");
+    } finally {
+      setDismissBusy(false);
     }
   };
 
-  const copyCommand = (t: AttentionItem) => {
-    const cmd = `${t.n} ${t.defaultAction}`;
-    navigator.clipboard.writeText(cmd).then(
-      () => toast.success(`Copied “${cmd}” — send it in your self-chat`),
-      () => toast.error("Couldn't copy"),
+  const copy = (text: string, done: string) =>
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(done),
+      () => toast.error("Couldn't copy."),
     );
-  };
 
   const now = new Date();
   const firstName = user?.name?.split(" ")[0];
   const holdCount = drafts.length;
-  const anyChannelOnline = health.whatsapp === "online" || health.imessage === "online";
+  const anyOnline = link.whatsapp === "online" || link.imessage === "online";
+  const notes = [
+    capNote("held replies", drafts.length, DRAFTS_CAP),
+    capNote("suggestions", events.length, BRIEF_SOURCE_LIMIT),
+    capNote("open commitments", commitments.length, BRIEF_SOURCE_LIMIT),
+  ].filter((n): n is string => n !== null);
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8">
-        {/* Greeting */}
-        <header className="mb-6">
-          <p className="text-xs font-medium text-zinc-500">
-            {now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-zinc-50 md:text-3xl">
-            {greeting(now.getHours())}
-            {firstName ? `, ${firstName}` : ""}.
-          </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {loading
-              ? "Gathering what needs you…"
-              : items.length === 0
-                ? "Nothing needs you right now."
-                : `${items.length} thing${items.length === 1 ? "" : "s"} need${items.length === 1 ? "s" : ""} you${holdCount ? ` — ${holdCount} repl${holdCount === 1 ? "y is" : "ies are"} waiting for your OK` : ""}.`}
-          </p>
-        </header>
-
+      <PageHeader
+        title={`${greeting(now.getHours())}${firstName ? `, ${firstName}` : ""}`}
+        description={
+          loading
+            ? "Gathering what needs you…"
+            : items.length === 0
+              ? "Nothing needs you right now."
+              : `${items.length} thing${items.length === 1 ? "" : "s"} need${items.length === 1 ? "s" : ""} you${holdCount ? `, ${holdCount} repl${holdCount === 1 ? "y" : "ies"} waiting for your OK` : ""}.`
+        }
+      />
+      <div className="mx-auto w-full max-w-6xl px-4 py-5 md:px-8">
         <div className="mb-6">
           <AskBar
-            placeholder="Ask PAL anything — “what did I miss?”"
+            placeholder="Ask PAL anything, like “what did I miss?”"
             examples={["What needs me today?", "Show replies waiting on me", "Open automations"]}
           />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-          {/* What needs you */}
           <section aria-labelledby="needs-you" className="min-w-0">
             <div className="mb-3 flex items-center justify-between">
-              <h2 id="needs-you" className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+              <h2 id="needs-you" className="flex items-center gap-2 text-sm font-semibold text-fg">
                 What needs you
                 {ranking && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-normal text-zinc-500">
-                    <Loader2 className="h-3 w-3 animate-spin" /> ranking
+                  <span className="inline-flex items-center gap-1 text-[11px] font-normal text-fg-3">
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> ranking
                   </span>
                 )}
-                {ranked && !ranking && (
-                  <span className="inline-flex items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
-                    <Sparkles className="h-2.5 w-2.5 text-pal-400" /> ranked by PAL
+                {rank && rank.order.length > 0 && !ranking && (
+                  <span className="inline-flex items-center gap-1 rounded bg-raised px-1.5 py-0.5 text-[10px] font-medium text-fg-3">
+                    <Sparkles className="h-2.5 w-2.5 text-accent" aria-hidden /> ranked by PAL
                   </span>
                 )}
               </h2>
@@ -235,55 +260,89 @@ export default function BriefPage() {
             </div>
 
             {failed.length > 0 && (
-              <p className="mb-3 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                Couldn&apos;t load {failed.join(" and ")} — showing what loaded.
+              <p role="status" className="mb-3 flex items-center gap-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 text-xs text-warn">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Couldn&apos;t load {failed.join(" and ")}. Showing what loaded.
               </p>
+            )}
+            {notes.map((n) => (
+              <p key={n} className="mb-3 text-xs text-fg-3">{n}</p>
+            ))}
+
+            {failedSends.length > 0 && (
+              <div className="mb-3 space-y-2">
+                {failedSends.map((f) => (
+                  <FailedSendNote
+                    key={f.id}
+                    item={f}
+                    onCopy={(t) => void copy(t, "Copied.")}
+                    onDismiss={() => setFailedSends((prev) => prev.filter((x) => x.id !== f.id))}
+                  />
+                ))}
+              </div>
             )}
 
             {loading ? (
-              <div className="space-y-2">
+              <div className="space-y-2" aria-busy="true">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-24 w-full rounded-xl" />
                 ))}
               </div>
             ) : items.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-700/60 bg-surface-1 px-6 py-12 text-center">
-                <CheckCircle2 className="mx-auto h-8 w-8 text-pal-400" />
-                <p className="mt-3 text-sm font-semibold text-zinc-100">You&apos;re all caught up</p>
-                <p className="mx-auto mt-1 max-w-sm text-xs text-zinc-500">
-                  {anyChannelOnline
-                    ? "Held replies, suggestions, and threads waiting on you will show up here."
-                    : "Connect a channel so PAL can start catching what needs you."}
-                </p>
-                {!anyChannelOnline && (
-                  <Link href="/personal/setup" className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-pal-400 px-4 py-2 text-xs font-medium text-on-flame hover:bg-pal-300">
-                    Connect a channel <ArrowRight className="h-3 w-3" />
-                  </Link>
-                )}
-              </div>
+              <EmptyState
+                icon={CheckCircle2}
+                title="You're all caught up"
+                description={
+                  failed.length > 0
+                    ? "Some sources didn't load, so this may not be everything."
+                    : anyOnline
+                      ? "Held replies, suggestions and threads waiting on you show up here."
+                      : "Connect a channel so PAL can start catching what needs you."
+                }
+                {...(!anyOnline ? { actionLabel: "Connect a channel", actionHref: "/personal/setup" } : {})}
+              />
             ) : (
               <ol className="space-y-2" aria-label="Ranked items">
                 {items.map((item) => (
                   <li key={item.key}>
                     {item.kind === "hold" && draftById.get(item.id) ? (
-                      <HoldCard item={item} draft={draftById.get(item.id)!} onResolve={resolveDraft} />
+                      <HoldCard draft={draftById.get(item.id)!} why={item.why} onOutcome={onHoldOutcome} canAct={canAct} />
                     ) : item.kind === "life_event" ? (
-                      <RowCard item={item} icon={Zap}>
-                        {canAct && (
-<Button size="sm" variant="ghost" icon={<X className="h-3 w-3" />} onClick={() => void dismissEvent(item.id)}>
-                          Dismiss
-                        </Button>
-)}
-                        <Link href="/automations" className="text-[12px] font-medium text-pal-400 hover:text-pal-300">Open</Link>
-                      </RowCard>
+                      <>
+                        <RowCard item={item} icon={Zap}>
+                          {canAct && <Button size="sm" variant="ghost" icon={<X className="h-3 w-3" />} onClick={() => setDismissing(item.id)}>Dismiss</Button>}
+                          <Link href="/automations" className="text-[12px] font-medium text-accent hover:underline">Open</Link>
+                        </RowCard>
+                        {dismissing === item.id && (
+                          <div className="mt-2 max-w-xl">
+                            <ConfirmCard
+                              title="Dismiss this suggestion?"
+                              confirmLabel="Dismiss"
+                              working={dismissBusy}
+                              onConfirm={() => void dismissEvent(item.id)}
+                              onCancel={() => setDismissing(null)}
+                            >
+                              It leaves your Today list. PAL takes no other action.
+                            </ConfirmCard>
+                          </div>
+                        )}
+                      </>
                     ) : item.kind === "commitment" ? (
                       <RowCard item={item} icon={Clock}>
-                        <Link href="/personal" className="text-[12px] font-medium text-pal-400 hover:text-pal-300">View</Link>
+                        <Link href="/personal" className="text-[12px] font-medium text-accent hover:underline">View</Link>
                       </RowCard>
                     ) : item.kind === "thread" && threadByKey.get(item.key) ? (
                       <RowCard item={item} icon={MessageCircle}>
-                        <Button size="sm" variant="secondary" icon={<Copy className="h-3 w-3" />} onClick={() => copyCommand(threadByKey.get(item.key)!)}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<Copy className="h-3 w-3" />}
+                          onClick={() => {
+                            const t = threadByKey.get(item.key)!;
+                            const cmd = `${t.n} ${t.defaultAction}`;
+                            void copy(cmd, `Copied “${cmd}”. Send it in your self-chat.`);
+                          }}
+                        >
                           Copy chat command
                         </Button>
                       </RowCard>
@@ -294,25 +353,34 @@ export default function BriefPage() {
             )}
           </section>
 
-          {/* Side rail */}
           <aside className="space-y-4">
-            <section aria-label="Channels" className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
-              <h2 className="text-xs font-semibold text-zinc-200">Channels</h2>
+            <section aria-label="Channels" className="rounded-[12px] border border-line bg-panel p-4">
+              <h2 className="text-xs font-semibold text-fg">Channels</h2>
               <ul className="mt-2.5 space-y-2">
-                {CHANNELS.map((ch) => (
-                  <li key={ch} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-2 text-zinc-300">
-                      <Smartphone className="h-3.5 w-3.5 text-zinc-500" />
-                      {ch === "whatsapp" ? "WhatsApp" : "iMessage"}
+                {BRIDGE_CHANNELS.map((ch) => (
+                  <li key={ch} className="flex items-center justify-between text-xs" data-testid={`bridge-${ch}`}>
+                    <span className="flex items-center gap-2 text-fg-2">
+                      <Smartphone className="h-3.5 w-3.5 text-fg-3" aria-hidden />
+                      {CHANNEL_NAME[ch]}
                     </span>
-                    <span className={clsx("flex items-center gap-1.5", health[ch] === "online" ? "text-emerald-400" : "text-zinc-500")}>
-                      <span className={clsx("h-1.5 w-1.5 rounded-full", health[ch] === "online" ? "bg-emerald-400" : "bg-zinc-600")} />
-                      {health[ch] === "online" ? "Connected" : health[ch] === "offline" ? "Offline" : "Checking"}
+                    <span className={clsx("flex items-center gap-1.5", link[ch] === "online" ? "text-ok" : link[ch] === "auth_required" ? "text-warn" : "text-fg-3")}>
+                      <span className={clsx("h-1.5 w-1.5 rounded-full", link[ch] === "online" ? "bg-ok" : link[ch] === "auth_required" ? "bg-warn" : "bg-fg-3")} aria-hidden />
+                      {link[ch] === "online" ? "Connected" : link[ch] === "offline" ? "Offline" : link[ch] === "auth_required" ? "Needs token" : "Checking"}
                     </span>
                   </li>
                 ))}
               </ul>
-              <Link href="/personal/setup" className="mt-3 inline-flex text-[12px] font-medium text-pal-400 hover:text-pal-300">
+              {BRIDGE_CHANNELS.some((c) => link[c] === "offline" || link[c] === "auth_required") && (
+                <p className="mt-2 text-[11px] text-fg-3">
+                  Threads waiting on you from an unreachable channel aren&apos;t shown until it&apos;s back.
+                </p>
+              )}
+              {stale.map((s) => (
+                <p key={s.channel} className="mt-2 text-[11px] text-fg-3" data-testid="stale-snapshot">
+                  {s.channel === "whatsapp" ? "WhatsApp" : "iMessage"}&apos;s waiting-threads list is from {timeAgo(new Date(s.generatedAt).toISOString())}, so it is hidden. Ask for “today” in your self-chat to refresh it.
+                </p>
+              ))}
+              <Link href="/personal/setup" className="mt-3 inline-flex text-[12px] font-medium text-accent hover:underline">
                 Manage channels
               </Link>
             </section>
@@ -323,18 +391,18 @@ export default function BriefPage() {
             </section>
 
             <SuggestedSteps
-              page="pal Brief (personal home)"
+              page="pal Today (personal home)"
               facts={[
                 `${holdCount} held replies`,
                 `${events.length} suggested automations`,
                 `${commitments.length} open commitments`,
-                `WhatsApp ${health.whatsapp}`,
-                `iMessage ${health.imessage}`,
+                `WhatsApp ${link.whatsapp}`,
+                `iMessage ${link.imessage}`,
                 isConfigured ? "model provider configured" : "no model provider key",
               ]}
               fallback={[
                 ...(isConfigured ? [] : [{ label: "Add a model provider key", href: "/settings?tab=providers" }]),
-                ...(anyChannelOnline ? [] : [{ label: "Connect WhatsApp or iMessage", href: "/personal/setup" }]),
+                ...(anyOnline ? [] : [{ label: "Connect WhatsApp or iMessage", href: "/personal/setup" }]),
                 { label: "Tune automation trust levels", href: "/automations" },
                 { label: "Teach PAL about your people", href: "/personal/contacts" },
               ].slice(0, 3)}
@@ -348,116 +416,33 @@ export default function BriefPage() {
 
 function Stat({ label, value, href, icon: Icon }: { label: string; value: string; href: string; icon: typeof Inbox }) {
   return (
-    <Link href={href} className="rounded-xl border border-zinc-800 bg-surface-1 p-3 transition-colors hover:border-zinc-700">
-      <Icon className="h-3.5 w-3.5 text-zinc-500" />
-      <p className="mt-2 text-xl font-semibold tabular-nums text-zinc-50">{value}</p>
-      <p className="text-[11px] text-zinc-500">{label}</p>
+    <Link href={href} className="focus-ring rounded-[12px] border border-line bg-panel p-3 transition-colors hover:bg-hover">
+      <Icon className="h-3.5 w-3.5 text-fg-3" aria-hidden />
+      <p className="mt-2 text-xl font-semibold tabular-nums text-fg">{value}</p>
+      <p className="text-[11px] text-fg-3">{label}</p>
     </Link>
-  );
-}
-
-function Why({ why }: { why?: string }) {
-  if (!why) return null;
-  return (
-    <p className="mt-1 flex items-center gap-1 text-[11px] text-pal-400">
-      <Sparkles className="h-2.5 w-2.5" /> {why}
-    </p>
   );
 }
 
 function RowCard({ item, icon: Icon, children }: { item: BriefItem; icon: typeof Inbox; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-surface-1 p-4 sm:flex-row sm:items-center">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-zinc-400">
-        <Icon className="h-4 w-4" />
+    <div className="flex flex-col gap-3 rounded-[12px] border border-line bg-panel p-4 sm:flex-row sm:items-center">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-raised text-fg-3">
+        <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-zinc-100">{item.title}</p>
-        <p className="truncate text-xs text-zinc-500">
+        <p className="truncate text-sm font-medium text-fg">{item.title}</p>
+        <p className="truncate text-xs text-fg-3">
           {item.detail}
           {item.channel ? ` · ${item.channel}` : ""}
         </p>
-        <Why why={item.why} />
+        {item.why && (
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-accent">
+            <Sparkles className="h-2.5 w-2.5" aria-hidden /> {item.why}
+          </p>
+        )}
       </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>
     </div>
-  );
-}
-
-function HoldCard({
-  item, draft, onResolve,
-}: {
-  item: BriefItem;
-  draft: Draft;
-  onResolve: (d: Draft, action: "approve" | "edit" | "discard", text?: string) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(draft.draftText);
-  const [busy, setBusy] = useState<null | "approve" | "edit" | "discard">(null);
-  const canAct = useCan("runs:execute"); // sending/discarding a held reply (UX gating, lib/rbac-matrix.ts)
-  const act = async (a: "approve" | "edit" | "discard") => {
-    setBusy(a);
-    await onResolve(draft, a, a === "edit" ? text : undefined);
-    setBusy(null);
-  };
-  return (
-    <article aria-label={`Held reply to ${draft.displayName}`} className="rounded-xl border border-pal-500/25 bg-surface-1 p-4">
-      <div className="flex items-start gap-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-pal-500/15 text-pal-400">
-          <Inbox className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-zinc-100">
-            {item.title}
-            <span className="ml-2 text-[11px] font-normal text-zinc-500">{draft.channel}</span>
-          </p>
-          <Why why={item.why} />
-          <p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-zinc-300">
-            <span className="mr-1 text-zinc-500">They said:</span>
-            {draft.inboundText}
-          </p>
-          {editing ? (
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              aria-label="Edit reply"
-              rows={3}
-              className="mt-2 w-full resize-y rounded-lg border border-zinc-700 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/60"
-            />
-          ) : (
-            <p className="mt-2 rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-100">
-              <span className="mr-1 text-xs text-zinc-500">Draft:</span>
-              {draft.draftText}
-            </p>
-          )}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {!canAct ? (
-              <span className="text-[12px] text-zinc-500">Only a Member or above can send or discard held replies.</span>
-            ) : editing ? (
-              <>
-                <Button size="sm" variant="primary" loading={busy === "edit"} disabled={!text.trim()} icon={<Check className="h-3 w-3" />} onClick={() => void act("edit")}>
-                  Send edited
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setText(draft.draftText); }}>
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button size="sm" variant="primary" loading={busy === "approve"} icon={<Check className="h-3 w-3" />} onClick={() => void act("approve")}>
-                  Approve &amp; send
-                </Button>
-                <Button size="sm" variant="secondary" icon={<Edit3 className="h-3 w-3" />} onClick={() => setEditing(true)}>
-                  Edit
-                </Button>
-                <Button size="sm" variant="ghost" loading={busy === "discard"} icon={<Trash2 className="h-3 w-3" />} onClick={() => void act("discard")}>
-                  Discard
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </article>
   );
 }

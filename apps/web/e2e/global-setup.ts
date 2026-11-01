@@ -5,7 +5,9 @@ import path from "node:path";
 import {
   API_PORT, API_URL, CP_DIR, CP_LOG, GRPC_PORT, LLM_PORT, LLM_RULES, METRICS_PORT,
   PG_ADMIN_URL, REDIS_DB, REDIS_HOST, REDIS_PORT, RUN_DIR, WEB_PORT, WEB_URL,
+  BRIDGE_IM_PORT, BRIDGE_IM_URL, BRIDGE_WA_PORT, BRIDGE_WA_URL,
 } from "./support/env";
+import { startFixtureBridge } from "./support/fixture-bridge";
 import { flushRedis } from "./support/redis";
 
 // Boots a private stack: fresh Postgres DB, control-plane, llm-replay, next dev.
@@ -49,7 +51,7 @@ async function warmRoutes() {
   });
   const { token } = (await r.json()) as { token?: string };
   const headers = { cookie: `pal_token=${token ?? ""}` };
-  for (const p of ["/login", "/auth/forgot", "/auth/reset?token=x", "/onboarding", "/agents", "/settings"]) {
+  for (const p of ["/login", "/auth/forgot", "/auth/reset?token=x", "/onboarding", "/agents", "/settings", "/brief", "/personal/drafts", "/personal/contacts", "/personal/docs"]) {
     await fetch(WEB_URL + p, { headers }).catch(() => {});
   }
 }
@@ -75,7 +77,7 @@ function killAll() {
 export default async function globalSetup() {
   // Iterating on a spec: boot once (`npx tsx e2e/global-setup.ts`-style) and reuse it.
   if (process.env.E2E_REUSE_STACK) return;
-  for (const p of [WEB_PORT, API_PORT, GRPC_PORT, METRICS_PORT, LLM_PORT]) {
+  for (const p of [WEB_PORT, API_PORT, GRPC_PORT, METRICS_PORT, LLM_PORT, BRIDGE_WA_PORT, BRIDGE_IM_PORT]) {
     if (!(await portFree(p))) throw new Error(`port ${p} is in use; set E2E_*_PORT (never reuse :8080/:3001)`);
   }
   await flushRedis();
@@ -88,7 +90,9 @@ export default async function globalSetup() {
   const psql = (sql: string) => execFileSync("psql", [PG_ADMIN_URL, "-v", "ON_ERROR_STOP=1", "-qc", sql], { stdio: "inherit" });
   psql(`CREATE DATABASE ${dbName}`);
 
+  let bridge: Awaited<ReturnType<typeof startFixtureBridge>> | undefined;
   const teardown = async () => {
+    bridge?.close();
     killAll();
     await new Promise((r) => setTimeout(r, 1500)); // let the server drop its DB connections
     try {
@@ -100,6 +104,7 @@ export default async function globalSetup() {
   };
 
   try {
+    bridge = await startFixtureBridge(BRIDGE_WA_PORT);
     const cpBin = path.join(RUN_DIR, "control-plane");
     const llmBin = path.join(RUN_DIR, "llm-replay");
     execFileSync("go", ["build", "-o", cpBin, "./cmd/server"], { cwd: CP_DIR, stdio: "inherit" });
@@ -121,6 +126,11 @@ export default async function globalSetup() {
       PAL_SIGNUP_MODE: "open",
       PAL_LLM_BASEURL_OPENAI: `http://127.0.0.1:${LLM_PORT}`,
       PAL_LLM_BASEURL_ANTHROPIC: `http://127.0.0.1:${LLM_PORT}`,
+      // Approving a held reply makes the control-plane POST /send to a bridge: never the live ones.
+      PAL_BRIDGE_URL: BRIDGE_WA_URL,
+      PAL_IMESSAGE_BRIDGE_URL: BRIDGE_IM_URL,
+      PAL_BRIDGE_TOKEN: "",
+      PAL_IMESSAGE_BRIDGE_TOKEN: "",
       ...extraEnv,
     }, CP_LOG);
     await waitFor(`${API_URL}/healthz`, "control-plane");
@@ -128,6 +138,13 @@ export default async function globalSetup() {
     start("web", "npx", ["next", "dev", "--port", String(WEB_PORT)], WEB_DIR, {
       NEXT_PUBLIC_API_URL: API_URL,
       PAL_API_URL: API_URL,
+      // The dashboard proxy (/api/bridge) and the browser WebSocket default to the live bridges.
+      PAL_BRIDGE_URL: BRIDGE_WA_URL,
+      PAL_IMESSAGE_BRIDGE_URL: BRIDGE_IM_URL,
+      NEXT_PUBLIC_PAL_BRIDGE_URL: BRIDGE_WA_URL,
+      NEXT_PUBLIC_PAL_IMESSAGE_BRIDGE_URL: BRIDGE_IM_URL,
+      PAL_BRIDGE_TOKEN: "",
+      PAL_IMESSAGE_BRIDGE_TOKEN: "",
       NEXT_TELEMETRY_DISABLED: "1",
     }, path.join(RUN_DIR, "web.log"));
     await waitFor(`${WEB_URL}/login`, "next dev");
