@@ -353,7 +353,9 @@ func TestSignup_GatesBeforeDB(t *testing.T) {
 			setSignupEnv(t, tc.env, tc.mode, tc.turnstile)
 			t.Setenv("PAL_SIGNUP_INVITE_SECRET", "inv")
 			b := map[string]string{"email": body["email"], "password": body["password"], "captchaToken": tc.captcha, "inviteCode": tc.invite}
-			rr := callJSON(noDBAuthHandler().Signup, "/auth/signup", b)
+			h := noDBAuthHandler()
+			h.rl = newFakeRedis() // prod sign-up fails closed without a limiter
+			rr := callJSON(h.Signup, "/auth/signup", b)
 			if rr.Code != tc.wantStatus || !strings.Contains(rr.Body.String(), tc.wantErr) {
 				t.Fatalf("got %d %s, want %d ~%q", rr.Code, rr.Body.String(), tc.wantStatus, tc.wantErr)
 			}
@@ -371,7 +373,7 @@ func TestSignup_RejectsHeaderInjectionEmail(t *testing.T) {
 }
 
 func TestAuthRateLimits_429(t *testing.T) {
-	setSignupEnv(t, "", "closed", "")
+	setSignupEnv(t, "", "open", "")
 	cases := []struct {
 		name  string
 		fn    func(h *AuthHandler) http.HandlerFunc
@@ -404,6 +406,42 @@ func TestAuthRateLimits_429(t *testing.T) {
 				t.Fatalf("got %d %s, want 429", rr.Code, rr.Body.String())
 			}
 		})
+	}
+}
+
+// TestSignupRateLimit_FailsClosedInProd pins S-1: with the limiter down
+// (no Redis, or Redis erroring) prod sign-up is refused with 503 instead of
+// running unthrottled; dev and login stay fail-open.
+func TestSignupRateLimit_FailsClosedInProd(t *testing.T) {
+	body := map[string]string{"email": "fc@example.test", "password": "longenough-pass"}
+	for _, tc := range []struct {
+		name string
+		rl   func() spawnRedisClient
+	}{
+		{"no redis", func() spawnRedisClient { return nil }},
+		{"redis erroring", func() spawnRedisClient { f := newFakeRedis(); f.failAll = true; return f }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setSignupEnv(t, "production", "open", "ts-secret")
+			h := noDBAuthHandler()
+			h.rl = tc.rl()
+			rr := callJSON(h.Signup, "/auth/signup", body)
+			if rr.Code != http.StatusServiceUnavailable {
+				t.Fatalf("prod sign-up with limiter down: got %d %s, want 503", rr.Code, rr.Body.String())
+			}
+			// Login keeps failing open so a Redis outage is not a total lockout.
+			if h.authRateLimited(context.Background(), "login:ip:192.0.2.1", 0, time.Minute) {
+				t.Fatal("login limiter must fail open")
+			}
+		})
+	}
+	// Dev: limiter down is not a reason to refuse (it falls through to the
+	// captcha check, which rejects the missing token with 400 — not 503).
+	setSignupEnv(t, "", "open", "ts-secret")
+	h := noDBAuthHandler()
+	rr := callJSON(h.Signup, "/auth/signup", body)
+	if rr.Code == http.StatusServiceUnavailable {
+		t.Fatalf("dev sign-up must fail open, got 503 %s", rr.Body.String())
 	}
 }
 
@@ -486,6 +524,7 @@ func TestLifecycle_ProdSignupRequiresVerification(t *testing.T) {
 	fakeTurnstile(t)
 	setSignupEnv(t, "production", "open", "ts-secret")
 	h, m := newLifecycleHandler(t)
+	h.rl = newFakeRedis() // prod sign-up fails closed without a limiter
 	email := uniqueEmail(t)
 	t.Cleanup(func() { cleanupUserByEmail(t, h, email) })
 	signup := map[string]string{"email": email, "password": "correct-horse-battery", "captchaToken": "pass"}

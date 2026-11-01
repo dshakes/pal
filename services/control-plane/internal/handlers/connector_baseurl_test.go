@@ -3,13 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/dshakes/pal/services/control-plane/internal/connectorreplay"
+	"github.com/dshakes/pal/services/control-plane/internal/mcp"
 )
 
 const replayToken = "tok-secret-do-not-leak"
@@ -254,5 +257,143 @@ func TestDispatchConnectorInProc_SentryPagerDuty(t *testing.T) {
 	out, err = dispatchConnectorInProc(ctx, pool, tenant, "pagerduty", "add_note", map[string]any{"incident_id": "PABC123", "content": "x", "from": "a@b.test"})
 	if err != nil || !strings.Contains(fmt.Sprint(out), "PNOTE1") {
 		t.Fatalf("pagerduty: %v %v", out, err)
+	}
+}
+
+// ---------- S-9: connector SSRF guard ----------
+
+func TestVendorURL(t *testing.T) {
+	jira := []string{"atlassian.net"}
+	sf := []string{"salesforce.com", "force.com"}
+	cases := []struct {
+		raw     string
+		allowed []string
+		want    string // "" = rejected
+	}{
+		{"acme.atlassian.net", jira, "https://acme.atlassian.net"},
+		{"https://ACME.atlassian.net/", jira, "https://acme.atlassian.net"},
+		{"169.254.169.254", jira, ""},
+		{"127.0.0.1", jira, ""},
+		{"10.0.0.5", jira, ""},
+		{"[::1]", jira, ""},
+		{"localhost", jira, ""},
+		{"evil.com", jira, ""},
+		{"acme.atlassian.net.evil.com", jira, ""},
+		{"evilatlassian.net", jira, ""},
+		{"acme.atlassian.net@169.254.169.254", jira, ""},
+		{"evil.com#.atlassian.net", jira, ""},
+		{"evil.com/.atlassian.net", jira, ""},
+		{"acme.atlassian.net:8443", jira, ""},
+		{"http://acme.atlassian.net", jira, ""},
+		{"https://acme.my.salesforce.com", sf, "https://acme.my.salesforce.com"},
+		{"https://acme--dev.sandbox.my.salesforce.com", sf, "https://acme--dev.sandbox.my.salesforce.com"},
+		{"https://test.salesforce.com", sf, "https://test.salesforce.com"},
+		{"https://acme.lightning.force.com", sf, "https://acme.lightning.force.com"},
+		{"https://169.254.169.254", sf, ""},
+		{"http://acme.my.salesforce.com", sf, ""},
+		{"https://acme.my.salesforce.com/services", sf, ""},
+		{"https://metadata.google.internal", sf, ""},
+		{"https://salesforce.com.evil.com", sf, ""},
+	}
+	for _, tc := range cases {
+		got, err := vendorURL(tc.raw, tc.allowed...)
+		if tc.want == "" {
+			if err == nil {
+				t.Errorf("vendorURL(%q) = %q, want rejection", tc.raw, got)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("vendorURL(%q) = %q, %v; want %q", tc.raw, got, err, tc.want)
+		}
+	}
+}
+
+// TestConnectorExecutors_RejectInternalHosts drives the two tenant-configured
+// hosts end to end: neither may produce a request to an internal address.
+func TestConnectorExecutors_RejectInternalHosts(t *testing.T) {
+	if _, err := executeJira(map[string]any{"domain": "169.254.169.254", "accessToken": "t"}, "list_issues", nil); err == nil ||
+		!strings.Contains(err.Error(), "invalid 'Domain'") {
+		t.Fatalf("jira metadata domain: err = %v, want invalid-domain rejection", err)
+	}
+	if _, err := executeSalesforce(map[string]any{"instanceUrl": "http://10.0.0.5", "accessToken": "t"}, "query", map[string]any{"q": "SELECT Id FROM Account"}); err == nil ||
+		!strings.Contains(err.Error(), "invalid instance URL") {
+		t.Fatalf("salesforce private instance: err = %v, want invalid-instance rejection", err)
+	}
+}
+
+func TestConnectorClient_DialGuard(t *testing.T) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{}`) }))
+	defer ok.Close()
+	toMeta := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer toMeta.Close()
+
+	get := func(ctx context.Context, u string) error {
+		httpClient.CloseIdleConnections() // every case must dial, not reuse a pooled conn
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		resp, err := httpClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+		return err
+	}
+	fixture := context.WithValue(context.Background(), fixtureDialKey{}, true)
+
+	t.Run("loopback blocked by default", func(t *testing.T) {
+		t.Setenv("PAL_ENV", "")
+		t.Setenv("PAL_CONNECTOR_ALLOW_PRIVATE", "")
+		if err := get(context.Background(), ok.URL); !errors.Is(err, mcp.ErrBlockedAddress) {
+			t.Fatalf("err = %v, want ErrBlockedAddress", err)
+		}
+	})
+	t.Run("metadata and private blocked", func(t *testing.T) {
+		t.Setenv("PAL_ENV", "")
+		for _, u := range []string{"http://169.254.169.254/latest/meta-data/", "http://10.255.255.1/", "http://[fe80::1]/", "http://100.64.0.1/"} {
+			if err := get(context.Background(), u); !errors.Is(err, mcp.ErrBlockedAddress) {
+				t.Errorf("%s: err = %v, want ErrBlockedAddress", u, err)
+			}
+		}
+	})
+	t.Run("redirect to metadata blocked even from an allowed host", func(t *testing.T) {
+		t.Setenv("PAL_ENV", "")
+		if err := get(fixture, toMeta.URL); !errors.Is(err, mcp.ErrBlockedAddress) {
+			t.Fatalf("err = %v, want ErrBlockedAddress", err)
+		}
+	})
+	t.Run("dev flag allows loopback", func(t *testing.T) {
+		t.Setenv("PAL_ENV", "")
+		t.Setenv("PAL_CONNECTOR_ALLOW_PRIVATE", "1")
+		if err := get(context.Background(), ok.URL); err != nil {
+			t.Fatalf("dev flag: %v", err)
+		}
+	})
+	t.Run("prod ignores dev flag and fixture marker", func(t *testing.T) {
+		t.Setenv("PAL_ENV", "production")
+		t.Setenv("PAL_CONNECTOR_ALLOW_PRIVATE", "1")
+		if err := get(fixture, ok.URL); !errors.Is(err, mcp.ErrBlockedAddress) {
+			t.Fatalf("prod: err = %v, want ErrBlockedAddress", err)
+		}
+	})
+}
+
+// TestNoTimeoutlessDefaultClient pins S-16: the OAuth / captcha / Gmail /
+// connector paths must use a client with a timeout, never http.DefaultClient
+// (no timeout) or the http.Get/Post helpers built on it.
+func TestNoTimeoutlessDefaultClient(t *testing.T) {
+	if outboundHTTPClient.Timeout <= 0 || httpClient.Timeout <= 0 {
+		t.Fatal("shared outbound clients must carry a timeout")
+	}
+	for _, f := range []string{"auth.go", "auth_lifecycle.go", "connectors.go", "connector_executor.go", "rest.go", "gmail.go"} {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, bad := range []string{"http.DefaultClient", "http.Get(", "http.Post(", "http.PostForm("} {
+			if strings.Contains(string(src), bad) {
+				t.Errorf("%s uses %s; use outboundHTTPClient (or the connector httpClient)", f, bad)
+			}
+		}
 	}
 }

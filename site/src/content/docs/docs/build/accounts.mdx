@@ -96,7 +96,7 @@ Cloudflare Turnstile is verified server-side against `siteverify` with the calle
 
 ## Rate limits
 
-Counters are fixed-window and kept in Redis, keyed by client IP (and email where noted). The IP is the TCP peer. `X-Forwarded-For` is honored only when the peer is inside `PAL_TRUSTED_PROXIES`. Exceeding a limit returns `429`.
+Counters are fixed-window and kept in Redis, keyed by client IP (and email where noted). The IP is the TCP peer. `X-Forwarded-For` is honored only when the peer is inside `PAL_TRUSTED_PROXIES` (comma-separated CIDRs). It is then read from the right: hops inside a trusted CIDR are skipped, and the first hop outside them is the client. Entries further left are client-supplied and ignored. Behind an ingress or load balancer, set `PAL_TRUSTED_PROXIES` to its CIDRs. Without it, every user shares the ingress IP and therefore one bucket. The bridge pairing endpoint (`POST /v1/bridges/pair`) uses the same client IP. Exceeding a limit returns `429`.
 
 | Endpoint | Limit | Key |
 | --- | --- | --- |
@@ -190,5 +190,5 @@ A workspace is one tenant. Sign-up creates its owner, and only the owner can exp
 ## Limits
 
 - Invite codes cannot be listed or revoked. To cancel one, rotate `PAL_SIGNUP_INVITE_SECRET`, which invalidates all of them.
-- Rate limiting needs Redis. If Redis is absent or errors, the limiter fails open so an outage cannot lock owners out, and only the captcha and sign-up mode protect `/auth/*`.
+- Rate limiting needs Redis. If Redis is absent or errors, sign-up **fails closed in prod** (`503 sign-up is temporarily unavailable`), so a Redis outage can't be used to create accounts without a limit. Login, verification and password reset fail open, because a Redis outage must not lock owners out. Only the captcha, sign-up mode and per-email checks protect those routes while Redis is down. In dev every route fails open. Bridge pairing keeps its own limiter in memory, so Redis has no effect on it.
 - Emailed links use `OAUTH_DASHBOARD_URL`, which defaults to localhost.

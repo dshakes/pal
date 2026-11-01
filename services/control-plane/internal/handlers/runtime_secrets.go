@@ -263,37 +263,56 @@ func isTrustedProxy(hostPort string, proxies []*net.IPNet) bool {
 	return false
 }
 
-// remoteIP returns the best rate-limiter key for the request.
+// remoteIP returns the client IP used as the rate-limiter key (and as the
+// Turnstile remoteip).
 //
-// Security design: the rate limiter must be keyed on an address the attacker
-// cannot trivially rotate. r.RemoteAddr is the TCP peer — unforgeable by the
-// HTTP client because it is set by the OS from the accepted socket. Trusting
-// X-Forwarded-For unconditionally would let any client rotate its "IP" by
-// changing that header on every attempt, defeating the limiter entirely.
-//
-// We honor X-Forwarded-For ONLY when the immediate TCP peer is within a
-// configured trusted-proxy CIDR (PAL_TRUSTED_PROXIES, default empty).
-// In that case the first (leftmost) XFF element is the original client IP
-// that the trusted proxy inserted and which the attacker cannot forge past
-// the proxy. When no trusted proxies are configured (the default), we always
-// use RemoteAddr, which is always the safe fallback.
+// Security design: the key must be an address the attacker cannot rotate.
+// r.RemoteAddr (the TCP peer) is unforgeable. X-Forwarded-For is honored ONLY
+// when that peer is a configured trusted proxy (PAL_TRUSTED_PROXIES, default
+// empty), and then it is walked from the RIGHT: each proxy APPENDS the address
+// of whoever connected to it, so the rightmost hop not inside a trusted CIDR is
+// the real client. Everything left of it is client-supplied — the old leftmost
+// read let any client rotate its "IP" per request and bypass the limiter.
+// With no trusted proxies configured XFF is ignored entirely. IPs are returned
+// in canonical form so two spellings of one IPv6 address share a bucket.
 func remoteIP(r *http.Request) string {
+	peer := canonicalIP(r.RemoteAddr)
 	proxies := parseTrustedProxies(os.Getenv(envTrustedProxies))
-	if isTrustedProxy(r.RemoteAddr, proxies) {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			// The leftmost entry is the original client IP as set by the
-			// first trusted proxy in the chain.
-			if ip := strings.TrimSpace(strings.SplitN(xff, ",", 2)[0]); ip != "" {
-				return ip
-			}
+	if !isTrustedProxy(peer, proxies) {
+		return peer
+	}
+	var hops []string
+	for _, v := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(v, ",")...)
+	}
+	client := peer
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop := canonicalIP(hops[i])
+		if net.ParseIP(hop) == nil {
+			// A trusted proxy appended garbage (misconfiguration). Stop: what is
+			// left of it is client-controlled. Key on the last trusted hop.
+			break
+		}
+		client = hop
+		if !isTrustedProxy(hop, proxies) {
+			break
 		}
 	}
-	// Default: use the TCP peer address. Strip port so only the host is the key.
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr // bare IP or unparseable: use as-is
+	return client
+}
+
+// canonicalIP strips an optional port / IPv6 brackets and returns the IP in
+// canonical text form, or the trimmed input when it is not an IP.
+func canonicalIP(s string) string {
+	s = strings.TrimSpace(s)
+	if host, _, err := net.SplitHostPort(s); err == nil {
+		s = host
 	}
-	return host
+	s = strings.TrimSuffix(strings.TrimPrefix(s, "["), "]")
+	if ip := net.ParseIP(s); ip != nil {
+		return ip.String()
+	}
+	return s
 }
 
 // recordAuthFailure records an auth failure for the given IP and returns true

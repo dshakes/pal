@@ -13,12 +13,18 @@ package handlers
 // set (a prod tenant's bearer token must never be sent to an arbitrary host).
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
+
+	"github.com/dshakes/pal/services/control-plane/internal/mcp"
 )
 
 // connectorHosts maps a vendor API host to its override name.
@@ -73,11 +79,82 @@ func (t baseURLTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if name, ok := connectorHosts[req.URL.Host]; ok && !IsProd() {
 		if raw := os.Getenv(connectorBaseURLPrefix + name); raw != "" {
 			if base, err := parseConnectorBaseURL(raw); err == nil {
-				r := req.Clone(req.Context())
+				// The fixture server is the operator's own dev host (usually
+				// loopback): exempt this request from the SSRF dial guard.
+				r := req.Clone(context.WithValue(req.Context(), fixtureDialKey{}, true))
 				r.URL.Scheme, r.URL.Host, r.Host = base.Scheme, base.Host, ""
 				req = r
 			}
 		}
 	}
 	return t.next.RoundTrip(req)
+}
+
+// ---------- SSRF dial guard (S-9) ----------
+
+// fixtureDialKey marks a request re-pointed at a dev fixture server.
+type fixtureDialKey struct{}
+
+// connectorDialPolicy decides which IPs a connector request may reach. Cloud
+// metadata / link-local, loopback and private ranges are refused: connector
+// config (a Jira domain, a Salesforce instance URL) is tenant input and the
+// response is returned to the caller, so an internal address would be a
+// read-SSRF. Dev only: PAL_CONNECTOR_ALLOW_PRIVATE=1 or a base-URL fixture
+// override lifts the private/loopback block; both are ignored in prod.
+func connectorDialPolicy(ctx context.Context) mcp.DialPolicy {
+	if IsProd() {
+		return mcp.DialPolicy{}
+	}
+	if ctx.Value(fixtureDialKey{}) != nil || envOn("PAL_CONNECTOR_ALLOW_PRIVATE") {
+		return mcp.DialPolicy{AllowPrivate: true, AllowLoopback: true}
+	}
+	return mcp.DialPolicy{}
+}
+
+// connectorNetDialer checks the RESOLVED address at connect time, so DNS
+// rebinding and redirects to an internal host are caught too.
+var connectorNetDialer = &net.Dialer{
+	Timeout:   10 * time.Second,
+	KeepAlive: 30 * time.Second,
+	ControlContext: func(ctx context.Context, _, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return fmt.Errorf("connector dial %q: %w", address, err)
+		}
+		if !connectorDialPolicy(ctx).Allowed(net.ParseIP(host)) {
+			return fmt.Errorf("connector dial %s: %w", host, mcp.ErrBlockedAddress)
+		}
+		return nil
+	},
+}
+
+// newConnectorTransport is http.DefaultTransport with the dial guard and no
+// proxy (a proxy would hide the real destination from the guard).
+func newConnectorTransport() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	t.DialContext = connectorNetDialer.DialContext
+	return baseURLTransport{next: t}
+}
+
+// vendorURL validates a tenant-configured vendor origin: https, no userinfo,
+// port, path, query or fragment, and a host equal to or under one of the
+// allowed domains. A bare host ("acme.atlassian.net") is accepted.
+func vendorURL(raw string, allowed ...string) (string, error) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" ||
+		u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return "", fmt.Errorf("must be an https origin like https://%s", "acme."+allowed[0])
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, d := range allowed {
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return "https://" + host, nil
+		}
+	}
+	return "", fmt.Errorf("host %q is not under %s", host, strings.Join(allowed, ", "))
 }

@@ -188,21 +188,51 @@ func validEmail(s string) bool {
 	return err == nil && a.Address == s
 }
 
-// authRateLimited counts one hit on key and reports whether max was exceeded
+// errAuthRateLimitUnavailable means the limiter could not count the hit (no
+// Redis configured, or Redis erroring).
+var errAuthRateLimitUnavailable = errors.New("auth rate limiter unavailable")
+
+// authRateCount counts one hit on key and reports whether max was exceeded
 // within window. Redis fixed window; EXPIRE on every hit so a lost EXPIRE can
-// never leave a permanent lockout (see spawn_ratelimit.go). Fails open when
-// Redis is absent or erroring — an outage must not lock owners out.
-func (h *AuthHandler) authRateLimited(ctx context.Context, key string, max int, window time.Duration) bool {
+// never leave a permanent lockout (see spawn_ratelimit.go). When the hit could
+// not be counted it returns errAuthRateLimitUnavailable and the caller picks
+// fail-open or fail-closed.
+func (h *AuthHandler) authRateCount(ctx context.Context, key string, max int, window time.Duration) (bool, error) {
 	if h.rl == nil {
-		return false
+		return false, errAuthRateLimitUnavailable
 	}
 	redisKey := "auth_rl:" + key
 	n, err := h.rl.Incr(ctx, redisKey).Result()
 	if err != nil {
-		return false
+		return false, fmt.Errorf("%w: incr %s: %w", errAuthRateLimitUnavailable, redisKey, err)
 	}
 	h.rl.Expire(ctx, redisKey, window) //nolint:errcheck
-	return n > int64(max)
+	return n > int64(max), nil
+}
+
+// authRateLimited is authRateCount failing OPEN: a Redis outage must not lock
+// owners out of login / password reset (a total auth outage is worse than an
+// unthrottled window; the password hash cost and per-email bucket on recovery
+// still apply). Sign-up does NOT use this in prod — see signupRateLimited.
+func (h *AuthHandler) authRateLimited(ctx context.Context, key string, max int, window time.Duration) bool {
+	limited, _ := h.authRateCount(ctx, key, max, window)
+	return limited
+}
+
+// signupRateLimited gates sign-up by client IP. In prod it fails CLOSED: with
+// the limiter unavailable an attacker could mint accounts (and free-tier
+// budget) unthrottled, and refusing a sign-up only delays a new user. Returns
+// the HTTP status to reply with, or 0 when the request may proceed.
+func (h *AuthHandler) signupRateLimited(ctx context.Context, ip string) int {
+	limited, err := h.authRateCount(ctx, "signup:ip:"+ip, signupPerIPHour, authRateLimitHour)
+	switch {
+	case err != nil && isProd():
+		h.logger().Error("sign-up refused: rate limiter unavailable (fail-closed in prod)", zap.Error(err))
+		return http.StatusServiceUnavailable
+	case limited:
+		return http.StatusTooManyRequests
+	}
+	return 0
 }
 
 func writeTooMany(w http.ResponseWriter) {
@@ -232,7 +262,7 @@ func (h *AuthHandler) checkCaptcha(ctx context.Context, token, ip string) (int, 
 		return http.StatusServiceUnavailable, "captcha verification unavailable"
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		h.logger().Warn("captcha: siteverify call failed", zap.Error(err))
 		return http.StatusServiceUnavailable, "captcha verification unavailable"

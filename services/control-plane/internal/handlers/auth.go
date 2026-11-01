@@ -28,7 +28,8 @@ import (
 type AuthHandler struct {
 	srv       *server.Server
 	jwtSecret []byte
-	// rl backs the /auth/* rate limits; nil (no Redis) means fail-open.
+	// rl backs the /auth/* rate limits; nil (no Redis) fails open, except
+	// prod sign-up which fails closed (signupRateLimited).
 	rl spawnRedisClient
 	// mailer delivers verification + reset links (ADR 0027).
 	mailer mailer.Mailer
@@ -154,21 +155,25 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	ip := remoteIP(r)
 
-	// Abuse controls (ADR 0027): rate limit, sign-up mode, captcha — in that
-	// order, so a closed deployment never calls out to Turnstile.
-	if h.authRateLimited(ctx, "signup:ip:"+ip, signupPerIPHour, authRateLimitHour) {
-		writeTooMany(w)
+	// Abuse controls (ADR 0027): closed mode, rate limit, invite, captcha — in
+	// that order, so a closed deployment never calls out to Turnstile (nor
+	// refuses with 503 when the limiter is down) and invite guesses are
+	// throttled. The limiter fails CLOSED in prod (signupRateLimited).
+	mode := signupMode()
+	if mode != signupOpen && mode != signupInvite {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "sign-up is closed"})
 		return
 	}
-	switch signupMode() {
-	case signupOpen:
-	case signupInvite:
-		if !inviteCodeValid(os.Getenv("PAL_SIGNUP_INVITE_SECRET"), req.Email, req.InviteCode, time.Now()) {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "a valid invite code is required to sign up"})
-			return
-		}
-	default:
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "sign-up is closed"})
+	switch h.signupRateLimited(ctx, ip) {
+	case http.StatusTooManyRequests:
+		writeTooMany(w)
+		return
+	case http.StatusServiceUnavailable:
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "sign-up is temporarily unavailable; please try again later"})
+		return
+	}
+	if mode == signupInvite && !inviteCodeValid(os.Getenv("PAL_SIGNUP_INVITE_SECRET"), req.Email, req.InviteCode, time.Now()) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "a valid invite code is required to sign up"})
 		return
 	}
 	if status, msg := h.checkCaptcha(ctx, req.CaptchaToken, ip); status != 0 {
@@ -846,7 +851,7 @@ func (h *AuthHandler) exchangeOAuthLoginCode(ctx context.Context, providerName s
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
@@ -886,7 +891,7 @@ func (h *AuthHandler) fetchOAuthUserProfile(ctx context.Context, providerName st
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("userinfo request failed: %w", err)
 	}
@@ -939,7 +944,7 @@ func (h *AuthHandler) fetchGitHubEmail(ctx context.Context, accessToken string) 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

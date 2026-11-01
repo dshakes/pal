@@ -161,5 +161,7 @@ Fixtures are exact method + path matches in `internal/connectorreplay/fixtures.j
 ## Limits
 
 - **Overrides are refused in production.** With `PAL_ENV` set to `prod`, `production` or `staging`, the control plane exits if any `PAL_CONNECTOR_BASEURL_*` variable is set, because a bearer token must never go to an arbitrary host. The outbound transport also ignores overrides in prod at request time. A malformed value is fatal in every environment.
+- **Outbound calls refuse internal addresses.** Each connector request checks the resolved IP when it connects, including after a redirect. Cloud metadata and link-local addresses are always refused. Loopback and private ranges (RFC 1918, ULA, CGNAT) are refused too, unless dev mode sets `PAL_CONNECTOR_ALLOW_PRIVATE=1` or the request goes to a `PAL_CONNECTOR_BASEURL_*` fixture. Production ignores both. Proxy environment variables are not used for connector calls.
+- **Tenant-supplied hosts are allowlisted.** The Jira domain must be under `atlassian.net`, for example `acme.atlassian.net`. The Salesforce instance URL must be an `https` origin under `salesforce.com` or `force.com`, which covers `*.my.salesforce.com`, sandbox domains and `test.salesforce.com`. Any other value is rejected before a request is sent.
 - **No plug-in interface.** A new connector is a code change.
 - **Workspace-wide access.** There is no per-agent connector assignment.
