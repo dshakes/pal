@@ -195,7 +195,7 @@ export default function AgentReliabilityPage({ params }: { params: Promise<{ nam
           </p>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             {field("Objective (0 to 1)", "objective", "decimal")}
-            {field("p95 latency ms", "latencyMs", "numeric")}
+            {field("Latency limit per run (ms)", "latencyMs", "numeric")}
             {field("Cost per run USD", "costUsd", "decimal")}
             {field("Min eval score (0 to 1)", "minScore", "decimal")}
             {field("Window (days, 1 to 90)", "windowDays", "numeric")}

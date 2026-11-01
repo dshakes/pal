@@ -99,7 +99,7 @@ export function DebugPanel({ agentName }: { agentName: string }) {
 
           <Section
             title="Failed runs"
-            hint={failed.length > SHOW ? `The ${SHOW} newest of ${failed.length} failed runs.` : undefined}
+            hint={failed.length > SHOW ? `The ${SHOW} newest of ${failed.length >= 100 ? "100+" : failed.length} failed runs.` : undefined}
             action={
               <button type="button" onClick={() => void load()} className="focus-ring inline-flex items-center gap-1 rounded text-[12.5px] text-fg-3 hover:text-fg">
                 <RefreshCw className="h-3 w-3" aria-hidden /> Refresh

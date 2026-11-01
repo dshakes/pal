@@ -105,7 +105,7 @@ export function TimeSeries({
       ro = new ResizeObserver(() => plot?.setSize({ width: Math.max(el.clientWidth, 240), height }));
       ro.observe(el);
       mo = new MutationObserver(build);
-      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-contrast"] });
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-contrast", "data-mode"] });
     });
 
     return () => {

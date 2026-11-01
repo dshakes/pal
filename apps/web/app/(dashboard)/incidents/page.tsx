@@ -4,7 +4,7 @@
 // observability sweep. Detection is deterministic; a model only writes the
 // summary, and only when it cites the linked runs.
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Activity, RefreshCw } from "lucide-react";
@@ -44,11 +44,18 @@ function Incidents() {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
 
+  // Only the newest request may write state, so a slow response for the
+  // previous filter can't land after the current one.
+  const reqId = useRef(0);
   const load = useCallback(async () => {
+    const id = ++reqId.current;
     try {
-      setItems(await api.listIncidents({ status: filter || undefined, agent }));
+      const next = await api.listIncidents({ status: filter || undefined, agent });
+      if (id !== reqId.current) return;
+      setItems(next);
       setError(null);
     } catch (e) {
+      if (id !== reqId.current) return;
       setError(e instanceof Error ? e.message : "Failed to load incidents");
     }
   }, [filter, agent]);
