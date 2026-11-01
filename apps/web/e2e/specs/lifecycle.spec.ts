@@ -72,7 +72,7 @@ test("Evals: run a suite, pin the baseline, then a worse run is called a regress
   await api("/v1/eval-suites", { method: "POST", body: smoke([{ name: "impossible", input: "E2E-SMOKE two", assert: { contains: "NEVER-IN-OUTPUT" } }]) });
   await page.reload();
   await suites.getByRole("row").filter({ hasText: "smoke" }).getByRole("button", { name: "Run" }).click();
-  await expect(page.getByRole("dialog")).toContainText("Scored below the pinned baseline", { timeout: 30_000 });
+  await expect(page.getByRole("dialog")).toContainText("Regressed against the pinned baseline", { timeout: 30_000 });
   await page.keyboard.press("Escape");
   await expect(runs.getByText("Regressed").first()).toBeVisible();
 
