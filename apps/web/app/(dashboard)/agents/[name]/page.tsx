@@ -824,7 +824,7 @@ export default function AgentDetailPage() {
         {activeTab === "evals" && <EvalsPanel agentName={name} />}
         {activeTab === "gate" && <GatePanel agentName={name} />}
         {activeTab === "promote" && <PromotePanel agentName={name} />}
-        {activeTab === "debug" && <DebugPanel runs={agentRuns} loading={runsLoading} />}
+        {activeTab === "debug" && <DebugPanel agentName={name} />}
 
         {/* DESIGN (was Build) */}
         {activeTab === "design" && agent && (

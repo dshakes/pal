@@ -1,10 +1,5 @@
-// Shared runtime types for the Command Center cockpit.
-//
-// `VmRow` mirrors the control-plane camelCase vmRow JSON tags. Cockpit-only
-// fields (`name`, `cpuBase`, `memBase`, `costHr`) are OPTIONAL — they are
-// populated by the demo fleet (lib/runtime-demo.ts) to seed simulated
-// sparklines, and may be absent on real API rows. The page guards on them:
-// a real VM with no metrics renders "—", never a fabricated value.
+// Shared sandbox (microVM) types. `VmRow` mirrors the control-plane camelCase
+// vmRow JSON; everything here comes from the API, nothing is simulated.
 
 export type VmState =
   | "pending"
@@ -26,20 +21,13 @@ export interface VmRow {
   terminatedAt?: string | null;
   lastHeartbeatAt?: string | null;
   spec: Record<string, unknown> | null;
+  /** Why the VM is in its current state (failures carry the cause). */
+  stateReason?: string | null;
   /** Set once the VM has been paused/snapshotted. */
   snapshotId?: string | null;
   /** Set on VMs created by fork. */
   parentVmId?: string | null;
 
-  // ---- cockpit-only, demo-seeded (see honesty contract in runtime-demo.ts)
-  /** Friendly workload / agent name. Real rows may not carry one. */
-  name?: string;
-  /** 0..1 baseline CPU utilisation used to seed the simulated sparkline. */
-  cpuBase?: number;
-  /** 0..1 baseline memory utilisation used to seed the simulated sparkline. */
-  memBase?: number;
-  /** Estimated $/hr for this workload. Used for the fleet cost rollup. */
-  costHr?: number;
 }
 
 export interface ClusterNode {
@@ -49,8 +37,7 @@ export interface ClusterNode {
   running_vms: number;
   free_vcpu_millis: number;
   free_memory_bytes: number;
-  // Totals are present in the demo summary; the live endpoint may omit them,
-  // in which case the capacity map falls back to "free only" rendering.
+  // Totals may be omitted by the live endpoint.
   total_vcpu_millis?: number;
   total_memory_bytes?: number;
   draining: boolean;

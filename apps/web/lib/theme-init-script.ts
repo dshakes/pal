@@ -11,7 +11,7 @@
 // The prefix lists are copied, not imported (this string must stay standalone);
 // theme-state.test.mts fails if they drift from lib/workspace-nav.
 export const INIT_RUNTIME_PREFIXES = [
-  "/overview", "/agents", "/runs", "/incidents", "/inbox", "/runtime", "/deployments", "/eval-suites",
+  "/overview", "/agents", "/runs", "/incidents", "/inbox", "/runtime", "/deployments", "/promotions", "/eval-suites",
   "/evaluations", "/experiments", "/budgets", "/connectors", "/surfaces", "/embed", "/marketplace",
 ];
 export const INIT_PAL_PREFIXES = ["/brief", "/personal", "/automations", "/voice", "/pal"];

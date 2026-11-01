@@ -5,17 +5,14 @@
 // Real API data only. Where the backend has no endpoint yet (aggregate gate
 // status, run replay) the panel shows what IS real and names what's missing.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { formatDistanceToNowStrict } from "date-fns";
-import { CheckCircle2, CircleDashed } from "lucide-react";
+import { CircleDashed } from "lucide-react";
 import { api } from "@/lib/api";
-import type { Run } from "@/lib/types";
 import { CONFIG, LIFECYCLE, type AgentTab } from "@/lib/lifecycle";
-import { ts } from "@/lib/overview";
-import { apiErrorText, budgetPct, budgetTone, incidentTone, type Incident } from "@/lib/observability";
-import { ExplainInline } from "@/components/explain-inline";
+import { apiErrorText, budgetPct, incidentTone, sloTone, type Incident } from "@/lib/observability";
 import { Skeleton } from "@/components/skeleton";
 import { AgentEnvironments } from "../../deployments/agent-environments";
 
@@ -133,48 +130,8 @@ export function PromotePanel({ agentName }: { agentName: string }) {
   return <AgentEnvironments fixedAgent={agentName} />;
 }
 
-// ── Debug ───────────────────────────────────────────────────────────────────
-
-export function DebugPanel({ runs, loading }: { runs: Run[]; loading: boolean }) {
-  const failed = useMemo(() => runs.filter((r) => r.status === "failed").sort((a, b) => ts(b.createdAt) - ts(a.createdAt)), [runs]);
-  return (
-    <div className="space-y-6">
-      <Section title="Failed runs">
-        {loading ? (
-          <Skeleton className="h-24 w-full" />
-        ) : failed.length === 0 ? (
-          <div className="rounded-[12px] border border-line bg-panel p-6 text-center">
-            <CheckCircle2 className="mx-auto h-5 w-5 text-ok" aria-hidden />
-            <p className="mt-2 text-[13.5px] font-medium text-fg">No failed runs</p>
-            <p className="text-[13px] text-fg-3">When a run fails it shows up here with a one-click explanation.</p>
-          </div>
-        ) : (
-          <ul className="space-y-2.5">
-            {failed.slice(0, 10).map((r) => (
-              <li key={r.id} className="rounded-[12px] border border-line bg-panel p-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <Link href={`/runs/${encodeURIComponent(r.id)}`} className="focus-ring rounded font-mono text-[13px] text-fg hover:underline">
-                    {r.id.slice(0, 8)}
-                  </Link>
-                  <span className="text-[12px] text-fg-3">{formatDistanceToNowStrict(ts(r.createdAt), { addSuffix: true })}</span>
-                </div>
-                {r.error && (
-                  <p className="mt-1 break-words text-[13px] text-fg-2">
-                    <span className="text-bad">{r.error.code}</span>{r.error.message ? `: ${r.error.message}` : ""}
-                  </p>
-                )}
-                <ExplainInline request={{ kind: "run", runId: r.id }} label="Explain" size="xs" className="mt-2.5" />
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
-      <Missing title="Replay a run against a new version">
-        Re-running a past failure against a candidate version isn’t available yet. Until it is, use the Test tab with the failing input.
-      </Missing>
-    </div>
-  );
-}
+// Debug lives in ./debug-tab; re-exported so the page keeps one import.
+export { DebugPanel } from "./debug-tab";
 
 // ── Observe: reliability strip (ADR 0056 / #408) ────────────────────────────
 
@@ -211,7 +168,7 @@ export function ReliabilityStrip({ agentName }: { agentName: string }) {
                 {slo.slis.map((s) => (
                   <li key={s.name} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]">
                     <span className="min-w-0 truncate text-fg-2">{s.name} <span className="text-fg-3">· {s.target}</span></span>
-                    <span className={clsx("num shrink-0 font-medium", TONE_TEXT[budgetTone(s.budgetRemaining)])}>{s.budgetRemaining < 0 ? "Budget exhausted" : `${budgetPct(s.budgetRemaining)}% left`}</span>
+                    <span className={clsx("num shrink-0 font-medium", TONE_TEXT[sloTone(s)])}>{s.budgetRemaining < 0 ? "Budget exhausted" : `${budgetPct(s.budgetRemaining)}% left`}</span>
                   </li>
                 ))}
               </ul>

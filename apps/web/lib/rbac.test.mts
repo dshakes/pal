@@ -32,3 +32,15 @@ test("canDebug requires runs:execute + agents:read + budgets:read and refuses ki
   assert.equal(canDebug(undefined), false);
   assert.equal(can("kiosk", "budgets:read"), false);
 });
+
+test("sandboxes + promotions mirror the server's role rules", () => {
+  // runtime:read — owner/admin/member only (viewer + kiosk are denied by authorizeRuntimeScope)
+  for (const r of ["owner", "admin", "member"]) assert.equal(can(r, "runtime:read"), true, r);
+  for (const r of ["viewer", "kiosk", undefined, "nonsense"]) assert.equal(can(r, "runtime:read"), false, String(r));
+  // promotions: members propose, only owner/admin approve, kiosk gets 403 on every route
+  for (const r of ["owner", "admin", "member"]) assert.equal(can(r, "promotions:propose"), true, r);
+  for (const r of ["viewer", "kiosk"]) assert.equal(can(r, "promotions:propose"), false, r);
+  assert.equal(can("owner", "promotions:approve"), true);
+  assert.equal(can("admin", "promotions:approve"), true);
+  assert.equal(can("member", "promotions:approve"), false);
+});
