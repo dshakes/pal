@@ -1782,6 +1782,7 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 			h.logger().Warn("inline executor: tools lookup failed",
 				zap.String("run_id", runID), zap.Error(llmToolsErr))
 		}
+		llmTools = append(llmTools, mcpToolsForAgent(ctx, tenantID)...)
 	}
 	// When tools ARE attached, models still routinely refuse to call them
 	// because the system prompt's mention of e.g. 'the GitHub connector'
@@ -1846,6 +1847,12 @@ func (h *RESTHandler) executeRunInlineSync(ctx context.Context, runID, tenantID,
 		return dispatchTool(dctx, h.srv.Pool, tenantID, name, args)
 	}
 	onToolCallStep := func(inv ToolInvocation) {
+		if _, _, isMCP := parseMCPToolName(inv.Name); isMCP {
+			// Redacted: the MCP dispatcher journals its own tool_call event
+			// (argument keys + hash only, ADR 0058).
+			logStep(fmt.Sprintf("tool:%s", inv.Name), mcpStepStatus(inv), mcpStepDetail(inv))
+			return
+		}
 		argsJSON, _ := json.Marshal(inv.Args)
 		switch {
 		case inv.Error != "":

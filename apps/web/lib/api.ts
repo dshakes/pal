@@ -2414,7 +2414,7 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
 
   async attachMcpServer(
     agentName: string,
-    body: { slug: string; config?: Record<string, unknown> },
+    body: { serverSlug: string; config?: { vmId?: string } },
   ): Promise<{ status: string }> {
     return this.request(`/v1/agents/${encodeURIComponent(agentName)}/mcp-servers`, {
       method: "POST",
@@ -2433,6 +2433,64 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
       `/v1/agents/${encodeURIComponent(agentName)}/mcp-servers/${encodeURIComponent(slug)}`,
       { method: "DELETE" },
     );
+  }
+
+  /** Live tools/list against the attached server (doubles as a connection test).
+   *  Rejects with "API 409: {code:authorization_required}" until connected. */
+  async listAgentMcpTools(agentName: string, slug: string): Promise<McpToolsResult> {
+    return this.request<McpToolsResult>(
+      `/v1/agents/${encodeURIComponent(agentName)}/mcp-servers/${encodeURIComponent(slug)}/tools`,
+    );
+  }
+
+  async listMcpTenantServers(): Promise<McpTenantServer[]> {
+    return this.request<McpTenantServer[]>(`/v1/mcp/tenant-servers`);
+  }
+
+  async createMcpTenantServer(body: {
+    slug: string;
+    name?: string;
+    description?: string;
+    url: string;
+    authType: "none" | "bearer" | "oauth";
+  }): Promise<McpTenantServer> {
+    return this.request<McpTenantServer>(`/v1/mcp/tenant-servers`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteMcpTenantServer(slug: string): Promise<void> {
+    await this.request(`/v1/mcp/tenant-servers/${encodeURIComponent(slug)}`, { method: "DELETE" });
+  }
+
+  async listMcpCredentials(): Promise<McpCredential[]> {
+    return this.request<McpCredential[]>(`/v1/mcp/credentials`);
+  }
+
+  async setMcpBearerToken(slug: string, token: string): Promise<{ status: string; kind: string }> {
+    return this.request(`/v1/mcp/credentials/${encodeURIComponent(slug)}`, {
+      method: "PUT",
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  async deleteMcpCredential(slug: string): Promise<void> {
+    await this.request(`/v1/mcp/credentials/${encodeURIComponent(slug)}`, { method: "DELETE" });
+  }
+
+  async startMcpOAuth(serverSlug: string): Promise<{ authorizationUrl: string; redirectUri: string; expiresAt: string }> {
+    return this.request(`/v1/mcp/oauth/start`, {
+      method: "POST",
+      body: JSON.stringify({ serverSlug }),
+    });
+  }
+
+  async completeMcpOAuth(code: string, state: string): Promise<{ status: string; serverSlug: string }> {
+    return this.request(`/v1/mcp/oauth/callback`, {
+      method: "POST",
+      body: JSON.stringify({ code, state }),
+    });
   }
 
   // ---- Verifiable receipts -------------------------------------------------
@@ -2932,6 +2990,8 @@ export interface McpServer {
   endpoint?: string;
   tools?: string[];
   installsCount?: number;
+  transport?: "stdio" | "streamable-http";
+  authType?: string;
 }
 
 // Shape returned by GET/POST /v1/agents/{name}/mcp-servers — an attachment
@@ -2941,11 +3001,41 @@ export interface McpServer {
 export interface McpAttachment {
   serverSlug: string;
   serverName: string;
-  category: string;
+  category: string; // "custom" for tenant-registered servers
   transport: string;
   authType: string;
   config: Record<string, unknown>;
   attachedAt: string;
+}
+
+export interface McpTenantServer {
+  slug: string;
+  name: string;
+  description: string;
+  url: string;
+  authType: "none" | "bearer" | "oauth";
+  createdAt: string;
+}
+
+export interface McpCredential {
+  serverSlug: string;
+  kind: "bearer" | "oauth";
+  scope?: string;
+  issuer?: string;
+  expiresAt?: string;
+  updatedAt: string;
+}
+
+export interface McpTool {
+  name: string;
+  toolName?: string;
+  description: string;
+  allowedByPolicy?: boolean;
+}
+
+export interface McpToolsResult {
+  server: string;
+  tools: McpTool[];
 }
 
 export interface ReceiptPayload {

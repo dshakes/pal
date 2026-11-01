@@ -386,10 +386,10 @@ describe("PalClient namespaces (wire contract)", () => {
   // -- mcp ------------------------------------------------------------------
 
   it("mcp.attach posts serverSlug (not slug) to /v1/agents/{name}/mcp-servers", async () => {
-    await client.mcp.attach("triage", "github-mcp", { token: "x" });
+    await client.mcp.attach("triage", "github-mcp", { vmId: "vm-1" });
     const { url, init } = lastCall();
     expect(url).toBe("http://localhost:9/v1/agents/triage/mcp-servers");
-    expect(bodyOf(init)).toEqual({ serverSlug: "github-mcp", config: { token: "x" } });
+    expect(bodyOf(init)).toEqual({ serverSlug: "github-mcp", config: { vmId: "vm-1" } });
   });
 
   it("mcp.listServers passes category/q as query params", async () => {
@@ -404,6 +404,56 @@ describe("PalClient namespaces (wire contract)", () => {
     const { url, init } = lastCall();
     expect(url).toBe("http://localhost:9/v1/agents/triage/mcp-servers/github-mcp");
     expect(init.method).toBe("DELETE");
+  });
+
+  it("mcp tenant-server CRUD hits /v1/mcp/tenant-servers", async () => {
+    await client.mcp.createServer({ slug: "acme", url: "https://x.test/mcp", authType: "bearer" });
+    let c = lastCall();
+    expect(c.url).toBe("http://localhost:9/v1/mcp/tenant-servers");
+    expect(c.init.method).toBe("POST");
+    expect(bodyOf(c.init)).toEqual({ slug: "acme", url: "https://x.test/mcp", authType: "bearer" });
+    mockFetch([]);
+    await client.mcp.listTenantServers();
+    expect(lastCall().url).toBe("http://localhost:9/v1/mcp/tenant-servers");
+    mockFetch(undefined, 204);
+    await client.mcp.deleteServer("acme");
+    c = lastCall();
+    expect(c.url).toBe("http://localhost:9/v1/mcp/tenant-servers/acme");
+    expect(c.init.method).toBe("DELETE");
+  });
+
+  it("mcp credentials: list, putBearer sends {token}, delete", async () => {
+    mockFetch([]);
+    await client.mcp.listCredentials();
+    expect(lastCall().url).toBe("http://localhost:9/v1/mcp/credentials");
+    await client.mcp.putBearer("acme", "s3cret");
+    let c = lastCall();
+    expect(c.url).toBe("http://localhost:9/v1/mcp/credentials/acme");
+    expect(c.init.method).toBe("PUT");
+    expect(bodyOf(c.init)).toEqual({ token: "s3cret" });
+    mockFetch(undefined, 204);
+    await client.mcp.deleteCredential("acme");
+    c = lastCall();
+    expect(c.url).toBe("http://localhost:9/v1/mcp/credentials/acme");
+    expect(c.init.method).toBe("DELETE");
+  });
+
+  it("mcp.oauthStart / oauthCallback post to /v1/mcp/oauth/*", async () => {
+    await client.mcp.oauthStart({ serverSlug: "acme", scope: "read" });
+    let c = lastCall();
+    expect(c.url).toBe("http://localhost:9/v1/mcp/oauth/start");
+    expect(bodyOf(c.init)).toEqual({ serverSlug: "acme", scope: "read" });
+    await client.mcp.oauthCallback({ code: "c", state: "s" });
+    c = lastCall();
+    expect(c.url).toBe("http://localhost:9/v1/mcp/oauth/callback");
+    expect(bodyOf(c.init)).toEqual({ code: "c", state: "s" });
+  });
+
+  it("mcp.listAttachmentTools GETs /v1/agents/{name}/mcp-servers/{slug}/tools", async () => {
+    mockFetch({ server: "acme", tools: [] });
+    const r = await client.mcp.listAttachmentTools("triage", "acme");
+    expect(lastCall().url).toBe("http://localhost:9/v1/agents/triage/mcp-servers/acme/tools");
+    expect(r.server).toBe("acme");
   });
 
   // -- receipts -------------------------------------------------------------

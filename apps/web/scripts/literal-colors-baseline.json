@@ -1,5 +1,5 @@
 {
-  "app/(dashboard)/agents/[name]/page.tsx": 9,
+  "app/(dashboard)/agents/[name]/page.tsx": 8,
   "app/(dashboard)/agents/create/page.tsx": 4,
   "app/(dashboard)/embed/page.tsx": 2,
   "app/(dashboard)/inbox/page.tsx": 20,

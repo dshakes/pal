@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -20,7 +21,11 @@ import (
 type MCPHandler struct {
 	srv  *server.Server
 	auth *AuthHandler
+	rest *RESTHandler // run_agent / agent_* tools of the PAL MCP server
 }
+
+// SetREST wires run creation for the PAL MCP server's agent tools.
+func (h *MCPHandler) SetREST(r *RESTHandler) { h.rest = r }
 
 func NewMCPHandler(srv *server.Server, auth *AuthHandler) *MCPHandler {
 	return &MCPHandler{srv: srv, auth: auth}
@@ -156,37 +161,62 @@ func (h *MCPHandler) AttachToAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
 		return
 	}
+	if vm, ok := body.Config["vmId"]; ok {
+		if _, isStr := vm.(string); !isStr {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "config.vmId must be a string"})
+			return
+		}
+	}
+	configJSON, _ := json.Marshal(body.Config)
+	if body.Config == nil {
+		configJSON = []byte("{}")
+	}
 	var serverID string
 	// rls-exempt: mcp_servers is a global curated catalog (no tenant_id).
-	err = h.srv.Pool.QueryRow(ctx,
+	catalogErr := h.srv.Pool.QueryRow(ctx,
 		`SELECT id FROM mcp_servers WHERE slug = $1`, body.ServerSlug).Scan(&serverID)
-	if err != nil {
+	// agent_mcp_attachments is tenant-scoped → write under WithTenant (RLS).
+	// A slug resolves to the catalog first, then to the tenant's own servers
+	// (catalog slugs are reserved, see CreateTenantServer).
+	found := catalogErr == nil
+	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
+		if found {
+			_, e := tx.Exec(ctx, `
+				INSERT INTO agent_mcp_attachments (tenant_id, agent_name, mcp_server_id, config)
+				VALUES ($1, $2, $3, $4::jsonb)
+				ON CONFLICT (tenant_id, agent_name, mcp_server_id) WHERE mcp_server_id IS NOT NULL DO UPDATE SET
+				  config = EXCLUDED.config,
+				  attached_at = now()
+			`, tenantID, agentName, serverID, configJSON)
+			return e
+		}
+		tag, e := tx.Exec(ctx, `
+			INSERT INTO agent_mcp_attachments (tenant_id, agent_name, tenant_server_id, config)
+			SELECT $1, $2, t.id, $4::jsonb FROM mcp_tenant_servers t WHERE t.tenant_id = $1 AND t.slug = $3
+			ON CONFLICT (tenant_id, agent_name, tenant_server_id) WHERE tenant_server_id IS NOT NULL DO UPDATE SET
+			  config = EXCLUDED.config,
+			  attached_at = now()
+		`, tenantID, agentName, body.ServerSlug, configJSON)
+		if e == nil && tag.RowsAffected() == 0 {
+			return pgx.ErrNoRows
+		}
+		return e
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "mcp server not found"})
 		return
 	}
-	configJSON, _ := json.Marshal(body.Config)
-	if len(configJSON) == 0 {
-		configJSON = []byte("{}")
-	}
-	// agent_mcp_attachments is tenant-scoped → write under WithTenant (RLS).
-	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `
-			INSERT INTO agent_mcp_attachments (tenant_id, agent_name, mcp_server_id, config)
-			VALUES ($1, $2, $3, $4::jsonb)
-			ON CONFLICT (tenant_id, agent_name, mcp_server_id) DO UPDATE SET
-			  config = EXCLUDED.config,
-			  attached_at = now()
-		`, tenantID, agentName, serverID, configJSON)
-		return e
-	})
 	if err != nil {
 		h.logger().Error("attach failed", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "attach failed"})
 		return
 	}
-	// rls-exempt: installs_count bump on the global mcp_servers catalog row.
-	_, _ = h.srv.Pool.Exec(ctx,
-		`UPDATE mcp_servers SET installs_count = installs_count + 1 WHERE id = $1`, serverID)
+	activeMCP.invalidate(tenantID, body.ServerSlug)
+	if found {
+		// rls-exempt: installs_count bump on the global mcp_servers catalog row.
+		_, _ = h.srv.Pool.Exec(ctx,
+			`UPDATE mcp_servers SET installs_count = installs_count + 1 WHERE id = $1`, serverID)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
 }
 
@@ -207,7 +237,12 @@ func (h *MCPHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 			FROM agent_mcp_attachments a
 			JOIN mcp_servers s ON s.id = a.mcp_server_id
 			WHERE a.tenant_id = $1 AND a.agent_name = $2
-			ORDER BY a.attached_at DESC
+			UNION ALL
+			SELECT t.slug, t.name, 'custom', 'streamable-http', t.auth_type, a.config, a.attached_at
+			FROM agent_mcp_attachments a
+			JOIN mcp_tenant_servers t ON t.id = a.tenant_server_id
+			WHERE a.tenant_id = $1 AND a.agent_name = $2
+			ORDER BY 7 DESC
 		`, tenantID, agentName)
 		if qerr != nil {
 			return qerr
@@ -249,7 +284,8 @@ func (h *MCPHandler) DetachFromAgent(w http.ResponseWriter, r *http.Request) {
 		_, e := tx.Exec(ctx, `
 			DELETE FROM agent_mcp_attachments
 			WHERE tenant_id = $1 AND agent_name = $2
-			  AND mcp_server_id = (SELECT id FROM mcp_servers WHERE slug = $3)
+			  AND (mcp_server_id = (SELECT id FROM mcp_servers WHERE slug = $3)
+			    OR tenant_server_id = (SELECT id FROM mcp_tenant_servers WHERE tenant_id = $1 AND slug = $3))
 		`, tenantID, agentName, slug)
 		return e
 	})

@@ -256,6 +256,11 @@ func TestExportRedacted_Catalog(t *testing.T) {
 		"side_effect_receipts.idem_key":   false,
 		"users.auth_provider":             false,
 		"users.auth_subject":              false,
+		// ADR 0058: MCP credentials / pending OAuth state never leave the DB.
+		"mcp_credentials.secret":       true,
+		"mcp_oauth_pending.secret":     true,
+		"mcp_oauth_pending.state_hash": true,
+		"mcp_tenant_servers.auth_type": false,
 	}
 	rows, err := h.srv.Pool.Query(context.Background(), `
 		SELECT c.relname, a.attname

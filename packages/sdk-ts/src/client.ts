@@ -36,6 +36,10 @@ import type {
   MarketplaceAgent,
   McpAttachment,
   McpServer,
+  McpTenantServer,
+  McpCredential,
+  McpOAuthStart,
+  McpToolsResult,
   ReceiptVerifyResult,
   RehearseResponse,
   Run,
@@ -663,7 +667,7 @@ export class PalClient {
 
     getServer: (slug: string): Promise<McpServer> => this.fetch(`/v1/mcp/servers/${encodeURIComponent(slug)}`),
 
-    attach: (agentName: string, slug: string, config?: Record<string, unknown>): Promise<{ status: string }> =>
+    attach: (agentName: string, slug: string, config?: { vmId?: string }): Promise<{ status: string }> =>
       this.fetch(`/v1/agents/${encodeURIComponent(agentName)}/mcp-servers`, {
         method: "POST",
         body: JSON.stringify({ serverSlug: slug, config: config ?? {} }),
@@ -677,6 +681,50 @@ export class PalClient {
     // ListAttachments writes a BARE JSON array.
     listAttachments: (agentName: string): Promise<McpAttachment[]> =>
       this.fetch(`/v1/agents/${encodeURIComponent(agentName)}/mcp-servers`),
+
+    /** Live tools/list against the attached server (doubles as a connection test). */
+    listAttachmentTools: (agentName: string, slug: string): Promise<McpToolsResult> =>
+      this.fetch(
+        `/v1/agents/${encodeURIComponent(agentName)}/mcp-servers/${encodeURIComponent(slug)}/tools`,
+      ),
+
+    // Tenant-registered (BYO) remote servers. List writes a BARE JSON array.
+    createServer: (params: {
+      slug: string;
+      url: string;
+      authType: "none" | "bearer" | "oauth";
+      name?: string;
+      description?: string;
+    }): Promise<McpTenantServer> =>
+      this.fetch("/v1/mcp/tenant-servers", { method: "POST", body: JSON.stringify(params) }),
+
+    listTenantServers: (): Promise<McpTenantServer[]> => this.fetch("/v1/mcp/tenant-servers"),
+
+    deleteServer: (slug: string): Promise<void> =>
+      this.fetch(`/v1/mcp/tenant-servers/${encodeURIComponent(slug)}`, { method: "DELETE" }),
+
+    // Credential metadata only; secrets are never returned. List is a BARE array.
+    listCredentials: (): Promise<McpCredential[]> => this.fetch("/v1/mcp/credentials"),
+
+    putBearer: (slug: string, token: string): Promise<{ status: string; kind: string }> =>
+      this.fetch(`/v1/mcp/credentials/${encodeURIComponent(slug)}`, {
+        method: "PUT",
+        body: JSON.stringify({ token }),
+      }),
+
+    deleteCredential: (slug: string): Promise<void> =>
+      this.fetch(`/v1/mcp/credentials/${encodeURIComponent(slug)}`, { method: "DELETE" }),
+
+    oauthStart: (params: {
+      serverSlug: string;
+      scope?: string;
+      clientId?: string;
+      clientSecret?: string;
+    }): Promise<McpOAuthStart> =>
+      this.fetch("/v1/mcp/oauth/start", { method: "POST", body: JSON.stringify(params) }),
+
+    oauthCallback: (params: { code: string; state: string }): Promise<{ status: string; serverSlug: string }> =>
+      this.fetch("/v1/mcp/oauth/callback", { method: "POST", body: JSON.stringify(params) }),
   };
 
   readonly receipts = {
