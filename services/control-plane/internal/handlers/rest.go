@@ -219,6 +219,31 @@ func (h *RESTHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 			agents = append(agents, agentToMap(a))
 		}
 	}
+	// model is an extension column absent from the proto Agent; fetch it in one
+	// tenant-scoped query and merge by name (best-effort, like GetAgent).
+	if tenantID, _ := middleware.TenantIDFromContext(ctx); len(agents) > 0 {
+		models := map[string]string{}
+		_ = db.WithTenantConn(ctx, h.srv.TenantPool(), tenantID, func(tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, `SELECT name, model FROM agents WHERE tenant_id = $1 AND model IS NOT NULL`, tenantID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var n, m string
+				if err := rows.Scan(&n, &m); err != nil {
+					return err
+				}
+				models[n] = m
+			}
+			return rows.Err()
+		})
+		for _, a := range agents {
+			if m, ok := models[fmt.Sprint(a["name"])]; ok {
+				a["model"] = m
+			}
+		}
+	}
 
 	writeJSON(w, http.StatusOK, agents)
 }
