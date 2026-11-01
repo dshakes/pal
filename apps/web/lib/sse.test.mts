@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openRunStream, parseSSE, toStreamEvent } from "./sse.ts";
+import { acceptEvent, mergeEvent, openRunStream, parseSSE, toStreamEvent } from "./sse.ts";
 
 test("sse: named frames, heartbeats and partial chunks", () => {
   const a = parseSSE('event: step_started\ndata: {"seq":1}\n\n: heartbeat\n\nevent: step_comp');
@@ -99,4 +99,51 @@ test("openRunStream: close() stops it without further state changes", async () =
   close();
   await new Promise((r) => setTimeout(r, 30));
   assert.deepEqual(states, ["connecting"]);
+});
+
+// ── Journal identity: an approval's step_waiting is rewritten in place ────────
+
+const ev = (seq: number, kind: string) => ({ runId: "r1", seq, kind, ts: new Date(0), data: {} }) as unknown as Parameters<typeof acceptEvent>[1];
+
+test("acceptEvent: a seen seq is a duplicate unless it replaces a step_waiting marker", () => {
+  const seen = new Map<number, string>();
+  assert.equal(acceptEvent(seen, ev(7, "step_waiting")), true);
+  assert.equal(acceptEvent(seen, ev(7, "step_waiting")), false);
+  assert.equal(acceptEvent(seen, ev(7, "step_completed")), true);
+  assert.equal(acceptEvent(seen, ev(7, "step_completed")), false);
+  assert.equal(acceptEvent(seen, ev(6, "step_started")), true);
+  assert.equal(acceptEvent(seen, ev(6, "step_completed")), false); // only step_waiting is ever rewritten
+});
+
+test("mergeEvent: replaces by seq, keeps seq order", () => {
+  let list = [ev(6, "step_started"), ev(7, "step_waiting")];
+  list = mergeEvent(list, ev(7, "step_completed"));
+  assert.deepEqual(list.map((e) => `${e.seq}:${e.kind}`), ["6:step_started", "7:step_completed"]);
+  list = mergeEvent(list, ev(8, "end"));
+  list = mergeEvent(list, ev(5, "step_completed"));
+  assert.deepEqual(list.map((e) => e.seq), [5, 6, 7, 8]);
+});
+
+test("openRunStream: after a mid-run drop, a replay that rewrote step_waiting delivers the new row", async () => {
+  const waiting = 'data: {"seq":7,"kind":"step_waiting","stepId":"review"}\n\n';
+  const completed = 'data: {"seq":7,"kind":"step_completed","stepId":"review"}\n\n';
+  // First connection: two frames, then the connection breaks mid-run.
+  let sent = false;
+  const broken = () => new Response(new ReadableStream({
+    pull(c) {
+      if (!sent) { sent = true; c.enqueue(new TextEncoder().encode(frame(6) + waiting)); }
+      else c.error(new Error("socket hang up"));
+    },
+  }), { status: 200 });
+  let n = 0;
+  const kinds: string[] = [];
+  await new Promise<void>((resolve) => {
+    openRunStream({
+      runId: "r1", url: "http://x", maxRetries: 3, sleep: async () => {},
+      fetchImpl: (async () => (++n === 1 ? broken() : new Response(frame(6) + completed + frame(8), { status: 200 }))) as unknown as typeof fetch,
+      onEvent: (e) => kinds.push(`${e.seq}:${e.kind}`),
+      onState: (s) => { if (s === "ended" || s === "disconnected") resolve(); },
+    });
+  });
+  assert.deepEqual(kinds, ["6:step_started", "7:step_waiting", "7:step_completed", "8:step_started"]);
 });

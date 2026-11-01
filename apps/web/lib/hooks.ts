@@ -5,7 +5,7 @@ import { api, type RunFilters, notifySimulated } from "@/lib/api";
 // Types only — every hook below treats the API as the single source of truth.
 // On failure we surface an explicit error / empty state, never mock data.
 import type { Agent, Run, StreamEvent, ApiKey, AgentVersion } from "@/lib/types";
-import type { StreamState } from "@/lib/sse";
+import { mergeEvent, type StreamState } from "@/lib/sse";
 
 // ---------------------------------------------------------------------------
 // useSafeData pattern — every hook returns { data, loading, error, isDemo }
@@ -221,17 +221,26 @@ export function useRun(id: string) {
 // useRunEvents — live SSE streaming with mock fallback
 // ---------------------------------------------------------------------------
 
-export function useRunEvents(runId: string) {
+/**
+ * Live run events. `reopenKey` (the run's status) reopens the stream when it
+ * changes: the server's tail only sends rows past the last seq, so a row it
+ * rewrites in place (an approval's step_waiting → step_completed) arrives only
+ * in a fresh connection's replay. Events merge by seq, so a reopen never
+ * flickers or duplicates.
+ */
+export function useRunEvents(runId: string, reopenKey?: string) {
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [state, setState] = useState<StreamState>("connecting");
 
   useEffect(() => {
     setEvents([]);
-    setState("connecting");
-    const stream = api.streamRunEvents(runId);
-    stream.subscribe((event) => setEvents((prev) => [...prev, event]), setState);
-    return () => stream.close();
   }, [runId]);
+
+  useEffect(() => {
+    const stream = api.streamRunEvents(runId);
+    stream.subscribe((event) => setEvents((prev) => mergeEvent(prev, event)), setState);
+    return () => stream.close();
+  }, [runId, reopenKey]);
 
   return { events, state, connected: state === "live" };
 }

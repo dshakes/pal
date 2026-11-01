@@ -55,6 +55,29 @@ export function toStreamEvent(runId: string, frame: SSEFrame): StreamEvent | nul
   }
 }
 
+// ── Journal identity ──────────────────────────────────────────────────────────
+
+/**
+ * Journal rows are append-only with one exception: when an approval resumes,
+ * the server overwrites the step's `step_waiting` marker in place with its
+ * `step_completed` (same seq; rest.go). So a seq already seen is a duplicate,
+ * unless it now carries a different kind where it used to say step_waiting.
+ */
+export function acceptEvent(seen: Map<number, string>, e: StreamEvent): boolean {
+  const prev = seen.get(e.seq);
+  if (prev !== undefined && !(prev === "step_waiting" && e.kind !== "step_waiting")) return false;
+  seen.set(e.seq, e.kind);
+  return true;
+}
+
+/** Fold an event into a seq-ordered list, replacing a row with the same seq. */
+export function mergeEvent(list: StreamEvent[], e: StreamEvent): StreamEvent[] {
+  const i = list.findIndex((x) => x.seq === e.seq);
+  if (i >= 0) return list.map((x, j) => (j === i ? e : x));
+  const out = [...list, e];
+  return out[out.length - 2] && out[out.length - 2].seq > e.seq ? out.sort((a, b) => a.seq - b.seq) : out;
+}
+
 // ── The live run stream ─────────────────────────────────────────────────────
 
 /** connecting → live → (reconnecting → live)* → ended | disconnected. */
@@ -79,8 +102,9 @@ export function isTerminalStatus(status: number): boolean {
 /**
  * Reads a run's SSE stream until the server closes it (run terminal → "ended"),
  * the server refuses for good, or retries run out ("disconnected"). The server
- * replays the whole journal on every connection, so events are deduped by seq;
- * a connection that delivered new events earns a fresh retry budget.
+ * replays the whole journal on every connection, so events are deduped by seq
+ * (acceptEvent); a connection that delivered new events earns a fresh retry
+ * budget.
  * Returns close().
  */
 export function openRunStream(o: RunStreamOptions): () => void {
@@ -88,14 +112,15 @@ export function openRunStream(o: RunStreamOptions): () => void {
   const doFetch = o.fetchImpl ?? fetch;
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const maxRetries = o.maxRetries ?? 5;
-  let lastSeq = -1;
+  const seen = new Map<number, string>();
+  let accepted = 0;
   const setState = (s: StreamState) => { if (!ctrl.signal.aborted) o.onState(s); };
 
   const run = async () => {
     let attempt = 0;
     setState("connecting");
     while (!ctrl.signal.aborted) {
-      const seqAtStart = lastSeq;
+      const acceptedAtStart = accepted;
       try {
         const res = await doFetch(o.url, {
           headers: { Accept: "text/event-stream", ...o.headers },
@@ -115,13 +140,13 @@ export function openRunStream(o: RunStreamOptions): () => void {
           buf = rest;
           for (const f of frames) {
             const e = toStreamEvent(o.runId, f);
-            if (e && e.seq > lastSeq) { lastSeq = e.seq; o.onEvent(e); }
+            if (e && acceptEvent(seen, e)) { accepted++; o.onEvent(e); }
           }
         }
       } catch {
         if (ctrl.signal.aborted) return;
       }
-      attempt = lastSeq > seqAtStart ? 1 : attempt + 1;
+      attempt = accepted > acceptedAtStart ? 1 : attempt + 1;
       if (attempt > maxRetries) return setState("disconnected");
       setState("reconnecting");
       await sleep(1000 * 2 ** (attempt - 1));
