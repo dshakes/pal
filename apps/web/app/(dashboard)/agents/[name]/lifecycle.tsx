@@ -102,7 +102,7 @@ export function LifecycleRail({
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
 
-function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+export function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="space-y-2.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -114,7 +114,7 @@ function Section({ title, action, children }: { title: string; action?: React.Re
   );
 }
 
-function Missing({ title, children }: { title: string; children: React.ReactNode }) {
+export function Missing({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 rounded-[12px] border border-dashed border-line-strong bg-panel p-4">
       <CircleDashed className="mt-0.5 h-4 w-4 shrink-0 text-fg-3" aria-hidden />

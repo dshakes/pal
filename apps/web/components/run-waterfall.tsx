@@ -293,18 +293,18 @@ export function RunWaterfall({
   const LABEL_W = "w-28";
 
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-surface-1">
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <ListTree className="h-3.5 w-3.5 text-zinc-500" />
-          <h3 className="text-[12px] font-semibold text-zinc-200">Trace</h3>
-          <span className="text-[11px] text-zinc-500">
+    <div className="overflow-hidden rounded-xl border border-line bg-panel">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line px-4 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <ListTree className="h-3.5 w-3.5 text-fg-3" aria-hidden />
+          <h3 className="text-[12px] font-semibold text-fg">Trace</h3>
+          <span className="whitespace-nowrap text-[11px] text-fg-3">
             {spans.length} span{spans.length === 1 ? "" : "s"} · {lanes.length} lane
             {lanes.length === 1 ? "" : "s"} · total {formatMs(scaleEnd)}
           </span>
         </div>
         {totals && (
-          <div className="flex items-center gap-3 text-[12px] text-zinc-400">
+          <div className="flex items-center gap-3 whitespace-nowrap text-[12px] text-fg-2">
             {(totals.tokensIn != null || totals.tokensOut != null) && (
               <span title="Tokens in / out">
                 {formatTokens(totals.tokensIn ?? 0)} → {formatTokens(totals.tokensOut ?? 0)} tok
@@ -319,9 +319,10 @@ export function RunWaterfall({
         )}
       </div>
 
-      {/* Horizontal scroll on the timeline; lane labels stay pinned left. */}
+      {/* The timeline fits narrow screens; from sm up it keeps a readable
+          minimum width and scrolls, lane labels pinned left. */}
       <div className="overflow-x-auto">
-        <div className="min-w-[640px]">
+        <div className="sm:min-w-[640px]">
           <TimeAxis scaleEnd={scaleEnd} labelW={LABEL_W} cursorMs={timeCursorMs} />
           <div className="divide-y divide-zinc-800/60">
             {lanes.map((lane) => (
