@@ -248,8 +248,8 @@ func TestRedactString_JSONSecretPairsInText(t *testing.T) {
 func TestRedact_URLUserinfoAndEscapedPairs(t *testing.T) {
 	for in, leak := range map[string]string{
 		`failed to connect to postgres://user:supersecretpw@db.internal:5432/app`: "supersecretpw",
-		`upstream {\"client_secret\":\"cs-0123456789abcdef\",\"ok\":false}`:    "cs-0123456789abcdef",
-		`"wrapped {\"password\":\"hunter2-real-pass\"}"`:                       "hunter2-real-pass",
+		`upstream {\"client_secret\":\"cs-0123456789abcdef\",\"ok\":false}`:       "cs-0123456789abcdef",
+		`"wrapped {\"password\":\"hunter2-real-pass\"}"`:                          "hunter2-real-pass",
 	} {
 		if got := RedactAll(in); strings.Contains(got, leak) {
 			t.Errorf("leaked %q: %s", leak, got)
