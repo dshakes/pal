@@ -150,7 +150,7 @@ function CreatePage() {
     setCreating(true);
     const agentName = name.trim().toLowerCase().replace(/\s+/g, "-");
     try {
-      const agent = await api.createAgent({ name: agentName, description, model });
+      await api.createAgent({ name: agentName, description, model, systemPrompt: systemPrompt || undefined });
       // Save all config to localStorage (mirrors what the agent detail page reads)
       if (systemPrompt) {
         const prompts = JSON.parse(localStorage.getItem("pal_agent_prompts") || "{}");
@@ -164,7 +164,6 @@ function CreatePage() {
       localStorage.setItem(`pal_agent_settings_${agentName}`, JSON.stringify({
         model, privacy, environment, guardrails, connectors: selectedConnectors,
       }));
-      await api.updateAgent(agentName, { systemPrompt });
       toast.success(`Agent "${agentName}" created`);
       router.push(`/agents/${agentName}`);
     } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to create agent"); } finally { setCreating(false); }
