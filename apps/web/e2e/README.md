@@ -31,6 +31,7 @@ Iterating: boot the stack once yourself and run with `E2E_REUSE_STACK=1 npx play
 - `auth.spec.ts` sign-up lands logged in (dev mode is auto-verified; the verification gate is prod-only); forgot -> reset via the mailer log -> sign in, reset link is single-use
 - `onboarding.spec.ts` template gallery -> review step; free-text goal -> key test -> design -> create -> first run succeeded with fixture output
 - `settings-danger.spec.ts` delete workspace (typed phrase), then the account is gone
+- `observe-debug.spec.ts` slice 5: policy-refused tool -> failed run + span trace; 24 failures -> server-opened SLO-burn incident -> acknowledge/resolve; Reliability SLO status + uPlot charts at desktop and phone width; Debug tab
 - `theme.spec.ts` login renders in light and dark; toggle persists
 
 Helpers: `support/mail.ts` (`mailLink` reads the control-plane log), `support/users.ts` (`signUp`), `support/env.ts`.

@@ -181,8 +181,87 @@ export function budgetPct(remaining: number): number {
   return Math.round(Math.min(Math.max(remaining, 0), 1) * 100);
 }
 
-export function budgetTone(remaining: number): Tone {
-  return remaining < 0 ? "bad" : remaining < 0.25 ? "bad" : remaining < 0.5 ? "warn" : "ok";
+/**
+ * Tone of one SLI. The verdict is the SERVER's: a fired burn alert is "page" or
+ * "ticket" (ADR 0041 multi-window rules, evaluated in Go). The only thing read
+ * off the numbers is a fact, not a threshold: attainment below the objective
+ * means the budget is spent (budgetRemaining < 0).
+ */
+export function sloTone(s: Pick<SliStatus, "alerts" | "budgetRemaining">): Tone {
+  if (s.alerts.some((a) => a.severity === "page")) return "bad";
+  if (s.alerts.length > 0) return "warn";
+  return s.budgetRemaining < 0 ? "bad" : "ok";
+}
+
+/** Go prints burn windows as time.Duration ("1h0m0s", "72h0m0s"); show "1h", "3d". */
+export function windowLabel(goDuration: string): string {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(goDuration);
+  if (!m || !goDuration) return goDuration;
+  const h = Number(m[1] ?? 0);
+  const min = Number(m[2] ?? 0);
+  const sec = Number(m[3] ?? 0);
+  if (h > 0 && min === 0 && sec === 0) return h % 24 === 0 ? `${h / 24}d` : `${h}h`;
+  return [h && `${h}h`, min && `${min}m`, sec && `${sec}s`].filter(Boolean).join(" ") || "0s";
+}
+
+/** "6h0m0s/30m0s >= 6x" (the server's rule text) -> "6h/30m >= 6x". */
+export function prettyRule(rule: string): string {
+  return rule.replace(/\d+h\d+m\d+(?:\.\d+)?s|\d+m\d+(?:\.\d+)?s/g, (w) => windowLabel(w));
+}
+
+// ---- SLO / prod-eval forms -------------------------------------------------
+// Drafts are strings so a half-typed "0." survives a keystroke; payloads mirror
+// the Go validators (sloDTO.validate, PutProdEvals) message for message.
+
+export interface SloDraft { objective: string; latencyMs: string; costUsd: string; minScore: string; windowDays: string }
+export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
+
+export function sloToDraft(s: SloConfigLike): SloDraft {
+  return {
+    objective: String(s.objective),
+    latencyMs: s.latencyMs === undefined ? "" : String(s.latencyMs),
+    costUsd: s.costUsd === undefined ? "" : String(s.costUsd),
+    minScore: s.minScore === undefined ? "" : String(s.minScore),
+    windowDays: String(s.windowDays),
+  };
+}
+export interface SloConfigLike { objective: number; latencyMs?: number; costUsd?: number; minScore?: number; windowDays: number }
+
+const num = (v: string): number => (v.trim() === "" ? NaN : Number(v));
+
+export function parseSloDraft(d: SloDraft): Parsed<SloConfigLike> {
+  const objective = num(d.objective);
+  const windowDays = num(d.windowDays);
+  if (!(objective > 0 && objective < 1)) return { ok: false, error: "objective must be between 0 and 1 (exclusive)" };
+  if (!Number.isInteger(windowDays) || windowDays < 1 || windowDays > 90) return { ok: false, error: "windowDays must be 1..90" };
+  const out: SloConfigLike = { objective, windowDays };
+  if (d.latencyMs.trim() !== "") {
+    const v = num(d.latencyMs);
+    if (!Number.isInteger(v) || v <= 0) return { ok: false, error: "latencyMs and costUsd must be positive" };
+    out.latencyMs = v;
+  }
+  if (d.costUsd.trim() !== "") {
+    const v = num(d.costUsd);
+    if (!(v > 0) || !Number.isFinite(v)) return { ok: false, error: "latencyMs and costUsd must be positive" };
+    out.costUsd = v;
+  }
+  if (d.minScore.trim() !== "") {
+    const v = num(d.minScore);
+    if (!(v >= 0 && v <= 1)) return { ok: false, error: "minScore must be 0..1" };
+    out.minScore = v;
+  }
+  return { ok: true, value: out };
+}
+
+export interface ProdEvalDraft { enabled: boolean; sampleRate: string; dailyBudgetUsd: string; rubric: string }
+
+export function parseProdEvalDraft(d: ProdEvalDraft, judgeModel?: string): Parsed<{ enabled: boolean; sampleRate: number; rubric: string; judgeModel?: string; dailyBudgetUsd: number }> {
+  const sampleRate = num(d.sampleRate);
+  const dailyBudgetUsd = num(d.dailyBudgetUsd);
+  if (!(sampleRate >= 0 && sampleRate <= 1) || !(dailyBudgetUsd >= 0) || !Number.isFinite(dailyBudgetUsd)) {
+    return { ok: false, error: "sampleRate must be 0..1 and dailyBudgetUsd >= 0" };
+  }
+  return { ok: true, value: { enabled: d.enabled, sampleRate, rubric: d.rubric, judgeModel: judgeModel || undefined, dailyBudgetUsd } };
 }
 
 /** request() throws `API <status>: <json body>`; show the server's own message, not the raw body. */

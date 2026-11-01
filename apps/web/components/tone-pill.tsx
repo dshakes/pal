@@ -2,10 +2,10 @@ import clsx from "clsx";
 import type { Tone } from "@/lib/observability";
 
 const TONE: Record<Tone, string> = {
-  ok: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-  bad: "bg-red-500/10 text-red-400 ring-red-500/20",
-  warn: "bg-amber-500/10 text-amber-400 ring-amber-500/20",
-  muted: "bg-surface-3 text-zinc-400 ring-zinc-700/40",
+  ok: "bg-ok-soft text-ok ring-ok/25",
+  bad: "bg-bad-soft text-bad ring-bad/25",
+  warn: "bg-warn-soft text-warn ring-warn/25",
+  muted: "bg-raised text-fg-3 ring-line",
 };
 
 /** Small status pill; colour comes from the semantic tone, never the text alone. */
