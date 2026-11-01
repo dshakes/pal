@@ -15,7 +15,7 @@ import type {
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
 import { parseApiErrorBody } from "./eval-format";
-import { parseSSE, toStreamEvent } from "./sse";
+import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
 import type {
   Agent,
@@ -795,68 +795,33 @@ class PalAPI {
   // ---- Streaming ----------------------------------------------------------
 
   streamRunEvents(runId: string): {
-    subscribe: (cb: (event: StreamEvent) => void) => void;
+    subscribe: (cb: (event: StreamEvent) => void, onState?: (s: StreamState) => void) => void;
     close: () => void;
   } {
-    // Real SSE only — no mock event emitter. When the stream fails, the
-    // subscribe callback simply never fires, and consumer pages render their
-    // existing empty state. Parsed with fetch + lib/sse (not EventSource): the
-    // server names every frame after its journal kind, which EventSource's
+    // Real SSE only — no mock event emitter. fetch + lib/sse (not EventSource):
+    // the server names every frame after its journal kind, which EventSource's
     // onmessage never receives, and fetch sends the token as a header.
-    let onEvent: ((event: StreamEvent) => void) | null = null;
-    const ctrl = new AbortController();
-    // The server (run_events.go) replays the full journal from seq 0 on every
-    // connection, including a reconnect — dedupe on seq.
-    let lastSeq = -1;
+    // Events and state that arrive before subscribe are held and replayed.
+    let onEvent: ((e: StreamEvent) => void) | null = null;
+    let onStateCb: ((s: StreamState) => void) | null = null;
     const buffered: StreamEvent[] = [];
-    const emit = (e: StreamEvent) => {
-      if (e.seq <= lastSeq) return;
-      lastSeq = e.seq;
-      if (onEvent) onEvent(e);
-      else buffered.push(e);
-    };
-    const url = `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`;
+    let state: StreamState = "connecting";
     const token = this._token;
-    const connect = async (attempt: number): Promise<void> => {
-      const seqAtStart = lastSeq;
-      try {
-        const res = await fetch(url, {
-          headers: { Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          signal: ctrl.signal,
-          cache: "no-store",
-        });
-        if (!res.ok || !res.body) return; // 404 / 401: nothing to stream
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        let buf = "";
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) return; // server closes when the run is terminal
-          const { frames, rest } = parseSSE(buf + dec.decode(value, { stream: true }));
-          buf = rest;
-          for (const f of frames) {
-            const e = toStreamEvent(runId, f);
-            if (e) emit(e);
-          }
-        }
-      } catch {
-        // Network blip mid-run: reconnect with backoff; the seq dedupe makes
-        // the server's full replay a no-op. Abort (close) ends it for good.
-        // A connection that delivered events earns a fresh retry budget.
-        const next = lastSeq > seqAtStart ? 0 : attempt + 1;
-        if (ctrl.signal.aborted || next > 5) return;
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** Math.max(0, next - 1)));
-        if (!ctrl.signal.aborted) await connect(next);
-      }
-    };
-    void connect(0);
-
+    const close = openRunStream({
+      runId,
+      url: `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      onEvent: (e) => (onEvent ? onEvent(e) : buffered.push(e)),
+      onState: (s) => { state = s; onStateCb?.(s); },
+    });
     return {
-      subscribe: (cb) => {
+      subscribe: (cb, onState) => {
         onEvent = cb;
+        onStateCb = onState ?? null;
+        onStateCb?.(state);
         for (const e of buffered.splice(0)) cb(e);
       },
-      close: () => ctrl.abort(),
+      close,
     };
   }
 

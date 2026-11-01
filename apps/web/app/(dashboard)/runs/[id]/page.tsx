@@ -24,7 +24,8 @@ import { RunDetailSkeleton } from "@/components/skeleton";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { ReceiptCard } from "@/components/receipt-card";
 import { FlightRecorder } from "@/components/flight-recorder";
-import { ViewCode, snippetsForGetRun } from "@/components/view-code";
+import { ViewCode, snippetsForCreateRun, snippetsForGetRun } from "@/components/view-code";
+import type { StreamState } from "@/lib/sse";
 import { TakeoverPanel } from "@/components/takeover-panel";
 import { ExplainInline } from "@/components/explain-inline";
 import { RoleGate } from "@/components/role-gate";
@@ -38,6 +39,16 @@ function outputText(o: unknown): string {
   return JSON.stringify(o, null, 2);
 }
 
+// The live-stream pill. "ended" means the server closed the stream because the
+// run finished; the status poll catches up within seconds, so no pill.
+const STREAM_PILL: Record<StreamState, { label: string; cls: string } | null> = {
+  connecting: { label: "Connecting…", cls: "bg-raised text-fg-3" },
+  live: { label: "Live", cls: "bg-accent-soft text-accent" },
+  reconnecting: { label: "Reconnecting…", cls: "bg-warn-soft text-warn" },
+  disconnected: { label: "Disconnected", cls: "bg-bad-soft text-bad" },
+  ended: null,
+};
+
 export default function RunDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -45,7 +56,7 @@ export default function RunDetailPage() {
   const id = params.id as string;
 
   const { run, loading, error, refresh } = useRun(id);
-  const { events, connected } = useRunEvents(id);
+  const { events, state: streamState } = useRunEvents(id);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [recorderMode, setRecorderMode] = useState(false);
@@ -85,7 +96,6 @@ export default function RunDetailPage() {
       ? [
           `run ${run.id} of agent ${run.agentName}`,
           `status ${statusLabel(run.status)}`,
-          `${events.length} trace events`,
           `cost ${formatCost(run.costUsd)}, ${run.tokensIn + run.tokensOut} tokens`,
           ...(run.error ? [`error ${run.error.code}: ${run.error.message}`] : []),
         ]
@@ -94,16 +104,28 @@ export default function RunDetailPage() {
     explain: run?.status === "failed" ? [{ id: run.id, label: `Why run ${run.id.slice(0, 8)} failed`, sub: run.error?.message, request: { kind: "run" as const, runId: run.id } }] : [],
   });
 
-  if (loading) return <RunDetailSkeleton />;
+  // Background polls refetch the run; once it has loaded, keep showing it
+  // through a failed poll or a refetch (the stream pill says when the API is
+  // unreachable) instead of flashing a skeleton or "not found".
+  if (!run && loading) return <RunDetailSkeleton />;
 
-  if (error || !run) {
+  if (!run) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center" role="alert">
         <XCircle className="h-5 w-5 text-bad" aria-hidden />
-        <p className="text-[15px] font-semibold text-fg">Run not found</p>
-        <p className="max-w-sm text-[13px] text-fg-3">
-          <span className="font-mono">{id}</span> doesn’t exist in this workspace, or it was deleted.
-        </p>
+        {error && !/\b404\b/.test(error.message) ? (
+          <>
+            <p className="text-[15px] font-semibold text-fg">Couldn’t load this run</p>
+            <p className="max-w-sm text-[13px] text-fg-3">The API didn’t answer. Check that it’s running, then reload.</p>
+          </>
+        ) : (
+          <>
+            <p className="text-[15px] font-semibold text-fg">Run not found</p>
+            <p className="max-w-sm text-[13px] text-fg-3">
+              <span className="font-mono">{id}</span> doesn’t exist in this workspace, or it was deleted.
+            </p>
+          </>
+        )}
         <Button variant="secondary" size="sm" className="mt-2" onClick={() => router.push("/runs")}>Back to runs</Button>
       </div>
     );
@@ -138,11 +160,16 @@ export default function RunDetailPage() {
                 </Link>
               </h1>
               <StatusBadge status={run.status} />
-              {isLive && (
-                <span className={clsx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium", connected ? "bg-accent-soft text-accent" : "bg-raised text-fg-3")}>
-                  <Radio className="h-3 w-3" aria-hidden /> {connected ? "Live" : "Connecting…"}
-                </span>
-              )}
+              <span aria-live="polite" className="contents">
+                {isLive && STREAM_PILL[streamState] && (
+                  <span
+                    title={streamState === "disconnected" ? "Live updates stopped. Status still refreshes every few seconds; reload to reconnect." : undefined}
+                    className={clsx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium", STREAM_PILL[streamState]!.cls)}
+                  >
+                    <Radio className="h-3 w-3" aria-hidden /> {STREAM_PILL[streamState]!.label}
+                  </span>
+                )}
+              </span>
             </div>
             <p className="mt-1 flex items-center gap-1.5 text-[13px] text-fg-3">
               <span className="font-mono">{run.id}</span>
@@ -153,6 +180,7 @@ export default function RunDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ViewCode title="Get this run from code" snippets={snippetsForGetRun(run.id)} />
+            <ViewCode title={`Create a run for ${run.agentName}`} snippets={snippetsForCreateRun(run.agentName)} />
             {comparing ? (
               <form
                 onSubmit={(e) => { e.preventDefault(); const v = compareInput.trim(); if (v) setCompareId(v); }}
