@@ -73,12 +73,12 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env: { POSTGRES_USER: pal, POSTGRES_PASSWORD: pal, POSTGRES_DB: pal }
-        ports: ["5432:5432"]
+        ports: ["55432:5432"]   # non-default host port: the e2e guard refuses :5432/:6379
         options: >-
           --health-cmd "pg_isready -U pal" --health-interval 5s --health-timeout 5s --health-retries 10
       redis:
         image: redis:7
-        ports: ["6379:6379"]
+        ports: ["56379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
@@ -103,6 +103,8 @@ jobs:
         working-directory: apps/web
         env:
           E2E_RUN_DIR: ${{ runner.temp }}/pal-e2e-run   # report, traces, service logs
+          E2E_PG_ADMIN_URL: postgres://pal:pal@localhost:55432/postgres?sslmode=disable
+          E2E_REDIS_PORT: "56379"
         run: |
           set -o pipefail
           npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/pw.log"
