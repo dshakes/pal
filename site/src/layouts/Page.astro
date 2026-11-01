@@ -11,7 +11,7 @@ import { u, GH, SITE } from '../data/site';
 interface Props { title: string; description: string; path?: string }
 const { title, description, path = '' } = Astro.props;
 const links = [
-  { href: 'pal/', label: 'pal' },
+  { href: 'pal/', label: 'PAL' },
   { href: 'runtime/', label: 'Runtime' },
   { href: 'about/', label: 'About' },
   { href: 'docs/', label: 'Docs' },
@@ -52,7 +52,7 @@ const canonical = SITE + path;
   <a class="skip" href="#main">Skip to content</a>
   <header class="nav">
     <div class="wrap nav-in">
-      <a class="nav-home" href={u()} aria-label="pal home"><Logo size={22} /></a>
+      <a class="nav-home" href={u()} aria-label="PAL home"><Logo size={22} /></a>
       <nav class="nav-links" aria-label="Main">
         {links.map((l) => <a href={u(l.href)} aria-current={path === l.href ? 'page' : undefined}>{l.label}</a>)}
       </nav>
@@ -78,9 +78,9 @@ const canonical = SITE + path;
       <div class="footer-grid">
         <div>
           <Logo size={20} />
-          <p style="margin-top:14px;max-width:34ch">The Personal Agentic Layer. A pal that acts for you, and the runtime it runs on.</p>
+          <p style="margin-top:14px;max-width:34ch">The Personalized Agentic Layer. PAL, an agent personalized to you, and PAL Runtime, the same runtime for your company’s agents.</p>
         </div>
-        <div><h2>Products</h2><ul><li><a href={u('pal/')}>pal</a></li><li><a href={u('runtime/')}>PAL Runtime</a></li><li><a href={u('compare/')}>Compare</a></li></ul></div>
+        <div><h2>Products</h2><ul><li><a href={u('pal/')}>PAL</a></li><li><a href={u('runtime/')}>PAL Runtime</a></li><li><a href={u('compare/')}>Compare</a></li></ul></div>
         <div><h2>Learn</h2><ul><li><a href={u('docs/')}>Docs</a></li><li><a href={u('docs/start/quickstart/')}>Quickstart</a></li><li><a href={u('about/')}>About</a></li></ul></div>
         <div><h2>Project</h2><ul><li><a href={GH}>GitHub</a></li><li><a href={`${GH}/blob/master/CONTRIBUTING.md`}>Contributing</a></li><li><a href={`${GH}/blob/master/LICENSE`}>Apache-2.0</a></li></ul></div>
       </div>
