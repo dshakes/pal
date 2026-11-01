@@ -349,6 +349,9 @@ secrets:
   # Required when PAL_ENV is prod-like — see docs/runbooks/rls-cutover.md.
   credentialKey: ""
   receiptSecret: ""
+  # Required in prod: HMAC key for signed run callbacks (ADR 0033). The control-plane
+  # refuses to start in a prod-like PAL_ENV without it.
+  callbackSigningSecret: ""
   grpcServiceToken: ""
   # Required in prod by the scheduler (REST heartbeat auth).
   schedulerNodeToken: ""

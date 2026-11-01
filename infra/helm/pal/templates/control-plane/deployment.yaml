@@ -78,6 +78,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "pal.fullname" . }}-secrets
                   key: receipt-secret
+            - name: PAL_CALLBACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pal.fullname" . }}-secrets
+                  key: callback-signing-secret
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

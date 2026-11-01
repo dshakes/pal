@@ -46,6 +46,7 @@ on:
       - "services/runtime-scheduler/**"
       - "scripts/db-restore-drill.sh"
       - "scripts/check-app-grants.sh"
+      - "scripts/ci-helm-prod-install.sh"
       - "apps/web/**"
       - ".github/workflows/runtime-cluster-e2e.yml"
   workflow_dispatch: {}
@@ -301,9 +302,23 @@ jobs:
           grep -Eq 'ci_restore_marker +42 rows' /tmp/drill.txt
           scripts/db-restore-drill.sh --self-test
 
+      # The dev-mode install above runs PAL_ENV=development, which skips every prod startup
+      # guard. This second install runs PAL_ENV=production (values-prod + values-ci-prod, mTLS via
+      # cert-manager, RLS via pal_app, all secrets) and asserts the control-plane goes Ready.
+      - name: Install cert-manager (prod mTLS)
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml
+          kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s
+
+      - name: helm install (production guards live) - control-plane Ready
+        run: scripts/ci-helm-prod-install.sh
+
       - name: Diagnostics on failure
         if: failure()
         run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n prodcheck logs deploy/palp-control-plane --tail=60 || true
           kubectl get pods -o wide || true
           for p in $(kubectl get pods -o name); do echo "== $p"; kubectl logs "$p" --all-containers --tail=40 || true; done
           kubectl describe pods || true
