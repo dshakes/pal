@@ -19,6 +19,20 @@ Every sign-up on the control plane (`:8080`) creates a **workspace** (a tenant) 
 | `invite` | Needs an `inviteCode` bound to the email, else `403`. Requires `PAL_SIGNUP_INVITE_SECRET`. |
 | `open` | Anyone, subject to the rate limit and captcha. Default in dev. |
 
+## First owner on a self-host
+
+Production starts with sign-up closed and an empty database, so nobody could log in. To create the first owner, set `PAL_BOOTSTRAP_OWNER_EMAIL=you@example.com` (Helm: `controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL`) and start the control plane once. If, and only if, the instance has **zero users**, startup creates the workspace (with the usual free-tier defaults) and an owner whose password is unusable, in one transaction. It writes a one-time password link to the server's **stderr** (`kubectl logs deploy/<release>-control-plane`):
+
+```
+PAL first-owner bootstrap for you@example.com
+Set the owner password (single use, expires in 1 hour):
+  https://<dashboard>/auth/reset?token=...
+```
+
+Open the link, set a password, then log in. The link is an ordinary password-reset token (SHA-256 at rest, single use, 1 hour, rate limited), so there is no extra endpoint to attack. The raw token is never sent to the structured logger or traces. Once any user exists the variable is ignored for good, so you can leave it set or remove it.
+
+If the hour passes before you redeem it and you have a real mailer configured, use "Forgot password". Otherwise delete the pending tenant (`DELETE FROM tenants WHERE slug LIKE 'you-%'`) and restart. With sign-up closed, zero users and no bootstrap variable, the control plane logs a warning naming this variable at every start.
+
 ## Sign up, verify, log in
 
 <Steps>
