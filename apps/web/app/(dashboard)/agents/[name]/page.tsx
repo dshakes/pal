@@ -182,7 +182,6 @@ const RUNS_PER_PAGE = 10;
 const routeTabs = [
   { key: "channels", label: "Channels", icon: Plug, suffix: "/channels" as const },
   { key: "workflow", label: "Workflow", icon: GitBranch, suffix: "/editor" as const },
-  { key: "reliability", label: "Reliability", icon: Activity, suffix: "/reliability" as const },
 ];
 
 // ---------------------------------------------------------------------------
