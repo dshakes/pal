@@ -591,6 +591,11 @@ func toolsForTenant(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([
 	// filterReadOnlyTools and grounds CONTACT replies too (flight status,
 	// news, hours) — see web_search.go.
 	out = append(out, webSearchTool())
+	// a2a_call only when the acting agent's policy explicitly names a remote
+	// A2A agent (ADR 0057) — never for legacy-permissive or identity-less callers.
+	if principalAllowsRemoteA2A(ctx) {
+		out = append(out, a2aCallTool())
+	}
 	return out, nil
 }
 
@@ -638,6 +643,9 @@ func dispatchTool(ctx context.Context, pool *pgxpool.Pool, tenantID, name string
 	}
 	if name == "web_search" {
 		return executeWebSearchTool(ctx, pool, tenantID, params)
+	}
+	if name == a2aCallToolName {
+		return executeA2ACallTool(ctx, pool, tenantID, params)
 	}
 	parts := strings.SplitN(name, "__", 2)
 	if len(parts) != 2 {

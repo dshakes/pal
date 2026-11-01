@@ -696,6 +696,11 @@ directory lists only `is_public` agents.
 | ------ | ------------------------- | ----------------------------------------------------------------- |
 | `GET`  | `/v1/agents/{name}/card`  | Get agent's A2A card (own agent, or `is_public`; else 404)        |
 | `GET`  | `/.well-known/agent.json` | Well-known A2A discovery endpoint — lists only `is_public` agents |
+| `GET`  | `/v1/agents/{name}/a2a/.well-known/agent-card.json` | A2A v0.3 spec card (ADR 0057; same visibility) |
+| `POST` | `/v1/agents/{name}/a2a` | A2A v0.3 JSON-RPC: `message/send`, `message/stream` (SSE), `tasks/get`, `tasks/cancel`, `tasks/resubscribe`. Task = run (`trigger_kind=a2a`, view in `trigger_meta.a2a`); a task is readable only by the principal that created it (or the owning tenant). No push/extended card/multi-turn |
+| `GET`  | `/.well-known/agent-card.json` | Spec card of `PAL_A2A_DEFAULT_AGENT` (public only; else 404). Cards are `no-store`; prod serves them only with `PAL_PUBLIC_BASE_URL` set (503 otherwise — the card url must not come from Host headers). SSE streams capped at 8 per caller per process |
+
+**Outbound A2A (ADR 0057).** Built-in `a2a_call` tool (tool loop + workflow `tool` node): advertised only when the agent's policy names an explicit http(s) `a2aTargets` entry; the URL AND the remote card's `url` must pass `a2aTargets` + `egressHosts`; SSRF-pinned callback client; reply fenced + marked UNTRUSTED. `PAL_A2A_ALLOW_PRIVATE=1` (dev/test only, ignored in prod) allows loopback.
 
 ### Cost forecast + budgets (wedge #1)
 
@@ -774,6 +779,10 @@ Behind config: with `PAL_STRIPE_SECRET_KEY` unset, `GET /v1/billing` reports
 | `PAL_BILLING_SYNC_INTERVAL`  | Dunning sweep + meter export cadence (default 1h).                   |
 | `PAL_DASHBOARD_URL`          | Checkout success/cancel + portal return base (default `:3001`).      |
 | `PAL_STRIPE_API_BASE`        | Stripe API origin override (tests / egress proxy).                   |
+
+### Post-deployment observability (ADR 0056)
+
+`internal/obs` (pure) + `internal/handlers/observability.go`. `GET /v1/runs/{id}/trace` folds `journal_events` into a redacted step/LLM/tool/child-run tree (cross-tenant → 404; the run-row check is the gate because the journal is RLS-exempt; the interpreter records the redacted tool name and arguments on the step's terminal journal event). Per-agent SLOs (`/v1/agents/{name}/slo[/status]`: success/latency/cost/score share one objective; ADR 0041 burn windows computed in-app, not Prometheus, to keep label cardinality bounded). Opt-in sampled production evals (`/v1/agents/{name}/prod-evals`, judge = ADR 0052 with maker excluded, daily budget, per-version drift). Deterministic anomaly detection (robust z + relative-change gates, no model) opens `agent_incidents` (`/v1/incidents`, acknowledge/resolve audited in `agent_incident_events`); a model summary is accepted only if it cites the incident's own runs. `rollback` on an incident + `SetRollbackSink` is the Phase 6 hook (wiring is a follow-up). Env: `PAL_OBS_INTERVAL` (5m, `off`), `PAL_OBS_RECENT_WINDOW`, `PAL_OBS_BASELINE_WINDOW`, `PAL_OBS_MODEL_SUMMARY=0`. Dashboard: run detail trace, `/incidents`, agent → Reliability.
 
 ### Eval suites + CI gating (wedge #2)
 

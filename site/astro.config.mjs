@@ -159,6 +159,7 @@ export default defineConfig({
             { slug: 'docs/build/scheduling', label: 'Scheduling' },
             { slug: 'docs/build/testing', label: 'Testing' },
             { slug: 'docs/build/marketplace', label: 'Marketplace' },
+            { slug: 'docs/build/a2a', label: 'Agent-to-agent (A2A)' },
             { slug: 'docs/build/accounts', label: 'Accounts and teams' },
           ] },
           { label: 'Run in production', items: [

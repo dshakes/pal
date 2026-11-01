@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { RunTrace } from "@/components/run-trace";
 import { useParams, useRouter } from "next/navigation";
 import clsx from "clsx";
 import { format } from "date-fns";
@@ -226,6 +227,10 @@ export default function RunDetailPage() {
                   totals={{ costUsd: run.costUsd, tokensIn: run.tokensIn, tokensOut: run.tokensOut }}
                 />
               )}
+              {/* Structured span tree (#408): model/tool detail, policy denials, child runs. */}
+              <div className="max-h-[55vh] overflow-auto border-t border-line p-4">
+                <RunTrace runId={run.id} refreshKey={run.status} />
+              </div>
               {compareId && <CompareTrace runId={compareId} onClose={() => { setCompareId(null); setComparing(false); setCompareInput(""); }} />}
             </div>
           </section>
