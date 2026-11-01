@@ -32,6 +32,7 @@ import { useToast } from "@/components/toast";
 import { RunResultView, ScoreTrend } from "../../eval-suites/eval-views";
 import { Section } from "./lifecycle";
 
+// The branch runs and baselines are recorded under; CI (pal eval run) defaults to main too.
 const BRANCH = "main";
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 

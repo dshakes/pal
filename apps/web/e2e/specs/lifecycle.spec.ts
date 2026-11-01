@@ -85,6 +85,8 @@ test("Evals: draft a suite from real runs, review it, save it", async ({ page })
   await page.goto("/agents/eval-agent?tab=evals");
   await page.getByRole("button", { name: "Draft a suite from runs" }).click();
   const dlg = page.getByRole("dialog");
+  // E2E-EVAL-GOAL is matched by the replay rule in e2e/fixtures/llm-rules.json,
+  // which answers with the "e2e-drafted" suite (cases core-job + no-shouting).
   await dlg.getByLabel(/What should the suite check/).fill("E2E-EVAL-GOAL summaries stay short");
   await dlg.getByRole("button", { name: "Draft cases" }).click();
   await expect(dlg.getByText("core-job")).toBeVisible({ timeout: 30_000 });

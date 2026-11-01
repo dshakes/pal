@@ -73,6 +73,8 @@ export function policyGaps(s: WorkflowSummary | null, p: AgentPolicy | null): Po
   // pattern matches the id AND one of its action patterns matches the action.
   const allows = (c: string, a: string) =>
     Object.entries(p.connectors ?? {}).some(([pc, acts]) => matchGlob(pc, c) && acts.some((pa) => matchGlob(pa, a)));
+  // A connector node with no action yet is checked as action "" — the server
+  // would refuse it too, so an unfinished node reads as a gap (deliberately).
   for (const [c, actions] of Object.entries(s.connectors)) {
     for (const a of actions.length ? actions : [""]) if (!allows(c, a)) gaps.push({ kind: "connector", target: a ? `${c}.${a}` : c });
   }

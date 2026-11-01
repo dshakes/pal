@@ -4,7 +4,7 @@
 // MCP servers attached to the agent, the connectors the workflow calls, and
 // what of that the agent's policy will refuse. The visual editor (@xyflow)
 // lives on its own route; this tab summarises it and links there.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ExternalLink, Plug, Server, ShieldCheck, Workflow, X } from "lucide-react";
 import { api, type ConnectorInstall, type McpAttachment, type McpServer } from "@/lib/api";
@@ -35,8 +35,12 @@ export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSav
   const [prompt, setPrompt] = useState(agent.systemPrompt ?? "");
   const [model, setModel] = useState("");
   const [saving, setSaving] = useState(false);
+  // Follow the server's value after a save, but never overwrite unsaved edits.
+  const synced = useRef(agent.systemPrompt ?? "");
   useEffect(() => {
-    setPrompt(agent.systemPrompt ?? "");
+    const next = agent.systemPrompt ?? "";
+    setPrompt((cur) => (cur === synced.current ? next : cur));
+    synced.current = next;
   }, [agent.systemPrompt]);
   const dirty = prompt !== (agent.systemPrompt ?? "") || model !== "";
 

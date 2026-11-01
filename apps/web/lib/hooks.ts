@@ -231,16 +231,26 @@ export function useRun(id: string) {
 export function useRunEvents(runId: string, reopenKey?: string) {
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [state, setState] = useState<StreamState>("connecting");
+  // Reopen only when the key changes between two KNOWN values — the first
+  // value arriving (undefined → status, on every page load) is not a change.
+  const lastKey = useRef<string | undefined>(undefined);
+  const [epoch, setEpoch] = useState(0);
+  useEffect(() => {
+    if (reopenKey === undefined) return;
+    if (lastKey.current !== undefined && lastKey.current !== reopenKey) setEpoch((n) => n + 1);
+    lastKey.current = reopenKey;
+  }, [reopenKey]);
 
   useEffect(() => {
     setEvents([]);
+    lastKey.current = undefined;
   }, [runId]);
 
   useEffect(() => {
     const stream = api.streamRunEvents(runId);
     stream.subscribe((event) => setEvents((prev) => mergeEvent(prev, event)), setState);
     return () => stream.close();
-  }, [runId, reopenKey]);
+  }, [runId, epoch]);
 
   return { events, state, connected: state === "live" };
 }
