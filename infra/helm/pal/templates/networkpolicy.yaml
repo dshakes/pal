@@ -133,13 +133,14 @@ spec:
   podSelector:
     matchExpressions:
       - {key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name | quote }}]}
-      - {key: app.kubernetes.io/component, operator: In, values: [gateway, dashboard, surface-gateway]}
+      - {key: app.kubernetes.io/component, operator: In, values: [gateway, dashboard, surface-gateway, control-plane]}
   policyTypes: [Ingress]
   ingress:
     - ports:
         - {port: 8443, protocol: TCP}
         - {port: 3000, protocol: TCP}
         - {port: 8444, protocol: TCP}
+        - {port: 8080, protocol: TCP}   # control-plane HTTP, reached via the API ingress host
       {{- if .Values.networkPolicy.ingressFrom }}
       from:
         {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}

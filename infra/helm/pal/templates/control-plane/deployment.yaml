@@ -96,6 +96,11 @@ spec:
             # completely off — a fail-open on the tenant-isolation control.
             - name: PAL_ENV
               value: {{ .Values.controlPlane.env.PAL_ENV | default "production" | quote }}
+            {{- with include "pal.corsOrigins" . }}
+            # The browser calls the API host cross-origin; allow the dashboard origin.
+            - name: PAL_CORS_ORIGINS
+              value: {{ . | quote }}
+            {{- end }}
             - name: PAL_RLS_ENFORCE
               value: {{ .Values.controlPlane.env.PAL_RLS_ENFORCE | default "" | quote }}
             - name: PAL_AUTHZ_ENFORCE

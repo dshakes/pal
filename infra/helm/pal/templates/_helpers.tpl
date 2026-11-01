@@ -83,7 +83,7 @@ Usage: include "pal.image" (dict "root" . "component" .Values.gateway)
 {{- define "pal.image" -}}
 {{- $registry := .root.Values.global.image.registry -}}
 {{- $repository := .root.Values.global.image.repository -}}
-{{- $tag := default .root.Values.global.image.tag .component.image.tag -}}
+{{- $tag := default (default .root.Chart.AppVersion .root.Values.global.image.tag) .component.image.tag -}}
 {{- $name := .component.image.name -}}
 {{- if $registry -}}
 {{- printf "%s/%s/%s:%s" $registry $repository $name $tag -}}
@@ -206,4 +206,50 @@ mtls.reloader is on. Go services hot-reload the leaf and need nothing.
 {{- if and .root.Values.mtls.enabled .root.Values.mtls.reloader }}
 secret.reloader.stakater.com/reload: {{ printf "%s-%s-mtls" (include "pal.fullname" .root) .name | quote }}
 {{- end }}
+{{- end }}
+
+{{/*
+Ingress helpers. First ingress host that routes to <service>; "" when none/disabled.
+Usage: include "pal.ingressHost" (dict "root" . "service" "control-plane")
+*/}}
+{{- define "pal.ingressHost" -}}
+{{- $svc := .service -}}
+{{- $out := "" -}}
+{{- if .root.Values.ingress.enabled -}}
+{{- range .root.Values.ingress.hosts -}}
+{{- $h := .host -}}
+{{- range .paths -}}
+{{- if and (eq .service $svc) (not $out) -}}{{- $out = $h -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $out -}}
+{{- end }}
+
+{{- define "pal.ingressScheme" -}}
+{{- if .Values.ingress.tls -}}https{{- else -}}http{{- end -}}
+{{- end }}
+
+{{/*
+URL the BROWSER uses for the API (dashboard -> control-plane). Explicit
+dashboard.publicApiUrl wins; else the ingress host that routes to the control-plane.
+Empty -> the dashboard keeps its built-in default (http://localhost:8080).
+*/}}
+{{- define "pal.publicApiUrl" -}}
+{{- if .Values.dashboard.publicApiUrl -}}
+{{- .Values.dashboard.publicApiUrl -}}
+{{- else -}}
+{{- $h := include "pal.ingressHost" (dict "root" . "service" "control-plane") -}}
+{{- if $h -}}{{ include "pal.ingressScheme" . }}://{{ $h }}{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/* Dashboard origin(s) the control-plane must allow via CORS (PAL_CORS_ORIGINS). */}}
+{{- define "pal.corsOrigins" -}}
+{{- if .Values.controlPlane.env.PAL_CORS_ORIGINS -}}
+{{- .Values.controlPlane.env.PAL_CORS_ORIGINS -}}
+{{- else -}}
+{{- $h := include "pal.ingressHost" (dict "root" . "service" "dashboard") -}}
+{{- if $h -}}{{ include "pal.ingressScheme" . }}://{{ $h }}{{- end -}}
+{{- end -}}
 {{- end }}

@@ -46,6 +46,7 @@ on:
       - "services/runtime-scheduler/**"
       - "scripts/db-restore-drill.sh"
       - "scripts/check-app-grants.sh"
+      - "apps/web/**"
       - ".github/workflows/runtime-cluster-e2e.yml"
   workflow_dispatch: {}
 
@@ -200,13 +201,23 @@ jobs:
           kubectl wait node --all --for=condition=Ready --timeout=180s
           kubectl -n kube-system rollout status deploy/coredns --timeout=180s
 
-      - name: Build + load control-plane and runtime-scheduler images
+      - name: Build + load control-plane, runtime-scheduler and dashboard images
         run: |
           set -euo pipefail
           for svc in control-plane runtime-scheduler; do
             docker build -t "pal/$svc:ci" -f "services/$svc/Dockerfile" .
             kind load docker-image "pal/$svc:ci" --name "$KIND_CLUSTER_NAME"
           done
+          # No build-arg: the image must work anywhere (PAL_PUBLIC_API_URL is read at runtime).
+          docker build -t pal/web:ci -f apps/web/Dockerfile apps/web
+          kind load docker-image pal/web:ci --name "$KIND_CLUSTER_NAME"
+
+      # Before the chart, so its Ingress is admitted by a live controller.
+      - name: Install ingress-nginx
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/baremetal/deploy.yaml
+          kubectl -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=300s
 
       - name: helm install (values-ci, generated secrets)
         run: |
@@ -238,6 +249,34 @@ jobs:
           grep -q '^pal_scheduler_' /tmp/sched-metrics.txt
           DATABASE_URL="postgres://pal:${PGPASSWORD}@localhost:15432/pal?sslmode=disable" \
             scripts/check-app-grants.sh
+
+      # The path an operator's browser takes: sign up and call the API on the API host,
+      # load the dashboard on the app host, all through the ingress under enforced NetworkPolicies.
+      - name: Ingress e2e - sign up, authed call, dashboard login page
+        run: |
+          set -euo pipefail
+          kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 18088:80 &
+          pf=$!
+          trap 'kill $pf 2>/dev/null || true' EXIT
+          for _ in $(seq 30); do curl -s -o /dev/null localhost:18088 && break; sleep 1; done
+          api() { curl -fsS -H "Host: api.pal.test" "$@"; }
+          email="ci-$(openssl rand -hex 4)@example.com"
+          body="{\"email\":\"$email\",\"password\":\"ci-Passw0rd-$(openssl rand -hex 4)\",\"name\":\"CI\"}"
+          token="$(api -X POST -H 'Content-Type: application/json' -d "$body" localhost:18088/auth/signup | jq -er .token)"
+          # login with the same credentials, then use that token on authed routes
+          token="$(api -X POST -H 'Content-Type: application/json' -d "$body" localhost:18088/auth/login | jq -er .token)"
+          api -H "Authorization: Bearer $token" localhost:18088/auth/me | jq -e --arg e "$email" '.email == $e'
+          api -H "Authorization: Bearer $token" localhost:18088/v1/agents >/dev/null
+          # CORS: the dashboard origin is derived from the ingress and allowed on the API host
+          curl -sS -D - -o /dev/null -X OPTIONS -H "Host: api.pal.test" -H "Origin: http://app.pal.test" \
+            -H "Access-Control-Request-Method: GET" -H "Access-Control-Request-Headers: authorization" \
+            localhost:18088/v1/agents | grep -i '^access-control-allow-origin: http://app.pal.test'
+          # internal/metrics routes must not be reachable through the ingress
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: api.pal.test' localhost:18088/internal/auth/introspect-key)"
+          [ "$code" = 404 ]
+          # dashboard login page, with the browser API URL injected at request time
+          curl -fsS -H "Host: app.pal.test" localhost:18088/login -o /tmp/login.html
+          grep -q 'window.__NEXT_PUBLIC_API_URL="http://api.pal.test"' /tmp/login.html
 
       - name: Backup CronJob produces a restorable dump
         run: |

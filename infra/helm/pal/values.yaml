@@ -2,7 +2,7 @@ global:
   image:
     registry: ghcr.io
     repository: dshakes/pal
-    tag: "0.1.0"
+    tag: ""                 # empty -> Chart.appVersion (published by build-images.yml on a v* tag)
     pullPolicy: IfNotPresent
   logLevel: info
 
@@ -136,6 +136,9 @@ dashboard:
   service:
     type: ClusterIP
     port: 3000
+  # Browser-facing API URL (PAL_PUBLIC_API_URL). Empty -> derived from the ingress
+  # host that routes to the control-plane.
+  publicApiUrl: ""
 
 # -- Multi-region (ADR 0046) --
 # All empty = single-region (the default): nothing is injected and nothing
@@ -201,6 +204,11 @@ externalS3:                            # used when minio.enabled=false
   accessKeyId: ""                      # secret key is secrets.minioPassword
   bucket: pal-dev
 
+# Routing (do not point the API host at `gateway`: it serves only /v1/agents and
+# /v1/runs; /auth, sessions, settings, runtime ... live on the control-plane).
+# The API gets its OWN host because dashboard pages share /auth/{verify,reset,
+# forgot,callback} with POST /auth/* API routes, which one origin cannot split by
+# path. Explicit prefixes keep /internal and /metrics off the ingress.
 ingress:
   enabled: false
   className: nginx
@@ -208,9 +216,11 @@ ingress:
   hosts:
     - host: api.pal.example.com
       paths:
-        - path: /
-          pathType: Prefix
-          service: gateway
+        - {path: /v1, pathType: Prefix, service: control-plane}
+        - {path: /auth, pathType: Prefix, service: control-plane}
+        - {path: /.well-known, pathType: Prefix, service: control-plane}
+        - {path: /mcp, pathType: Prefix, service: control-plane}
+        - {path: /dl, pathType: Prefix, service: control-plane}
     - host: app.pal.example.com
       paths:
         - path: /

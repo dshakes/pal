@@ -18,7 +18,7 @@ global:
     # render "/pal/pal-gateway:tag", which no runtime can pull.
     registry: ghcr.io
     repository: dshakes/pal
-    tag: "0.1.0"
+    tag: ""                 # empty -> Chart.appVersion; pin a release explicitly if you prefer
     pullPolicy: IfNotPresent
   logLevel: info
 
