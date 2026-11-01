@@ -20,6 +20,8 @@ export interface Agent {
   avatarUrl?: string;
   stylePrompt?: string;
   systemPrompt?: string;
+  /** Head of the failover chain; empty/"auto" = default chain. */
+  model?: string;
 }
 
 export interface AgentVersion {

@@ -62,6 +62,13 @@ function useEvals(agentName: string) {
 
 // ── Evals ─────────────────────────────────────────────────────────────────────
 
+// Changes whenever a run is added, even once the list is capped (ListRuns returns at most 100).
+function newestRunAt(runs: EvalRun[] | null): number {
+  let best = 0;
+  for (const r of runs ?? []) best = Math.max(best, ts(r.createdAt));
+  return best;
+}
+
 export function EvalsPanel({ agentName }: { agentName: string }) {
   const toast = useToast();
   const canWrite = useCan("agents:write");
@@ -111,7 +118,7 @@ export function EvalsPanel({ agentName }: { agentName: string }) {
       <Section
         title="Suites"
         action={
-          canWrite ? (
+          canWrite && canRun ? (
             <Button size="sm" variant="secondary" icon={<Sparkles className="h-3.5 w-3.5" />} onClick={() => setGenOpen(true)}>
               Draft a suite from runs
             </Button>
@@ -218,9 +225,9 @@ export function EvalsPanel({ agentName }: { agentName: string }) {
         />
       </Section>
 
-      <EvalAnalytics agentName={agentName} refreshKey={runs?.length ?? 0} />
+      <EvalAnalytics agentName={agentName} refreshKey={newestRunAt(runs)} />
 
-      <Modal open={!!result} onClose={() => setResult(null)} title={result ? `${result.suite}: ${pct(result.run.score)}` : ""} description={result?.run.regressed ? "Scored below the pinned baseline — CI would fail this change (HTTP 422)." : undefined} size="xl">
+      <Modal open={!!result} onClose={() => setResult(null)} title={result ? `${result.suite}: ${pct(result.run.score)}` : ""} description={result?.run.regressed ? "Regressed against the pinned baseline — the server answers this run with HTTP 422." : undefined} size="xl">
         {result && <RunResultView run={result.run} />}
       </Modal>
       <GenerateSuiteModal open={genOpen} onClose={() => setGenOpen(false)} agentName={agentName} onSaved={() => { setGenOpen(false); void reload(); }} />
@@ -373,7 +380,7 @@ export function GatePanel({ agentName }: { agentName: string }) {
   const { runs, baseline, error } = useEvals(agentName);
   if (error) return <p role="alert" className="text-[13px] text-bad">{error}</p>;
   const loading = runs === null || baseline === undefined;
-  const v = loading ? null : gateVerdict(runs, baseline ?? null);
+  const v = loading ? null : gateVerdict(runs, baseline ?? null, BRANCH);
   return (
     <div className="space-y-4">
       <Section title="Ship check">

@@ -729,9 +729,9 @@ class PalAPI {
   }
 
   /**
-   * PATCH /v1/agents/{name}. The server accepts exactly these fields; anything
-   * else (description, timeout, token/cost limits) is not stored — it used to
-   * be sent with PUT, which the server doesn't route (405), so saves failed.
+   * PATCH /v1/agents/{name}. The server stores only these fields (description,
+   * timeout, token/cost limits are not). manifest.isolation must be "",
+   * "shared" or "microvm" or the server 400s (see lib/agent-settings.ts).
    */
   async updateAgent(
     name: string,
@@ -2129,10 +2129,12 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     }
   }
 
-  async getWorkflow(agentName: string): Promise<unknown | null> {
+  /** `strict`: only a 404 means "no workflow"; any other failure throws. */
+  async getWorkflow(agentName: string, opts: { strict?: boolean } = {}): Promise<unknown | null> {
     try {
       return await this.request(`/v1/agents/${encodeURIComponent(agentName)}/workflow`);
-    } catch {
+    } catch (err) {
+      if (opts.strict && !(err instanceof Error && err.message.startsWith("API 404"))) throw err;
       return null;
     }
   }

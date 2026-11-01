@@ -12,33 +12,56 @@ export interface GateVerdict {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
+// Server tolerance (eval_assert.go aggregateRegressed).
+const TOL = 0.01;
+
 /**
- * Did this run regress against the pinned baseline? The run list doesn't keep
- * the server's regression call (it reports regressed:false for a run whose
- * /run answered 422), so derive it the way the gate does: same branch, run
- * after the baseline was pinned, not the baseline itself, lower score.
+ * Aggregate-score regression, mirroring the server's 422 rule: no comparison
+ * without a branch; otherwise score + 0.01 < baseline and |baseline - score| > 0.01.
+ * The run list doesn't keep the server's call (a run whose /run answered 422
+ * lists as regressed:false), so derive it: same branch as the baseline, run
+ * after the pin, not the baseline itself. Per-case regressions (a baseline-
+ * passing case now failing) also 422 server-side but need the case results,
+ * so they only show in the run's result view, not here.
  */
 export function isRegressed(run: EvalRun, baseline: EvalBaseline | null): boolean {
   if (run.regressed) return true;
+  if (!run.branch) return false;
   if (!baseline || baseline.evalRunId === run.id) return false;
-  if ((run.branch || "main") !== baseline.branch) return false;
+  if (run.branch !== baseline.branch) return false;
   if (baseline.setAt && Date.parse(run.createdAt) < Date.parse(baseline.setAt)) return false;
-  return run.score < baseline.score;
+  return run.score + TOL < baseline.score && Math.abs(baseline.score - run.score) > TOL;
 }
 
-export function gateVerdict(runs: EvalRun[], baseline: EvalBaseline | null): GateVerdict {
-  const latest = [...runs].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-  if (!latest) return { state: "none", title: "No eval results", detail: "Nothing has scored this agent yet, so there is no quality signal to gate on." };
-  const on = latest.agentVersion ? `version ${latest.agentVersion}` : "the working copy";
-  const base = baseline && baseline.evalRunId !== latest.id ? ` Baseline: ${pct(baseline.score)}.` : "";
-  if (isRegressed(latest, baseline)) {
-    return { state: "regressed", run: latest, title: "Evals regressed", detail: `Latest run scored ${pct(latest.score)} on ${on}, below the pinned baseline.${base} CI fails this change with 422.` };
+/** Newest run of each suite on `branch`. */
+export function latestPerSuite(runs: EvalRun[], branch: string): EvalRun[] {
+  const best = new Map<string, EvalRun>();
+  for (const r of runs) {
+    if (r.branch !== branch) continue;
+    const cur = best.get(r.suiteId);
+    if (!cur || Date.parse(r.createdAt) > Date.parse(cur.createdAt)) best.set(r.suiteId, r);
   }
-  if (!latest.passed) return { state: "fail", run: latest, title: "Evals failing", detail: `Latest run scored ${pct(latest.score)} on ${on} (${latest.casesPassed}/${latest.casesTotal} cases).${base}` };
+  return [...best.values()];
+}
+
+const RANK = { regressed: 0, fail: 1, pass: 2 } as const;
+
+/** Gate over the latest run of every suite on the branch; the worst one decides. */
+export function gateVerdict(runs: EvalRun[], baseline: EvalBaseline | null, branch = "main"): GateVerdict {
+  const latest = latestPerSuite(runs, branch);
+  if (latest.length === 0) return { state: "none", title: "No eval results", detail: `Nothing has scored this agent on ${branch} yet, so there is no quality signal to gate on.` };
+  const judged = latest.map((r) => ({ r, state: isRegressed(r, baseline) ? ("regressed" as const) : r.passed ? ("pass" as const) : ("fail" as const) }));
+  judged.sort((a, b) => RANK[a.state] - RANK[b.state] || Date.parse(b.r.createdAt) - Date.parse(a.r.createdAt));
+  const { r, state } = judged[0];
+  const suites = latest.length > 1 ? ` (${judged.filter((j) => j.state === state).length} of ${latest.length} suites)` : "";
+  const on = r.agentVersion ? `version ${r.agentVersion}` : "the working copy";
+  const base = baseline && baseline.evalRunId !== r.id ? ` Baseline: ${pct(baseline.score)}.` : "";
+  if (state === "regressed") return { state, run: r, title: "Evals regressed", detail: `Latest run scored ${pct(r.score)} on ${on}, below the pinned baseline${suites}.${base}` };
+  if (state === "fail") return { state, run: r, title: "Evals failing", detail: `Latest run scored ${pct(r.score)} on ${on} (${r.casesPassed}/${r.casesTotal} cases)${suites}.${base}` };
   return {
-    state: "pass",
-    run: latest,
+    state,
+    run: r,
     title: "Evals passing",
-    detail: `Latest run scored ${pct(latest.score)} on ${on}.${base || (baseline ? " This run is the baseline." : " No baseline pinned yet — pin one so regressions are caught.")}`,
+    detail: `Latest run scored ${pct(r.score)} on ${on}${suites}.${base || (baseline ? " This run is the baseline." : " No baseline pinned yet — pin one so regressions are caught.")}`,
   };
 }

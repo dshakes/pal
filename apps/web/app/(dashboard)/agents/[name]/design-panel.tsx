@@ -56,7 +56,7 @@ export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSav
   const load = useCallback(async () => {
     try {
       const [wf, pol, att, cat, inst] = await Promise.all([
-        api.getWorkflow(name),
+        api.getWorkflow(name, { strict: true }),
         api.getAgentPolicy(name).catch(() => null),
         api.listAgentMcpServers(name),
         api.listMcpServers().catch(() => [] as McpServer[]),
@@ -157,7 +157,7 @@ export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSav
               <select id="d-model" value={model} onChange={(e) => setModel(e.target.value)} className={field}>
                 {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
-              <p className="mt-1 text-[12px] text-fg-3">Addressed by capability; the router picks the vendor model. The API doesn’t report the current setting yet.</p>
+              <p className="mt-1 text-[12px] text-fg-3">Addressed by capability; the router picks the vendor model. Current: {agent.model || "auto (default chain)"}.</p>
             </div>
           </div>
           <RoleGate cap="agents:write">

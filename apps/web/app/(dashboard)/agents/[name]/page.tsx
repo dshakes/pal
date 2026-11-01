@@ -48,7 +48,8 @@ import type { Run } from "@/lib/types";
 import { type GuardrailConfig, getGuardrailConfig, saveGuardrailConfig, hasActiveGuardrails } from "@/lib/guardrails";
 import { AgentMcpSection } from "@/components/agent-mcp-section";
 import { type MemoryEntry, getAgentMemory, memoryToContext } from "@/lib/agent-memory";
-import { getAgentInstructions, mergeInstructionsAndPrompt } from "@/lib/agent-instructions";
+import { mergeInstructionsAndPrompt } from "@/lib/agent-instructions";
+import { ISOLATION_LEVELS, settingsPatch } from "@/lib/agent-settings";
 import { type CodeLanguage, runCode, extractCodeBlocks } from "@/lib/code-runner";
 import NextLink from "next/link";
 import { runtimeApi } from "@/lib/runtime-api";
@@ -80,11 +81,6 @@ function describeCron(expr: string): string {
   return desc;
 }
 
-const PROMPTS_KEY = "pal_agent_prompts";
-function getAgentPrompt(n: string): string {
-  if (typeof window === "undefined") return "";
-  try { return JSON.parse(localStorage.getItem(PROMPTS_KEY) || "{}")[n] || ""; } catch { return ""; }
-}
 function getAgentSettings(n: string): Record<string, unknown> {
   if (typeof window === "undefined") return {};
   try { return JSON.parse(localStorage.getItem(`pal_agent_settings_${n}`) || "{}"); } catch { return {}; }
@@ -262,7 +258,7 @@ export default function AgentDetailPage() {
 
   // Settings
   const [settingsModel, setSettingsModel] = useState("auto");
-  const [settingsIsolation, setSettingsIsolation] = useState("standard");
+  const [settingsIsolation, setSettingsIsolation] = useState("");
   const [settingsTimeout, setSettingsTimeout] = useState("5m");
   const [settingsMaxTokens, setSettingsMaxTokens] = useState(100000);
   const [settingsMaxCost, setSettingsMaxCost] = useState(1.0);
@@ -334,12 +330,16 @@ export default function AgentDetailPage() {
   const [runsPage, setRunsPage] = useState(0);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
 
+  // The server's agent is the source of truth for prompt and model.
+  useEffect(() => {
+    if (!agent) return;
+    setSystemPrompt(agent.systemPrompt ?? "");
+    setSettingsModel(agent.model || "auto");
+  }, [agent]);
+
   // Load saved state
   useEffect(() => {
-    setSystemPrompt(getAgentPrompt(name));
     const s = getAgentSettings(name);
-    if (s.model) setSettingsModel(s.model as string);
-    if (s.isolation) setSettingsIsolation(s.isolation as string);
     if (s.timeout) setSettingsTimeout(s.timeout as string);
     if (s.maxTokens) setSettingsMaxTokens(s.maxTokens as number);
     if (s.maxCostUsd) setSettingsMaxCost(s.maxCostUsd as number);
@@ -347,8 +347,6 @@ export default function AgentDetailPage() {
     // Load guardrails
     setGuardrails(getGuardrailConfig(name));
     setBlockedTopicsInput(getGuardrailConfig(name).blockedTopics.join(", "));
-    // Load instructions
-    setInstructions(getAgentInstructions(name));
     // Load memory
     setMemoryEntries(getAgentMemory(name));
     // Load chat history
@@ -590,12 +588,15 @@ export default function AgentDetailPage() {
     // The API stores the model and (via the manifest) isolation. Timeout and
     // token/cost limits have no server field yet — say so instead of claiming them.
     try {
-      await api.updateAgent(name, { model: settingsModel, manifest: { isolation: settingsIsolation } });
+      const patch = settingsPatch({ model: agent?.model }, { model: settingsModel, isolation: settingsIsolation });
+      if (Object.keys(patch).length === 0) { toast.info("Nothing changed."); return; }
+      await api.updateAgent(name, patch);
+      await refreshAgent();
       toast.success("Model and isolation saved. Timeout and token/cost limits aren’t stored by the API yet — use Budgets for spend caps.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn’t save settings");
     } finally { setSavingSettings(false); }
-  }, [name, settingsModel, settingsIsolation, settingsTimeout, settingsMaxTokens, settingsMaxCost, toast]);
+  }, [name, agent?.model, refreshAgent, settingsModel, settingsIsolation, toast]);
 
   // Guardrails save helper
   const handleSaveGuardrails = useCallback((updated: GuardrailConfig) => {
@@ -883,7 +884,7 @@ export default function AgentDetailPage() {
                 {isEmailAgent && (
                   <label className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-fg-3">
                     <button type="button" role="switch" aria-checked={chatIncludeEmails} onClick={() => setChatIncludeEmails(!chatIncludeEmails)} className={clsx("relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors", chatIncludeEmails ? "bg-accent" : "bg-line-strong")}>
-                      <span className={clsx("inline-block h-2.5 w-2.5 rounded-full bg-white transition-transform", chatIncludeEmails ? "translate-x-3.5" : "translate-x-0.5")} />
+                      <span className={clsx("inline-block h-2.5 w-2.5 rounded-full bg-fg transition-transform", chatIncludeEmails ? "translate-x-3.5" : "translate-x-0.5")} />
                     </button>
                     <Mail className="h-3 w-3" /> Include emails
                   </label>
@@ -1304,11 +1305,7 @@ export default function AgentDetailPage() {
             <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
               <h3 className="text-sm font-semibold text-fg">Isolation</h3>
               <div className="space-y-2">
-                {[
-                  { value: "trusted", label: "Trusted", desc: "Direct execution, no sandbox" },
-                  { value: "standard", label: "Standard", desc: "Lightweight container isolation" },
-                  { value: "untrusted", label: "Untrusted MicroVM", desc: "Full microVM sandbox (Firecracker)" },
-                ].map((level) => (
+                {ISOLATION_LEVELS.map((level) => (
                   <label key={level.value} className={clsx("flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-all", settingsIsolation === level.value ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong")}>
                     <input type="radio" name="isolation" value={level.value} checked={settingsIsolation === level.value} onChange={(e) => setSettingsIsolation(e.target.value)} className="accent-accent" />
                     <div><div className="text-xs font-medium text-fg">{level.label}</div><div className="text-[11px] text-fg-3">{level.desc}</div></div>
