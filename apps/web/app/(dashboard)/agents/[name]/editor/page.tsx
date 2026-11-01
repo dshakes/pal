@@ -188,7 +188,7 @@ export default function EditorPage() {
           own, so without this there's no way back to the agent. */}
       <Link
         href={`/agents/${encodeURIComponent(name)}`}
-        className="fixed left-4 top-16 z-20 inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-surface-1/90 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-md transition-colors hover:bg-surface-2 hover:text-zinc-100"
+        className="fixed left-4 top-16 z-20 inline-flex items-center gap-1 rounded-lg border border-line bg-panel px-3 py-1.5 text-xs font-medium text-fg-2 backdrop-blur-md transition-colors hover:bg-hover hover:text-fg"
       >
         <span aria-hidden>←</span> {name}
       </Link>

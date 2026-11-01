@@ -9,48 +9,28 @@ import {
   Loader2,
   Save,
   MessageSquare,
-  Square,
   CheckCircle2,
-  Sparkles,
   Mail,
-  ExternalLink,
   Trash2,
   ChevronDown,
   ChevronRight,
   Webhook,
   AlertCircle,
-  Clock,
-  Shield,
-  Lock,
-  History,
-  Wand2,
-  TrendingUp,
-  TrendingDown,
-  Activity,
   Zap,
-  FileText,
   GitCompare,
   ShieldAlert,
-  Lightbulb,
   DollarSign,
   Network,
-  Users,
-  BookOpen,
   Plug,
-  Plus,
   X,
-  Server,
   Brain,
   Paperclip,
   Send,
   Copy,
   Link,
-  Code2,
   Share2,
   Cloud,
-  Download,
   GitBranch,
-  Bot,
 } from "lucide-react";
 import clsx from "clsx";
 import { api } from "@/lib/api";
@@ -65,16 +45,11 @@ import { ExecutionLog, deduplicateSteps } from "@/components/execution-log";
 import { AgentDetailSkeleton } from "@/components/skeleton";
 import { formatCost, formatDuration } from "@/lib/format";
 import type { Run } from "@/lib/types";
-import { type GuardrailConfig, getGuardrailConfig, saveGuardrailConfig, applyGuardrails, hasActiveGuardrails } from "@/lib/guardrails";
-import { type PromptVersion, getPromptVersions, savePromptVersion, formatVersionDate } from "@/lib/prompt-versions";
-import { estimateCost, formatEstimate } from "@/lib/cost-estimator";
+import { type GuardrailConfig, getGuardrailConfig, saveGuardrailConfig, hasActiveGuardrails } from "@/lib/guardrails";
 import { AgentMcpSection } from "@/components/agent-mcp-section";
-import { type SubAgentLink, getSubAgents, addSubAgent, removeSubAgent } from "@/lib/sub-agents";
-import { type MemoryEntry, getAgentMemory, addMemoryEntry, removeMemoryEntry, memoryToContext } from "@/lib/agent-memory";
-import { getAgentInstructions, saveAgentInstructions, mergeInstructionsAndPrompt } from "@/lib/agent-instructions";
+import { type MemoryEntry, getAgentMemory, memoryToContext } from "@/lib/agent-memory";
+import { getAgentInstructions, mergeInstructionsAndPrompt } from "@/lib/agent-instructions";
 import { type CodeLanguage, runCode, extractCodeBlocks } from "@/lib/code-runner";
-import { AgentLoop } from "@/components/agent-loop";
-import { AGENT_CATALOG } from "@/lib/agent-catalog";
 import NextLink from "next/link";
 import { runtimeApi } from "@/lib/runtime-api";
 import { formatDistanceToNowStrict } from "date-fns";
@@ -110,10 +85,6 @@ function getAgentPrompt(n: string): string {
   if (typeof window === "undefined") return "";
   try { return JSON.parse(localStorage.getItem(PROMPTS_KEY) || "{}")[n] || ""; } catch { return ""; }
 }
-function setAgentPrompt(n: string, p: string) {
-  if (typeof window === "undefined") return;
-  try { const d = JSON.parse(localStorage.getItem(PROMPTS_KEY) || "{}"); d[n] = p; localStorage.setItem(PROMPTS_KEY, JSON.stringify(d)); } catch { localStorage.setItem(PROMPTS_KEY, JSON.stringify({ [n]: p })); }
-}
 function getAgentSettings(n: string): Record<string, unknown> {
   if (typeof window === "undefined") return {};
   try { return JSON.parse(localStorage.getItem(`pal_agent_settings_${n}`) || "{}"); } catch { return {}; }
@@ -125,7 +96,7 @@ function getAgentSettings(n: string): Record<string, unknown> {
 
 function ModelSelect({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={clsx("rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50", className)}>
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={clsx("rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent", className)}>
       <option value="auto">Auto (recommended)</option>
       <optgroup label="Anthropic">
         <option value="reasoning-frontier">Reasoning Frontier -- Claude Opus 4</option>
@@ -176,6 +147,8 @@ function AgentHealth({ last }: { last?: Run }) {
 // ---------------------------------------------------------------------------
 
 const RUNS_PER_PAGE = 10;
+// Shared grid template so the runs list header lines up with its rows.
+const RUN_COLS = "grid-cols-[14px_104px_minmax(0,1fr)_72px_64px_120px]";
 
 // Route tabs (link to sub-pages, /agents/[name]/channels etc.). Rendered
 // alongside the in-page tabs as a single visual strip. Kept separate so
@@ -228,14 +201,6 @@ export default function AgentDetailPage() {
   const { agent, loading: agentLoading, error: agentError, refresh: refreshAgent } = useAgent(name);
   const { runs: agentRuns, loading: runsLoading, refresh: refreshRuns } = useAgentRuns(name);
 
-  // Hydrate identity fields from the API once the agent payload lands.
-  useEffect(() => {
-    if (!agent) return;
-    setAvatarUrl(agent.avatarUrl ?? "");
-    setStylePrompt(agent.stylePrompt ?? "");
-    setIdentityDirty(false);
-  }, [agent]);
-
   // Setup-gate status. ready=false means the agent has required connectors
   // or surfaces that aren't connected — we banner the page and disable Run.
   // Templated agents store their requirements in labels JSONB; non-template
@@ -283,29 +248,9 @@ export default function AgentDetailPage() {
 
   // System prompt
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [promptDirty, setPromptDirty] = useState(false);
-  const [savingPrompt, setSavingPrompt] = useState(false);
-
-  // Identity — avatar URL shown in the WhatsApp dashboard timeline; style
-  // prompt is the per-agent "my voice" override fed into the bridge persona.
-  const [avatarUrl, setAvatarUrl] = useState("");
-  const [stylePrompt, setStylePrompt] = useState("");
-  const [identityDirty, setIdentityDirty] = useState(false);
-  const [savingIdentity, setSavingIdentity] = useState(false);
-
   // Test state
-  const [testInput, setTestInput] = useState("");
-  const [testModel, setTestModel] = useState("auto");
+  const [testModel] = useState("auto");
   const [testRunning, setTestRunning] = useState(false);
-  const [testOutput, setTestOutput] = useState("");
-  const [testDone, setTestDone] = useState(false);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [testMeta, setTestMeta] = useState<{ model: string; tokens: number; cost: number; duration: number } | null>(null);
-  const testRef = useRef<HTMLDivElement>(null);
-
-  // Gmail
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [fetchingEmails, setFetchingEmails] = useState(false);
 
   // Schedule
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -313,7 +258,6 @@ export default function AgentDetailPage() {
   const [deliveryEmailEnabled, setDeliveryEmailEnabled] = useState(false);
   const [deliveryEmail, setDeliveryEmail] = useState("");
   const [savingSchedule, setSavingSchedule] = useState(false);
-  const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [nextFireAt, setNextFireAt] = useState<string | null>(null);
 
   // Settings
@@ -331,34 +275,11 @@ export default function AgentDetailPage() {
   const [guardrails, setGuardrails] = useState<GuardrailConfig>({ contentFilter: false, blockPII: false, blockToxic: false, blockedTopics: [], maxResponseLength: 0 });
   const [blockedTopicsInput, setBlockedTopicsInput] = useState("");
 
-  // Prompt versioning
-  const [promptVersions, setPromptVersions] = useState<PromptVersion[]>([]);
-  const [showVersionHistory, setShowVersionHistory] = useState(false);
-
-  // AI features
-  const [optimizingPrompt, setOptimizingPrompt] = useState(false);
-  const [runSuggestions, setRunSuggestions] = useState<string[]>([]);
-  const [generatingDocs, setGeneratingDocs] = useState(false);
-  const [agentDocs, setAgentDocs] = useState("");
-  const [showDocs, setShowDocs] = useState(false);
-
   // Instructions (separated from system prompt)
   const [instructions, setInstructions] = useState("");
-  const [instructionsDirty, setInstructionsDirty] = useState(false);
-  const [generatingInstructions, setGeneratingInstructions] = useState(false);
-
-  // Sub-agents
-  const [subAgents, setSubAgents] = useState<SubAgentLink[]>([]);
-  const [showAddSubAgent, setShowAddSubAgent] = useState(false);
-  const [newSubAgentName, setNewSubAgentName] = useState("");
-  const [newSubAgentDesc, setNewSubAgentDesc] = useState("");
-  const [newSubAgentCondition, setNewSubAgentCondition] = useState("");
 
   // Agent Memory
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([]);
-  const [showAddMemory, setShowAddMemory] = useState(false);
-  const [newMemKey, setNewMemKey] = useState("");
-  const [newMemValue, setNewMemValue] = useState("");
 
   // Chat (Feature 1) — now session-backed
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -384,14 +305,7 @@ export default function AgentDetailPage() {
   const [envNetwork, setEnvNetwork] = useState("allow-all");
   const [envPackages, setEnvPackages] = useState("");
 
-  // File attachments (Feature 2) — for build test section
-  const [testFiles, setTestFiles] = useState<Array<{ name: string; content: string }>>([]);
-
   // Code Sandbox (Feature 3)
-  const [sandboxCode, setSandboxCode] = useState("");
-  const [sandboxLang, setSandboxLang] = useState<CodeLanguage>("javascript");
-  const [sandboxOutput, setSandboxOutput] = useState("");
-  const [sandboxRunning, setSandboxRunning] = useState(false);
   const [codeBlockResults, setCodeBlockResults] = useState<Record<number, { output: string; error: boolean }>>({});
 
   // Sharing (Feature 4)
@@ -423,7 +337,6 @@ export default function AgentDetailPage() {
   // Load saved state
   useEffect(() => {
     setSystemPrompt(getAgentPrompt(name));
-    setPromptDirty(false);
     const s = getAgentSettings(name);
     if (s.model) setSettingsModel(s.model as string);
     if (s.isolation) setSettingsIsolation(s.isolation as string);
@@ -431,34 +344,11 @@ export default function AgentDetailPage() {
     if (s.maxTokens) setSettingsMaxTokens(s.maxTokens as number);
     if (s.maxCostUsd) setSettingsMaxCost(s.maxCostUsd as number);
     if (s.cron) setSettingsCron(s.cron as string);
-    try { const c = JSON.parse(localStorage.getItem("pal_connectors") || "{}"); setGmailConnected(c.gmail?.installed === true); } catch { /* */ }
-    const isEmail = name.toLowerCase().includes("gmail") || name.toLowerCase().includes("email");
-    // Set smart default test input based on agent name
-    const n = name.toLowerCase();
-    const defaultInput = isEmail ? "Summarize my recent emails and highlight anything urgent."
-      : n.includes("recruit") ? "Find senior ML engineers with 5+ years of PyTorch experience."
-      : n.includes("code") || n.includes("review") ? "Review this code for security and performance issues."
-      : n.includes("research") ? "Research the latest trends in AI agent platforms."
-      : n.includes("support") || n.includes("customer") ? "A customer reports they can't reset their password after changing their email."
-      : n.includes("meeting") || n.includes("notes") ? "Summarize the key decisions and action items from today's standup."
-      : n.includes("content") || n.includes("write") ? "Write a blog post about the future of AI agents in enterprise."
-      : n.includes("data") || n.includes("analy") ? "Analyze the Q1 sales data and identify trends."
-      : n.includes("security") || n.includes("scan") ? "Scan the authentication module for OWASP top 10 vulnerabilities."
-      : n.includes("calendar") ? "What meetings do I have this week?"
-      : "";
-    setTestInput(defaultInput);
     // Load guardrails
     setGuardrails(getGuardrailConfig(name));
     setBlockedTopicsInput(getGuardrailConfig(name).blockedTopics.join(", "));
-    // Load prompt versions
-    setPromptVersions(getPromptVersions(name));
-    // Load saved docs
-    try { const d = localStorage.getItem(`pal_agent_docs_${name}`); if (d) setAgentDocs(d); } catch { /* */ }
     // Load instructions
     setInstructions(getAgentInstructions(name));
-    setInstructionsDirty(false);
-    // Load sub-agents
-    setSubAgents(getSubAgents(name));
     // Load memory
     setMemoryEntries(getAgentMemory(name));
     // Load chat history
@@ -527,11 +417,10 @@ export default function AgentDetailPage() {
     } catch { /* */ }
     api.listSchedules().then((sched) => {
       const m = sched.find((sc) => sc.agentName === name);
-      if (m) { setSettingsCron(m.cronExpr); setScheduleId(m.id); setScheduleEnabled(m.enabled); if (m.nextFireAt) setNextFireAt(m.nextFireAt); if (m.deliveryEmail) { setDeliveryEmailEnabled(true); setDeliveryEmail(m.deliveryEmail); } }
+      if (m) { setSettingsCron(m.cronExpr); setScheduleEnabled(m.enabled); if (m.nextFireAt) setNextFireAt(m.nextFireAt); if (m.deliveryEmail) { setDeliveryEmailEnabled(true); setDeliveryEmail(m.deliveryEmail); } }
     }).catch(() => {});
   }, [name]);
 
-  useEffect(() => { if (testRef.current) testRef.current.scrollTop = testRef.current.scrollHeight; }, [testOutput]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages, chatStreaming]);
 
   // Gap 1: Connect to session SSE when sessionId is set
@@ -677,24 +566,6 @@ export default function AgentDetailPage() {
     return () => { if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; } };
   }, [expandedRunId, agentRuns, refreshRuns]);
 
-  // Trigger suggestions generation when test completes
-  const suggestionsTriggeredRef = useRef(false);
-  useEffect(() => {
-    if (testDone && !testError && testOutput && systemPrompt && !suggestionsTriggeredRef.current) {
-      suggestionsTriggeredRef.current = true;
-      (async () => {
-        try {
-          const resp = await api.complete({ messages: [
-            { role: "system", content: "Given an AI agent's system prompt and its output, suggest 2-3 brief improvements (one sentence each). Return a JSON array of strings. ONLY valid JSON." },
-            { role: "user", content: `Prompt: ${systemPrompt}\n\nOutput: ${testOutput.slice(0, 500)}` }
-          ], model: "auto", stream: false });
-          if (resp.ok) { const d = await resp.json(); const match = (d.content || "").match(/\[[\s\S]*\]/); if (match) { setRunSuggestions(JSON.parse(match[0])); } }
-        } catch { /* silent */ }
-      })();
-    }
-    if (!testDone) { suggestionsTriggeredRef.current = false; setRunSuggestions([]); }
-  }, [testDone, testError, testOutput, systemPrompt]);
-
   const isEmailAgent = useMemo(() => name.toLowerCase().includes("gmail") || name.toLowerCase().includes("email"), [name]);
 
   // --- Callbacks ---
@@ -704,120 +575,12 @@ export default function AgentDetailPage() {
     try { await api.deleteAgent(name); toast.success(`Agent "${name}" deleted`); router.push("/agents"); } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to delete"); } finally { setDeleting(false); setShowDeleteConfirm(false); }
   }, [name, toast, router]);
 
-  const handleSaveIdentity = useCallback(async () => {
-    setSavingIdentity(true);
-    try {
-      await api.updateAgent(name, { avatarUrl, stylePrompt });
-      setIdentityDirty(false);
-      toast.success("Identity saved");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSavingIdentity(false);
-    }
-  }, [name, avatarUrl, stylePrompt, toast]);
-
-  const handleSavePrompt = useCallback(async () => {
-    setSavingPrompt(true);
-    try {
-      setAgentPrompt(name, systemPrompt);
-      saveAgentInstructions(name, instructions);
-      const effectivePrompt = mergeInstructionsAndPrompt(instructions, systemPrompt);
-      await api.updateAgent(name, { systemPrompt: effectivePrompt });
-      setPromptDirty(false);
-      setInstructionsDirty(false);
-      toast.success("Prompt and instructions saved");
-    } catch {
-      setPromptDirty(false);
-      setInstructionsDirty(false);
-      toast.success("Saved locally");
-    } finally { setSavingPrompt(false); }
-    // Save prompt version
-    if (systemPrompt.trim()) { const updated = savePromptVersion(name, systemPrompt); setPromptVersions(updated); }
-  }, [name, systemPrompt, instructions, toast]);
-
-  const handleGeneratePrompt = useCallback(async () => {
-    setSavingPrompt(true);
-    try {
-      const resp = await api.complete({ messages: [{ role: "user", content: `Generate a system prompt for an AI agent called "${name}". Description: "${agent?.description || name}". Return ONLY the prompt text.` }], model: "auto", stream: false });
-      if (resp.ok) { const d = await resp.json(); const g = (d.content || d.message?.content || "").trim(); if (g) { setSystemPrompt(g); setPromptDirty(true); toast.success("System prompt generated -- review and save"); return; } }
-      toast.error("Failed to generate prompt");
-    } catch { toast.error("LLM unavailable. Configure a provider in Settings."); } finally { setSavingPrompt(false); }
-  }, [name, agent?.description, toast]);
-
-  const handleTestRun = useCallback(async () => {
-    // For email agents, auto-fetch emails even if input is empty
-    if (!testInput.trim() && !isEmailAgent) return;
-    setTestOutput(""); setTestDone(false); setTestError(null); setTestMeta(null); setTestRunning(true);
-    const startTime = Date.now();
-    const messages: Array<{ role: string; content: string }> = [];
-    const effectivePrompt = mergeInstructionsAndPrompt(instructions, systemPrompt) + memoryToContext(memoryEntries);
-    if (effectivePrompt.trim()) messages.push({ role: "system", content: effectivePrompt });
-
-    if (isEmailAgent) {
-      // Auto-fetch emails and include them
-      try {
-        const cs = JSON.parse(localStorage.getItem("pal_connectors") || "{}");
-        if (cs.gmail?.installed && cs.gmail?.credentials) await api.installConnector({ connectorId: "gmail", displayName: "Gmail", config: cs.gmail.credentials }).catch(() => {});
-        setTestOutput("Fetching emails...\n");
-        const raw = await api.executeConnector("gmail", "list_messages", { limit: 15 });
-        const data = raw as unknown as { messages?: Array<{ from: string; subject: string; snippet: string; date: string }> };
-        if (data.messages?.length) {
-          setTestOutput(`Fetched ${data.messages.length} emails. Processing...\n`);
-          const list = data.messages.map((m, i) => `${i + 1}. From: ${m.from}\n   Subject: ${m.subject}\n   Preview: ${m.snippet}\n   Date: ${m.date}`).join("\n\n");
-          const userMsg = testInput.trim() || "Summarize these emails and highlight anything urgent.";
-          messages.push({ role: "user", content: `${userMsg}\n\nHere are my actual recent emails:\n\n${list}` });
-        } else { messages.push({ role: "user", content: (testInput.trim() || "Summarize my emails.") + "\n\nNo emails found in inbox." }); }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        let display = msg; try { const m = msg.match(/API \d+: (.*)/); if (m) { const p = JSON.parse(m[1]); display = p.error || msg; } } catch { /* */ }
-        setTestOutput(`Error fetching emails: ${display}\n\nTroubleshooting:\n• Go to Connectors → Gmail to verify connection\n• If using OAuth, ensure Gmail API is enabled`); setTestDone(true); setTestRunning(false); return;
-      }
-    } else {
-      let userContent = testInput;
-      for (const f of testFiles) { userContent += `\n\n[Attached file: ${f.name}]\n<file-content>\n${f.content.slice(0, 5000)}\n</file-content>`; }
-      messages.push({ role: "user", content: userContent });
-    }
-
-    try {
-      const response = await api.complete({ messages, model: testModel, stream: true, temperature: 1.0, maxTokens: 4096 });
-      if (!response.ok) { const b = await response.text().catch(() => ""); let m: string; try { m = JSON.parse(b).error || `API error ${response.status}`; } catch { m = b || `API error ${response.status}`; } throw new Error(m); }
-      let resolvedModel = testModel; let totalTokens = 0; let totalCost = 0;
-      if (response.headers.get("content-type")?.includes("text/event-stream")) {
-        const reader = response.body?.getReader(); if (!reader) throw new Error("No response body");
-        const decoder = new TextDecoder(); let full = ""; let buffer = "";
-        while (true) {
-          const { done, value } = await reader.read(); if (done) break;
-          buffer += decoder.decode(value, { stream: true }); const lines = buffer.split("\n"); buffer = lines.pop() ?? "";
-          for (const line of lines) { if (!line.startsWith("data: ")) continue; try { const evt = JSON.parse(line.slice(6).trim()); if (evt.type === "delta" && evt.content) { full += evt.content; setTestOutput(full); } if (evt.type === "done") { totalTokens = (evt.tokensIn || 0) + (evt.tokensOut || 0); totalCost = evt.costUsd || 0; resolvedModel = evt.model || testModel; } } catch { /* */ } }
-        }
-      } else { const result = await response.json(); setTestOutput(result.content || JSON.stringify(result, null, 2)); totalTokens = (result.tokensIn || 0) + (result.tokensOut || 0); totalCost = result.costUsd || 0; resolvedModel = result.model || testModel; }
-      setTestMeta({ model: resolvedModel, tokens: totalTokens, cost: totalCost, duration: Date.now() - startTime });
-      setTestDone(true); setTestRunning(false);
-    } catch (err) { setTestError(err instanceof Error ? err.message : "Unknown error"); setTestRunning(false); setTestDone(true); }
-  }, [testInput, testModel, systemPrompt, instructions, memoryEntries, isEmailAgent, name, testFiles]);
-
-  const handleFetchEmails = useCallback(async () => {
-    setFetchingEmails(true);
-    try {
-      const cs = JSON.parse(localStorage.getItem("pal_connectors") || "{}");
-      if (cs.gmail?.installed && cs.gmail?.credentials) await api.installConnector({ connectorId: "gmail", displayName: "Gmail", config: cs.gmail.credentials }).catch(() => {});
-      const result = await api.executeConnector("gmail", "list_messages", { limit: 20 });
-      const data = result.data as { messages?: Array<{ from: string; subject: string; snippet: string; date: string }>; count?: number } | undefined;
-      if (data?.messages?.length) {
-        const fmt = data.messages.map((m, i) => `${i + 1}. From: ${m.from}\n   Subject: ${m.subject}\n   Preview: ${m.snippet}\n   Date: ${m.date}`).join("\n\n");
-        setTestInput(`Please analyze and summarize these emails:\n\n${fmt}`);
-        toast.success(`Fetched ${data.count ?? data.messages.length} emails`);
-      } else { toast.info("No recent emails found"); }
-    } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to fetch emails"); } finally { setFetchingEmails(false); }
-  }, [toast]);
-
   const handleSaveSchedule = useCallback(async () => {
     if (!settingsCron.trim()) { toast.error("Enter a cron expression"); return; }
     setSavingSchedule(true);
     try {
       const result = await api.createSchedule({ agentName: name, cronExpr: settingsCron, deliveryEmail: deliveryEmailEnabled ? deliveryEmail : undefined, enabled: scheduleEnabled });
-      setScheduleId(result.id); if (result.nextFireAt) setNextFireAt(result.nextFireAt);
+      if (result.nextFireAt) setNextFireAt(result.nextFireAt);
       toast.success(result.nextFireAt ? `Schedule saved -- next at ${new Date(result.nextFireAt).toLocaleString()}` : "Schedule saved");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to save"); } finally { setSavingSchedule(false); }
   }, [name, settingsCron, deliveryEmailEnabled, deliveryEmail, scheduleEnabled, toast]);
@@ -827,68 +590,11 @@ export default function AgentDetailPage() {
     try { await api.updateAgent(name, { model: settingsModel, isolation: settingsIsolation, timeout: settingsTimeout, maxTokens: settingsMaxTokens, maxCostUsd: settingsMaxCost }); toast.success("Settings saved"); } catch { toast.success("Settings saved locally"); } finally { setSavingSettings(false); }
   }, [name, settingsModel, settingsIsolation, settingsTimeout, settingsMaxTokens, settingsMaxCost, toast]);
 
-  // Prompt optimizer
-  const handleOptimizePrompt = useCallback(async () => {
-    if (!systemPrompt.trim()) { toast.error("Write a prompt first"); return; }
-    setOptimizingPrompt(true);
-    try {
-      const resp = await api.complete({ messages: [
-        { role: "system", content: "You are an expert prompt engineer. Analyze the given system prompt and return an improved version. Focus on clarity, specificity, output format instructions, and edge case handling. Return ONLY the improved prompt text, nothing else." },
-        { role: "user", content: systemPrompt }
-      ], model: "auto", stream: false });
-      if (resp.ok) { const d = await resp.json(); const opt = (d.content || "").trim(); if (opt) { setSystemPrompt(opt); setPromptDirty(true); toast.success("Prompt optimized -- review and save"); return; } }
-      toast.error("Failed to optimize prompt");
-    } catch { toast.error("LLM unavailable"); } finally { setOptimizingPrompt(false); }
-  }, [systemPrompt, toast]);
-
-  // Auto-documentation
-  const handleGenerateDocs = useCallback(async () => {
-    setGeneratingDocs(true);
-    try {
-      const resp = await api.complete({ messages: [
-        { role: "system", content: "Generate a concise README documentation for this AI agent. Include: purpose, how it works, expected input/output, and any limitations. Use markdown. Keep it under 300 words." },
-        { role: "user", content: `Agent: ${name}\nDescription: ${agent?.description || ""}\nSystem Prompt: ${systemPrompt}\nRuns: ${agentRuns.length}, Success rate: ${agentRuns.length > 0 ? Math.round((agentRuns.filter(r => r.status === "succeeded").length / agentRuns.length) * 100) : 0}%` }
-      ], model: "auto", stream: false });
-      if (resp.ok) { const d = await resp.json(); const docs = (d.content || "").trim(); if (docs) { setAgentDocs(docs); localStorage.setItem(`pal_agent_docs_${name}`, docs); setShowDocs(true); toast.success("Documentation generated"); return; } }
-      toast.error("Failed to generate docs");
-    } catch { toast.error("LLM unavailable"); } finally { setGeneratingDocs(false); }
-  }, [name, agent?.description, systemPrompt, agentRuns, toast]);
-
   // Guardrails save helper
   const handleSaveGuardrails = useCallback((updated: GuardrailConfig) => {
     setGuardrails(updated);
     saveGuardrailConfig(name, updated);
   }, [name]);
-
-  // Sub-agent handlers
-  const handleAddSubAgent = useCallback(() => {
-    if (!newSubAgentName.trim()) { toast.error("Agent name is required"); return; }
-    const updated = addSubAgent(name, { targetAgentName: newSubAgentName.trim(), description: newSubAgentDesc.trim(), handoffCondition: newSubAgentCondition.trim() });
-    setSubAgents(updated);
-    setNewSubAgentName(""); setNewSubAgentDesc(""); setNewSubAgentCondition(""); setShowAddSubAgent(false);
-    toast.success(`Sub-agent "${newSubAgentName}" linked`);
-  }, [name, newSubAgentName, newSubAgentDesc, newSubAgentCondition, toast]);
-
-  const handleRemoveSubAgent = useCallback((linkId: string) => {
-    const updated = removeSubAgent(name, linkId);
-    setSubAgents(updated);
-    toast.success("Sub-agent removed");
-  }, [name, toast]);
-
-  // Memory handlers
-  const handleAddMemory = useCallback(() => {
-    if (!newMemKey.trim() || !newMemValue.trim()) { toast.error("Key and value required"); return; }
-    const updated = addMemoryEntry(name, newMemKey.trim(), newMemValue.trim());
-    setMemoryEntries(updated);
-    setNewMemKey(""); setNewMemValue(""); setShowAddMemory(false);
-    toast.success("Memory entry added");
-  }, [name, newMemKey, newMemValue, toast]);
-
-  const handleRemoveMemory = useCallback((entryId: string) => {
-    const updated = removeMemoryEntry(name, entryId);
-    setMemoryEntries(updated);
-    toast.success("Memory entry removed");
-  }, [name, toast]);
 
   // Gap 1: Session-backed chat handler with mid-execution steering (Gap 3)
   const handleChatSend = useCallback(async () => {
@@ -919,11 +625,11 @@ export default function AgentDetailPage() {
       try {
         await api.sendSessionMessage(sessionId, content);
         // Response will arrive via SSE (handled in useEffect above)
-      } catch (err) {
+      } catch {
         // Session API failed — fall back to direct LLM
         console.warn("[pal] Session API unavailable, falling back to direct LLM");
         setSessionConnected(false);
-        await fallbackDirectLLM(updated, content);
+        await fallbackDirectLLM(updated);
       }
     } else {
       // Try to create a session first
@@ -943,7 +649,7 @@ export default function AgentDetailPage() {
           console.warn("[pal] Session creation failed, using direct LLM");
         }
       }
-      await fallbackDirectLLM(updated, content);
+      await fallbackDirectLLM(updated);
     }
   }, [chatInput, chatFiles, chatMessages, instructions, systemPrompt, memoryEntries, testModel, name, sessionId, sessionConnected]);
 
@@ -952,7 +658,7 @@ export default function AgentDetailPage() {
   // runs the same tool-use loop the session API uses — without this, the
   // fallback path lands on plain completions with no tools and the model
   // says "no connectors provided" regardless of what's installed.
-  const fallbackDirectLLM = useCallback(async (updated: ChatMessage[], _content: string) => {
+  const fallbackDirectLLM = useCallback(async (updated: ChatMessage[]) => {
     setChatStreaming(true);
     const effectivePrompt = mergeInstructionsAndPrompt(instructions, systemPrompt) + memoryToContext(memoryEntries);
     const messages: Array<{ role: string; content: string }> = [];
@@ -1019,14 +725,6 @@ export default function AgentDetailPage() {
     input.click();
   }, []);
 
-  // Feature 3: Code sandbox handler
-  const handleRunSandbox = useCallback(async () => {
-    setSandboxRunning(true); setSandboxOutput("");
-    const result = await runCode(sandboxCode, sandboxLang);
-    setSandboxOutput((result.error ? "[Error] " : "") + result.output + `\n(${result.duration}ms)`);
-    setSandboxRunning(false);
-  }, [sandboxCode, sandboxLang]);
-
   const handleRunCodeBlock = useCallback(async (idx: number, code: string, language: string) => {
     const lang: CodeLanguage = language === "python" ? "python" : language === "sql" ? "sql" : "javascript";
     const result = await runCode(code, lang);
@@ -1039,18 +737,6 @@ export default function AgentDetailPage() {
     if (updates.isPublic && !sharing.publicId) updated.publicId = `pub_${Date.now().toString(36)}`;
     setSharing(updated); saveSharing(name, updated);
   }, [sharing, name]);
-
-  // Filtered test output with guardrails applied
-  const filteredTestOutput = useMemo(() => {
-    if (!testOutput || !hasActiveGuardrails(guardrails)) return { text: testOutput, blocked: false, warnings: [] as string[] };
-    return applyGuardrails(testOutput, guardrails);
-  }, [testOutput, guardrails]);
-
-  // Cost estimate
-  const costEstimate = useMemo(() => {
-    if (!testInput.trim()) return null;
-    return estimateCost(systemPrompt, testInput, testModel);
-  }, [systemPrompt, testInput, testModel]);
 
   // Agent health stats
   const healthStats = useMemo(() => {
@@ -1092,11 +778,11 @@ export default function AgentDetailPage() {
   if (agentError || !agent) return (
     <div className="flex flex-1 items-center justify-center">
       <div className="text-center">
-        <p className="text-sm font-medium text-zinc-300">Agent not found</p>
-        <p className="mt-1 max-w-sm text-xs text-zinc-500">
-          The agent <code className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-zinc-400">{name}</code> does not exist or may have been deleted.
+        <p className="text-sm font-medium text-fg-2">Agent not found</p>
+        <p className="mt-1 max-w-sm text-xs text-fg-3">
+          The agent <code className="rounded bg-raised px-1.5 py-0.5 font-mono text-fg-2">{name}</code> does not exist or may have been deleted.
         </p>
-        <button onClick={() => router.push("/agents")} className="mt-3 text-sm text-pal-400 hover:text-pal-300">Back to Agents</button>
+        <button onClick={() => router.push("/agents")} className="mt-3 text-sm text-accent hover:text-accent">Back to Agents</button>
       </div>
     </div>
   );
@@ -1168,28 +854,28 @@ export default function AgentDetailPage() {
             {/* Chat header with session status */}
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium text-zinc-300">Session</h3>
+                <h3 className="text-sm font-medium text-fg-2">Session</h3>
                 {sessionConnected ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Connected
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-2 py-0.5 text-[11px] font-medium text-ok">
+                    <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Connected
                   </span>
                 ) : sessionId ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Reconnecting...
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-medium text-warn">
+                    <span className="h-1.5 w-1.5 rounded-full bg-warn" /> Reconnecting...
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-700/50 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-line-strong px-2 py-0.5 text-[11px] font-medium text-fg-3">
                     Local mode
                   </span>
                 )}
                 {sessionStatus === "thinking" && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] text-pal-400">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] text-accent">
                     <Brain className="h-3 w-3 animate-pulse" /> Processing...
                   </span>
                 )}
                 {isEmailAgent && (
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-zinc-500">
-                    <button type="button" role="switch" aria-checked={chatIncludeEmails} onClick={() => setChatIncludeEmails(!chatIncludeEmails)} className={clsx("relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors", chatIncludeEmails ? "bg-indigo-500" : "bg-zinc-700")}>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-fg-3">
+                    <button type="button" role="switch" aria-checked={chatIncludeEmails} onClick={() => setChatIncludeEmails(!chatIncludeEmails)} className={clsx("relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors", chatIncludeEmails ? "bg-accent" : "bg-line-strong")}>
                       <span className={clsx("inline-block h-2.5 w-2.5 rounded-full bg-white transition-transform", chatIncludeEmails ? "translate-x-3.5" : "translate-x-0.5")} />
                     </button>
                     <Mail className="h-3 w-3" /> Include emails
@@ -1203,7 +889,7 @@ export default function AgentDetailPage() {
                     setSessionId(null); setSessionConnected(false);
                     localStorage.removeItem(`pal_session_${name}`);
                     toast.success("Session ended");
-                  }} className="text-[12px] text-zinc-500 hover:text-amber-400">End session</button>
+                  }} className="text-[12px] text-fg-3 hover:text-warn">End session</button>
                 )}
                 <button onClick={() => {
                   setChatMessages([]); saveChat(name, []);
@@ -1213,24 +899,24 @@ export default function AgentDetailPage() {
                     localStorage.removeItem(`pal_session_${name}`);
                   }
                   toast.success("Conversation cleared");
-                }} className="text-[12px] text-zinc-500 hover:text-red-400">Clear conversation</button>
+                }} className="text-[12px] text-fg-3 hover:text-bad">Clear conversation</button>
               </div>
             </div>
 
             {/* Message list */}
-            <div className="flex-1 overflow-auto rounded-xl border border-zinc-800 bg-surface-0 p-4 space-y-3">
+            <div className="flex-1 overflow-auto rounded-xl border border-line bg-canvas p-4 space-y-3">
               {chatMessages.length === 0 && !chatStreaming && (
                 <div className="flex h-full flex-col items-center justify-center gap-2">
-                  <Brain className="h-8 w-8 text-zinc-700" />
-                  <p className="text-sm text-zinc-600">Start a conversation with {name}</p>
-                  <p className="text-[11px] text-zinc-700">
+                  <Brain className="h-8 w-8 text-fg-3" />
+                  <p className="text-sm text-fg-3">Start a conversation with {name}</p>
+                  <p className="text-[11px] text-fg-3">
                     {sessionConnected ? "Session active -- messages are persisted server-side" : "Messages will be sent to the LLM directly"}
                   </p>
                 </div>
               )}
               {chatMessages.map((msg, i) => (
                 <div key={i} className={clsx("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-                  <div className={clsx("max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm", msg.role === "user" ? "bg-pal-500/20 text-zinc-200" : "bg-surface-2 text-zinc-300")}>
+                  <div className={clsx("max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm", msg.role === "user" ? "bg-accent-soft text-fg" : "bg-raised text-fg-2")}>
                     {/* Tool calls executed before this assistant turn. Match
                         the ChatGPT/Claude "used X" indicator — collapsed by
                         default, click to expand the args/result. */}
@@ -1239,33 +925,33 @@ export default function AgentDetailPage() {
                         {msg.toolCalls.map((tc, ti) => {
                           const [connectorId, action] = tc.name.split("__");
                           return (
-                            <details key={ti} className="group rounded-lg border border-zinc-700/60 bg-surface-1/60">
+                            <details key={ti} className="group rounded-lg border border-line-strong bg-panel">
                               <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-[12px] [&::-webkit-details-marker]:hidden">
-                                {tc.status === "started" && <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />}
-                                {tc.status === "completed" && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
-                                {tc.status === "failed" && <AlertCircle className="h-3 w-3 text-red-400" />}
-                                <span className="text-zinc-400">Used</span>
-                                <span className="font-medium text-zinc-200">{connectorId}</span>
-                                <span className="text-zinc-600">·</span>
-                                <span className="font-mono text-[11px] text-zinc-400">{action}</span>
+                                {tc.status === "started" && <Loader2 className="h-3 w-3 animate-spin text-fg-3" />}
+                                {tc.status === "completed" && <CheckCircle2 className="h-3 w-3 text-ok" />}
+                                {tc.status === "failed" && <AlertCircle className="h-3 w-3 text-bad" />}
+                                <span className="text-fg-2">Used</span>
+                                <span className="font-medium text-fg">{connectorId}</span>
+                                <span className="text-fg-3">·</span>
+                                <span className="font-mono text-[11px] text-fg-2">{action}</span>
                               </summary>
-                              <div className="border-t border-zinc-800 px-2.5 py-2 text-[11px] text-zinc-500">
+                              <div className="border-t border-line px-2.5 py-2 text-[11px] text-fg-3">
                                 {tc.args && tc.args !== "{}" && (
                                   <>
-                                    <p className="font-medium text-zinc-400">Args</p>
-                                    <pre className="mt-0.5 overflow-auto whitespace-pre-wrap break-all font-mono text-zinc-500">{tc.args}</pre>
+                                    <p className="font-medium text-fg-2">Args</p>
+                                    <pre className="mt-0.5 overflow-auto whitespace-pre-wrap break-all font-mono text-fg-3">{tc.args}</pre>
                                   </>
                                 )}
                                 {tc.result && (
                                   <>
-                                    <p className="mt-1.5 font-medium text-zinc-400">Result</p>
-                                    <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-zinc-500">{tc.result}</pre>
+                                    <p className="mt-1.5 font-medium text-fg-2">Result</p>
+                                    <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-fg-3">{tc.result}</pre>
                                   </>
                                 )}
                                 {tc.error && (
                                   <>
-                                    <p className="mt-1.5 font-medium text-red-400">Error</p>
-                                    <pre className="mt-0.5 whitespace-pre-wrap font-mono text-red-300/80">{tc.error}</pre>
+                                    <p className="mt-1.5 font-medium text-bad">Error</p>
+                                    <pre className="mt-0.5 whitespace-pre-wrap font-mono text-bad">{tc.error}</pre>
                                   </>
                                 )}
                               </div>
@@ -1278,15 +964,15 @@ export default function AgentDetailPage() {
                     {/* Code block run buttons in assistant messages */}
                     {msg.role === "assistant" && extractCodeBlocks(msg.content).map((block, bi) => (
                       <div key={bi} className="mt-2">
-                        <button onClick={() => handleRunCodeBlock(i * 100 + bi, block.code, block.language)} className="inline-flex items-center gap-1 rounded bg-surface-3 px-2 py-0.5 text-[11px] text-cyan-400 hover:bg-surface-2">
+                        <button onClick={() => handleRunCodeBlock(i * 100 + bi, block.code, block.language)} className="inline-flex items-center gap-1 rounded bg-raised px-2 py-0.5 text-[11px] text-accent hover:bg-hover">
                           <Play className="h-2.5 w-2.5" /> Run {block.language}
                         </button>
                         {codeBlockResults[i * 100 + bi] && (
-                          <pre className={clsx("mt-1 rounded bg-surface-1 p-2 text-[11px]", codeBlockResults[i * 100 + bi].error ? "text-red-400" : "text-zinc-400")}>{codeBlockResults[i * 100 + bi].output}</pre>
+                          <pre className={clsx("mt-1 rounded bg-panel p-2 text-[11px]", codeBlockResults[i * 100 + bi].error ? "text-bad" : "text-fg-2")}>{codeBlockResults[i * 100 + bi].output}</pre>
                         )}
                       </div>
                     ))}
-                    <p className="mt-1 text-[9px] text-zinc-600">{new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    <p className="mt-1 text-[9px] text-fg-3">{new Date(msg.timestamp).toLocaleTimeString()}</p>
                   </div>
                 </div>
               ))}
@@ -1294,18 +980,18 @@ export default function AgentDetailPage() {
                 <div className="flex justify-start">
                   {streamingDraft ? (
                     // Token-streaming: show partial reply with a blinking cursor.
-                    <div className="max-w-[80%] rounded-xl bg-surface-2 px-3.5 py-2.5 text-sm text-zinc-300">
+                    <div className="max-w-[80%] rounded-xl bg-raised px-3.5 py-2.5 text-sm text-fg-2">
                       <div className="whitespace-pre-wrap leading-relaxed">
                         {streamingDraft}
-                        <span className="ml-px inline-block h-3.5 w-0.5 animate-pulse bg-pal-400 align-middle" />
+                        <span className="ml-px inline-block h-3.5 w-0.5 animate-pulse bg-accent align-middle" />
                       </div>
                     </div>
                   ) : (
                     // Fallback pulse dots while waiting for first token.
-                    <div className="rounded-xl bg-surface-2 px-3.5 py-2.5">
+                    <div className="rounded-xl bg-raised px-3.5 py-2.5">
                       <div className="flex items-center gap-1.5">
-                        <div className="h-2 w-2 animate-pulse rounded-full bg-pal-400" />
-                        <span className="text-xs text-zinc-500">
+                        <div className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+                        <span className="text-xs text-fg-3">
                           {sessionStatus === "thinking" ? "Thinking..." : "Processing..."}
                         </span>
                       </div>
@@ -1320,34 +1006,34 @@ export default function AgentDetailPage() {
             {chatFiles.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {chatFiles.map((f, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-[11px] text-zinc-300">
+                  <span key={i} className="inline-flex items-center gap-1 rounded-md bg-raised px-2 py-1 text-[11px] text-fg-2">
                     <Paperclip className="h-2.5 w-2.5" /> {f.name}
-                    <button onClick={() => setChatFiles(prev => prev.filter((_, j) => j !== i))} className="ml-0.5 text-zinc-500 hover:text-red-400"><X className="h-2.5 w-2.5" /></button>
+                    <button onClick={() => setChatFiles(prev => prev.filter((_, j) => j !== i))} className="ml-0.5 text-fg-3 hover:text-bad"><X className="h-2.5 w-2.5" /></button>
                   </span>
                 ))}
               </div>
             )}
             {chatStreaming && sessionConnected && (
-              <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-pal-500/5 border border-pal-500/20 px-3 py-1.5">
-                <Zap className="h-3 w-3 text-pal-400" />
-                <span className="text-[11px] text-pal-400">Agent is responding -- you can send another message to steer the conversation</span>
+              <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-accent-soft border border-accent px-3 py-1.5">
+                <Zap className="h-3 w-3 text-accent" />
+                <span className="text-[11px] text-accent">Agent is responding -- you can send another message to steer the conversation</span>
               </div>
             )}
             <div className="mt-3 flex items-center gap-2">
-              <button onClick={() => handleFileAttach(setChatFiles)} className="rounded-lg border border-zinc-700 p-2 text-zinc-500 hover:bg-surface-3 hover:text-zinc-300" title="Attach file">
+              <button onClick={() => handleFileAttach(setChatFiles)} className="rounded-lg border border-line-strong p-2 text-fg-3 hover:bg-hover hover:text-fg" title="Attach file">
                 <Paperclip className="h-4 w-4" />
               </button>
               <input
                 type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
                 placeholder={chatStreaming && sessionConnected ? "Steer the agent -- send a follow-up..." : "Type a message..."}
-                className="flex-1 rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-pal-500/50"
+                className="flex-1 rounded-lg border border-line bg-canvas px-3 py-2.5 text-sm text-fg placeholder:text-fg-3 outline-none focus:border-accent"
               />
               <button
                 onClick={handleChatSend}
                 disabled={(!chatInput.trim() && chatFiles.length === 0) || !setupReady}
                 title={!setupReady ? "Finish setup before sending" : undefined}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-pal-500 px-4 py-2.5 text-xs font-medium text-on-flame hover:bg-pal-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-xs font-medium text-on-action hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {chatStreaming && !sessionConnected ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
               </button>
@@ -1359,8 +1045,12 @@ export default function AgentDetailPage() {
         {activeTab === "observe" && (
           <div className="space-y-4">
             <ReliabilityStrip agentName={name} />
-            <div className="flex items-center gap-3 flex-wrap">
-              <button
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="primary"
+                size="md"
+                loading={testRunning}
+                icon={<Play className="h-3 w-3" />}
                 onClick={async () => {
                   setTestRunning(true);
                   try {
@@ -1378,26 +1068,25 @@ export default function AgentDetailPage() {
                   }
                 }}
                 disabled={testRunning}
-                className="inline-flex items-center gap-2 rounded-lg bg-pal-500 px-4 py-2 text-xs font-medium text-on-flame hover:bg-pal-400 disabled:opacity-50"
               >
-                {testRunning ? <><Loader2 className="h-3 w-3 animate-spin" /> Running...</> : <><Play className="h-3 w-3" /> Run Now</>}
-              </button>
+                {testRunning ? "Running..." : "Run Now"}
+              </Button>
               <CostForecastBadge agentName={name} />
+              {agentRuns.length >= 2 && (
+                <Button variant={compareMode ? "primary" : "secondary"} size="md" icon={<GitCompare className="h-3 w-3" />} onClick={() => { setCompareMode(!compareMode); setCompareIds([null, null]); }}>
+                  {compareMode ? "Exit Compare" : "Compare Runs"}
+                </Button>
+              )}
             </div>
-            {agentRuns.length >= 2 && (
-              <button onClick={() => { setCompareMode(!compareMode); setCompareIds([null, null]); }} className={clsx("inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-xs font-medium", compareMode ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-400" : "border-zinc-700 text-zinc-400 hover:bg-surface-3")}>
-                <GitCompare className="h-3 w-3" /> {compareMode ? "Exit Compare" : "Compare Runs"}
-              </button>
-            )}
 
             {/* Run Comparison View */}
             {compareMode && (
-              <div className="rounded-xl border border-indigo-500/20 bg-surface-1 p-4">
-                <p className="mb-3 text-xs text-zinc-400">Select two runs to compare side by side:</p>
+              <div className="rounded-xl border border-accent bg-panel p-4">
+                <p className="mb-3 text-xs text-fg-2">Select two runs to compare side by side:</p>
                 <div className="grid grid-cols-2 gap-4">
                   {([0, 1] as const).map((idx) => (
                     <div key={idx}>
-                      <select value={compareIds[idx] || ""} onChange={(e) => { const ids = [...compareIds] as [string | null, string | null]; ids[idx] = e.target.value || null; setCompareIds(ids); }} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-xs text-zinc-100 outline-none">
+                      <select value={compareIds[idx] || ""} onChange={(e) => { const ids = [...compareIds] as [string | null, string | null]; ids[idx] = e.target.value || null; setCompareIds(ids); }} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-fg outline-none">
                         <option value="">Select run...</option>
                         {agentRuns.map((r) => <option key={r.id} value={r.id}>{r.id.slice(0, 12)} - {r.status} {r.startedAt ? `(${format(new Date(r.startedAt), "MMM d HH:mm")})` : ""}</option>)}
                       </select>
@@ -1416,18 +1105,18 @@ export default function AgentDetailPage() {
                       {[runA, runB].map((run, i) => {
                         const dur = i === 0 ? durA : durB;
                         return (
-                          <div key={run.id} className="space-y-2 rounded-lg border border-zinc-800 bg-surface-0 p-3">
+                          <div key={run.id} className="space-y-2 rounded-lg border border-line bg-canvas p-3">
                             <div className="flex items-center gap-2">
                               <StatusBadge status={run.status} />
-                              <span className="font-mono text-[11px] text-zinc-500">{run.id.slice(0, 12)}</span>
+                              <span className="font-mono text-[11px] text-fg-3">{run.id.slice(0, 12)}</span>
                             </div>
-                            <div className="flex gap-3 text-[11px] text-zinc-500">
+                            <div className="flex gap-3 text-[11px] text-fg-3">
                               <span>{formatDuration(dur)}</span>
                               <span>{formatCost(run.costUsd)}</span>
                               <span>{(run.tokensIn + run.tokensOut).toLocaleString()} tokens</span>
                             </div>
-                            <div className="max-h-40 overflow-auto rounded border border-zinc-800 bg-surface-1 p-2">
-                              <pre className="whitespace-pre-wrap text-[12px] text-zinc-300 font-sans">{getOutput(run).slice(0, 500)}</pre>
+                            <div className="max-h-40 overflow-auto rounded border border-line bg-panel p-2">
+                              <pre className="whitespace-pre-wrap text-[12px] text-fg-2 font-sans">{getOutput(run).slice(0, 500)}</pre>
                             </div>
                           </div>
                         );
@@ -1439,44 +1128,44 @@ export default function AgentDetailPage() {
             )}
 
             {runsLoading ? (
-              <div className="flex items-center justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-zinc-500" /></div>
+              <div className="flex items-center justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-fg-3" /></div>
             ) : agentRuns.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <Play className="mb-3 h-8 w-8 text-zinc-600" />
-                <p className="text-sm text-zinc-400">No runs yet.</p>
-                <p className="mt-1 text-xs text-zinc-600">Use the Build tab to test this agent.</p>
+                <Play className="mb-3 h-8 w-8 text-fg-3" />
+                <p className="text-sm text-fg-2">No runs yet.</p>
+                <p className="mt-1 text-xs text-fg-3">Use the Build tab to test this agent.</p>
               </div>
             ) : (
               <div className="space-y-1">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-zinc-500">{agentRuns.length} run{agentRuns.length !== 1 ? "s" : ""}</span>
+                  <span className="text-xs text-fg-3">{agentRuns.length} run{agentRuns.length !== 1 ? "s" : ""}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-zinc-600">Page {runsPage + 1} of {Math.ceil(agentRuns.length / RUNS_PER_PAGE)}</span>
-                    <button onClick={() => setRunsPage(p => Math.max(0, p - 1))} disabled={runsPage === 0} className="rounded px-1.5 py-0.5 text-[11px] text-zinc-500 hover:bg-surface-3 disabled:opacity-30">Prev</button>
-                    <button onClick={() => setRunsPage(p => Math.min(Math.ceil(agentRuns.length / RUNS_PER_PAGE) - 1, p + 1))} disabled={(runsPage + 1) * RUNS_PER_PAGE >= agentRuns.length} className="rounded px-1.5 py-0.5 text-[11px] text-zinc-500 hover:bg-surface-3 disabled:opacity-30">Next</button>
+                    <span className="text-[11px] text-fg-3">Page {runsPage + 1} of {Math.ceil(agentRuns.length / RUNS_PER_PAGE)}</span>
+                    <button onClick={() => setRunsPage(p => Math.max(0, p - 1))} disabled={runsPage === 0} className="rounded px-1.5 py-0.5 text-[11px] text-fg-3 hover:bg-hover disabled:opacity-30">Prev</button>
+                    <button onClick={() => setRunsPage(p => Math.min(Math.ceil(agentRuns.length / RUNS_PER_PAGE) - 1, p + 1))} disabled={(runsPage + 1) * RUNS_PER_PAGE >= agentRuns.length} className="rounded px-1.5 py-0.5 text-[11px] text-fg-3 hover:bg-hover disabled:opacity-30">Next</button>
                   </div>
                 </div>
-                <div className="grid grid-cols-[auto_1fr_100px_80px_140px_auto] gap-4 px-4 py-2 text-xs font-medium text-zinc-500">
-                  <span className="w-4" /><span>Status</span><span>Duration</span><span>Cost</span><span>Started</span><span className="w-6" />
+                <div className={clsx("grid gap-4 px-4 py-2 text-xs font-medium text-fg-3 pr-[76px]", RUN_COLS)}>
+                  <span /><span>Status</span><span>Run</span><span className="text-right">Duration</span><span className="text-right">Cost</span><span>Started</span>
                 </div>
                 {agentRuns.slice(runsPage * RUNS_PER_PAGE, (runsPage + 1) * RUNS_PER_PAGE).map((run) => {
                   const expanded = expandedRunId === run.id;
                   const dur = run.startedAt ? formatDuration(new Date(run.finishedAt ?? new Date()).getTime() - new Date(run.startedAt).getTime()) : "--";
                   const confirmingDelete = deletingRunId === `confirm_${run.id}`;
                   return (
-                    <div key={run.id} className="group rounded-lg border border-zinc-800 bg-surface-1">
+                    <div key={run.id} className="group rounded-lg border border-line bg-panel">
                       {/* Row with inline delete */}
                       <div className="flex items-center">
-                        <button onClick={() => setExpandedRunId(expanded ? null : run.id)} className="flex flex-1 items-center gap-4 px-4 py-3 text-left text-sm hover:bg-surface-2 rounded-l-lg">
-                          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-zinc-500 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />}
+                        <button onClick={() => setExpandedRunId(expanded ? null : run.id)} className={clsx("grid flex-1 items-center gap-4 rounded-l-lg px-4 py-3 text-left text-sm hover:bg-hover", RUN_COLS)}>
+                          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-fg-3 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-fg-3 shrink-0" />}
                           <StatusBadge status={run.status} />
-                          <span className="font-mono text-xs text-zinc-500 hidden sm:inline">{run.id.slice(0, 12)}</span>
-                          <span className="text-xs text-zinc-400 ml-auto">{dur}</span>
-                          <span className="font-mono text-[12px] text-zinc-500">{formatCost(run.costUsd)}</span>
-                          <span className="text-[12px] text-zinc-600 hidden md:inline">{run.startedAt ? format(new Date(run.startedAt), "MMM d, HH:mm") : "--"}</span>
+                          <span className="truncate font-mono text-xs text-fg-3">{run.id.slice(0, 12)}</span>
+                          <span className="text-right text-xs text-fg-2">{dur}</span>
+                          <span className="text-right font-mono text-[12px] text-fg-3">{formatCost(run.costUsd)}</span>
+                          <span className="text-[12px] text-fg-3">{run.startedAt ? format(new Date(run.startedAt), "MMM d, HH:mm") : "--"}</span>
                         </button>
                         {/* Delete — visible on hover or when confirming */}
-                        <div className={clsx("flex items-center pr-2", confirmingDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity")}>
+                        <div className={clsx("flex w-[76px] shrink-0 items-center justify-end pr-2", confirmingDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity")}>
                           {confirmingDelete ? (
                             <div className="flex items-center gap-1">
                               <button
@@ -1486,14 +1175,14 @@ export default function AgentDetailPage() {
                                   finally { setDeletingRunId(null); }
                                 }}
                                 disabled={deletingRunId === run.id}
-                                className="rounded px-2 py-1 text-[11px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20"
+                                className="rounded px-2 py-1 text-[11px] font-medium text-bad bg-bad-soft hover:bg-bad-soft"
                               >
                                 {deletingRunId === run.id ? "..." : "Yes"}
                               </button>
-                              <button onClick={() => setDeletingRunId(null)} className="rounded px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300">No</button>
+                              <button onClick={() => setDeletingRunId(null)} className="rounded px-2 py-1 text-[11px] text-fg-3 hover:text-fg">No</button>
                             </div>
                           ) : (
-                            <button onClick={() => setDeletingRunId(`confirm_${run.id}`)} className="rounded p-1 text-zinc-600 hover:text-red-400 hover:bg-red-500/10" title="Delete">
+                            <button onClick={() => setDeletingRunId(`confirm_${run.id}`)} className="rounded p-1 text-fg-3 hover:text-bad hover:bg-bad-soft" title="Delete">
                               <Trash2 className="h-3 w-3" />
                             </button>
                           )}
@@ -1501,7 +1190,7 @@ export default function AgentDetailPage() {
                       </div>
                       {/* Expanded details */}
                       {expanded && (
-                        <div className="border-t border-zinc-800 p-4 space-y-4">
+                        <div className="border-t border-line p-4 space-y-4">
                           {/* Execution Steps */}
                           <ExecutionLog
                             steps={deduplicateSteps(run.triggerMeta)}
@@ -1511,23 +1200,23 @@ export default function AgentDetailPage() {
                           {/* Output */}
                           {run.output ? (
                             <div>
-                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Result</p>
-                              <div className="max-h-80 overflow-auto rounded-lg border border-emerald-500/10 bg-emerald-500/[0.02] p-4">
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-fg-3">Result</p>
+                              <div className="max-h-80 overflow-auto rounded-lg border border-ok bg-ok-soft p-4">
                                 {(() => {
                                   const raw = typeof run.output === "string" ? run.output : typeof run.output === "object" && run.output !== null && "result" in (run.output as Record<string, unknown>) ? String((run.output as Record<string, unknown>).result) : JSON.stringify(run.output, null, 2);
                                   const cleaned = raw.replace(/\*\*(.*?)\*\*/g, "$1").replace(/^#{1,3}\s+/gm, "").replace(/^- /gm, "  • ");
-                                  return <pre className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200 font-sans">{cleaned}</pre>;
+                                  return <pre className="whitespace-pre-wrap text-sm leading-relaxed text-fg font-sans">{cleaned}</pre>;
                                 })()}
                               </div>
                             </div>
                           ) : run.error ? (
-                            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-                              <p className="text-xs font-medium text-red-400">{run.error.code}</p>
-                              <p className="mt-1 text-xs text-red-300/70">{run.error.message}</p>
+                            <div className="rounded-lg border border-bad bg-bad-soft p-3">
+                              <p className="text-xs font-medium text-bad">{run.error.code}</p>
+                              <p className="mt-1 text-xs text-bad">{run.error.message}</p>
                             </div>
                           ) : run.status === "running" ? (
-                            <div className="flex items-center gap-2.5 py-3"><div className="h-4 w-4 rounded-full border-2 border-pal-400 border-t-transparent animate-spin" /><span className="text-sm text-zinc-400">Processing...</span></div>
-                          ) : <p className="text-xs text-zinc-600">No output available.</p>}
+                            <div className="flex items-center gap-2.5 py-3"><div className="h-4 w-4 rounded-full border-2 border-accent border-t-transparent animate-spin" /><span className="text-sm text-fg-2">Processing...</span></div>
+                          ) : <p className="text-xs text-fg-3">No output available.</p>}
                         </div>
                       )}
                     </div>
@@ -1541,43 +1230,43 @@ export default function AgentDetailPage() {
         {/* SCHEDULE TAB */}
         {activeTab === "schedule" && (
           <div className="mx-auto max-w-2xl space-y-6">
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-zinc-200">Cron Schedule</h3>
-                <button type="button" role="switch" aria-checked={scheduleEnabled} onClick={() => setScheduleEnabled(!scheduleEnabled)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", scheduleEnabled ? "bg-pal-500" : "bg-zinc-700")}>
+                <h3 className="text-sm font-semibold text-fg">Cron Schedule</h3>
+                <button type="button" role="switch" aria-checked={scheduleEnabled} onClick={() => setScheduleEnabled(!scheduleEnabled)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", scheduleEnabled ? "bg-accent" : "bg-line-strong")}>
                   <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", scheduleEnabled ? "translate-x-4" : "translate-x-0.5")} />
                 </button>
               </div>
               <div>
                 <div className="mb-1 flex items-center justify-between">
-                  <label className="text-xs text-zinc-400">Cron expression</label>
+                  <label className="text-xs text-fg-2">Cron expression</label>
                   <AiAssistButton mode="cron" value={settingsCron} onChange={setSettingsCron} placeholder="e.g., every weekday at 9am" />
                 </div>
-                <input type="text" value={settingsCron} onChange={(e) => setSettingsCron(e.target.value)} placeholder="0 9 * * 1-5" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 font-mono placeholder:text-zinc-600 outline-none focus:border-pal-500/50" />
-                {settingsCron && <p className="mt-1 text-[11px] text-zinc-500">{describeCron(settingsCron)}</p>}
-                {nextFireAt && <p className="mt-1 text-[11px] text-zinc-500">Next fire: {new Date(nextFireAt).toLocaleString()}</p>}
+                <input type="text" value={settingsCron} onChange={(e) => setSettingsCron(e.target.value)} placeholder="0 9 * * 1-5" className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg font-mono placeholder:text-fg-3 outline-none focus:border-accent" />
+                {settingsCron && <p className="mt-1 text-[11px] text-fg-3">{describeCron(settingsCron)}</p>}
+                {nextFireAt && <p className="mt-1 text-[11px] text-fg-3">Next fire: {new Date(nextFireAt).toLocaleString()}</p>}
               </div>
 
-              <div className="border-t border-zinc-800 pt-4 space-y-3">
+              <div className="border-t border-line pt-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div><label className="text-xs font-medium text-zinc-300">Email delivery</label><p className="text-[11px] text-zinc-500">Send run output via email</p></div>
-                  <button type="button" role="switch" aria-checked={deliveryEmailEnabled} onClick={() => setDeliveryEmailEnabled(!deliveryEmailEnabled)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", deliveryEmailEnabled ? "bg-pal-500" : "bg-zinc-700")}>
+                  <div><label className="text-xs font-medium text-fg-2">Email delivery</label><p className="text-[11px] text-fg-3">Send run output via email</p></div>
+                  <button type="button" role="switch" aria-checked={deliveryEmailEnabled} onClick={() => setDeliveryEmailEnabled(!deliveryEmailEnabled)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", deliveryEmailEnabled ? "bg-accent" : "bg-line-strong")}>
                     <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", deliveryEmailEnabled ? "translate-x-4" : "translate-x-0.5")} />
                   </button>
                 </div>
-                {deliveryEmailEnabled && <input type="email" value={deliveryEmail} onChange={(e) => setDeliveryEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-pal-500/50" />}
+                {deliveryEmailEnabled && <input type="email" value={deliveryEmail} onChange={(e) => setDeliveryEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg placeholder:text-fg-3 outline-none focus:border-accent" />}
               </div>
 
               {/* Webhook */}
-              <div className="border-t border-zinc-800 pt-4 space-y-2">
-                <h4 className="flex items-center gap-2 text-xs font-medium text-zinc-300"><Webhook className="h-3.5 w-3.5 text-blue-400" /> Webhook</h4>
+              <div className="border-t border-line pt-4 space-y-2">
+                <h4 className="flex items-center gap-2 text-xs font-medium text-fg-2"><Webhook className="h-3.5 w-3.5 text-accent" /> Webhook</h4>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-xs text-zinc-400 select-all">{apiBase}/v1/agents/{name}/trigger</code>
-                  <button onClick={() => navigator.clipboard.writeText(`${apiBase}/v1/agents/${name}/trigger`)} className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-surface-3">Copy</button>
+                  <code className="flex-1 rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg-2 select-all">{apiBase}/v1/agents/{name}/trigger</code>
+                  <button onClick={() => navigator.clipboard.writeText(`${apiBase}/v1/agents/${name}/trigger`)} className="rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">Copy</button>
                 </div>
               </div>
 
-              <button onClick={handleSaveSchedule} disabled={savingSchedule || !settingsCron.trim()} className="inline-flex items-center gap-2 rounded-lg bg-pal-500 px-4 py-2 text-xs font-medium text-on-flame hover:bg-pal-400 disabled:opacity-50">
+              <button onClick={handleSaveSchedule} disabled={savingSchedule || !settingsCron.trim()} className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-on-action hover:opacity-90 disabled:opacity-50">
                 {savingSchedule ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving...</> : <><Save className="h-3 w-3" /> Save Schedule</>}
               </button>
             </div>
@@ -1590,57 +1279,57 @@ export default function AgentDetailPage() {
         {activeTab === "settings" && (
           <div className="mx-auto max-w-2xl space-y-6">
             {/* Webhook triggers (ADR 0028) */}
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-surface-1 p-5">
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-panel p-5">
               <div>
-                <h3 className="text-sm font-semibold text-zinc-200">Webhook triggers</h3>
-                <p className="text-[11px] text-zinc-500">Run this agent when GitHub, Sentry, PagerDuty or any signed webhook fires.</p>
+                <h3 className="text-sm font-semibold text-fg">Webhook triggers</h3>
+                <p className="text-[11px] text-fg-3">Run this agent when GitHub, Sentry, PagerDuty or any signed webhook fires.</p>
               </div>
               <LinkButton href={`/agents/${encodeURIComponent(name)}/triggers`} size="sm">Manage</LinkButton>
             </div>
 
             {/* Default Model */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-200">Default Model</h3>
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-fg">Default Model</h3>
               <ModelSelect value={settingsModel} onChange={setSettingsModel} className="w-full" />
             </div>
 
             {/* Isolation */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-200">Isolation</h3>
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-fg">Isolation</h3>
               <div className="space-y-2">
                 {[
                   { value: "trusted", label: "Trusted", desc: "Direct execution, no sandbox" },
                   { value: "standard", label: "Standard", desc: "Lightweight container isolation" },
                   { value: "untrusted", label: "Untrusted MicroVM", desc: "Full microVM sandbox (Firecracker)" },
                 ].map((level) => (
-                  <label key={level.value} className={clsx("flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-all", settingsIsolation === level.value ? "border-pal-500/50 bg-pal-500/5" : "border-zinc-800 hover:border-zinc-600")}>
-                    <input type="radio" name="isolation" value={level.value} checked={settingsIsolation === level.value} onChange={(e) => setSettingsIsolation(e.target.value)} className="accent-pal-500" />
-                    <div><div className="text-xs font-medium text-zinc-200">{level.label}</div><div className="text-[11px] text-zinc-500">{level.desc}</div></div>
+                  <label key={level.value} className={clsx("flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-all", settingsIsolation === level.value ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong")}>
+                    <input type="radio" name="isolation" value={level.value} checked={settingsIsolation === level.value} onChange={(e) => setSettingsIsolation(e.target.value)} className="accent-accent" />
+                    <div><div className="text-xs font-medium text-fg">{level.label}</div><div className="text-[11px] text-fg-3">{level.desc}</div></div>
                   </label>
                 ))}
               </div>
             </div>
 
             {/* Gap 2: Managed Environment Settings */}
-            <div className="rounded-xl border border-emerald-500/20 bg-surface-1 p-5 space-y-4">
+            <div className="rounded-xl border border-ok bg-panel p-5 space-y-4">
               <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-emerald-400" />
-                <h3 className="text-sm font-semibold text-zinc-200">Environment</h3>
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-medium text-emerald-400">Managed</span>
+                <Zap className="h-4 w-4 text-ok" />
+                <h3 className="text-sm font-semibold text-fg">Environment</h3>
+                <span className="rounded-full bg-ok-soft px-2 py-0.5 text-[9px] font-medium text-ok">Managed</span>
               </div>
-              <p className="text-[11px] text-zinc-500">Configure the managed runtime environment for this agent. Changes are saved locally and will apply to future deployments.</p>
+              <p className="text-[11px] text-fg-3">Configure the managed runtime environment for this agent. Changes are saved locally and will apply to future deployments.</p>
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Runtime</label>
-                  <select value={envRuntime} onChange={(e) => { setEnvRuntime(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.runtime = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500/50">
+                  <label className="mb-1 block text-xs text-fg-2">Runtime</label>
+                  <select value={envRuntime} onChange={(e) => { setEnvRuntime(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.runtime = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                     <option value="node22">Node.js 22 (default)</option>
                     <option value="python312">Python 3.12</option>
                     <option value="custom">Custom</option>
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Memory</label>
-                  <select value={envMemory} onChange={(e) => { setEnvMemory(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.memory = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500/50">
+                  <label className="mb-1 block text-xs text-fg-2">Memory</label>
+                  <select value={envMemory} onChange={(e) => { setEnvMemory(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.memory = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                     <option value="256mb">256MB</option>
                     <option value="512mb">512MB (default)</option>
                     <option value="1gb">1GB</option>
@@ -1648,8 +1337,8 @@ export default function AgentDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Timeout</label>
-                  <select value={envTimeout} onChange={(e) => { setEnvTimeout(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.timeout = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500/50">
+                  <label className="mb-1 block text-xs text-fg-2">Timeout</label>
+                  <select value={envTimeout} onChange={(e) => { setEnvTimeout(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.timeout = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                     <option value="1m">1 minute</option>
                     <option value="5m">5 minutes (default)</option>
                     <option value="15m">15 minutes</option>
@@ -1658,142 +1347,142 @@ export default function AgentDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Network Access</label>
-                  <select value={envNetwork} onChange={(e) => { setEnvNetwork(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.network = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500/50">
+                  <label className="mb-1 block text-xs text-fg-2">Network Access</label>
+                  <select value={envNetwork} onChange={(e) => { setEnvNetwork(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.network = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                     <option value="allow-all">Allow all</option>
                     <option value="restricted">Restricted</option>
                     <option value="no-egress">No egress</option>
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Additional Packages (comma-separated)</label>
-                  <input type="text" value={envPackages} onChange={(e) => { setEnvPackages(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.packages = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} placeholder="e.g., axios, lodash, cheerio" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50" />
+                  <label className="mb-1 block text-xs text-fg-2">Additional Packages (comma-separated)</label>
+                  <input type="text" value={envPackages} onChange={(e) => { setEnvPackages(e.target.value); try { const s = JSON.parse(localStorage.getItem(`pal_env_${name}`) || "{}"); s.packages = e.target.value; localStorage.setItem(`pal_env_${name}`, JSON.stringify(s)); } catch { /* */ } }} placeholder="e.g., axios, lodash, cheerio" className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg placeholder:text-fg-3 outline-none focus:border-accent" />
                 </div>
               </div>
             </div>
 
             {/* Resource Limits */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-200">Resource Limits</h3>
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-fg">Resource Limits</h3>
               <div className="space-y-3">
-                <div><label className="mb-1 block text-xs text-zinc-400">Timeout</label>
-                  <select value={settingsTimeout} onChange={(e) => setSettingsTimeout(e.target.value)} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50">
+                <div><label className="mb-1 block text-xs text-fg-2">Timeout</label>
+                  <select value={settingsTimeout} onChange={(e) => setSettingsTimeout(e.target.value)} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                     <option value="1m">1 minute</option><option value="5m">5 minutes</option><option value="15m">15 minutes</option><option value="30m">30 minutes</option><option value="1h">1 hour</option>
                   </select>
                 </div>
-                <div><label className="mb-1 flex items-center justify-between text-xs text-zinc-400">Max tokens <span className="font-mono text-zinc-500">{settingsMaxTokens.toLocaleString()}</span></label>
-                  <input type="range" min={1000} max={500000} step={1000} value={settingsMaxTokens} onChange={(e) => setSettingsMaxTokens(parseInt(e.target.value))} className="w-full accent-pal-500" />
+                <div><label className="mb-1 flex items-center justify-between text-xs text-fg-2">Max tokens <span className="font-mono text-fg-3">{settingsMaxTokens.toLocaleString()}</span></label>
+                  <input type="range" min={1000} max={500000} step={1000} value={settingsMaxTokens} onChange={(e) => setSettingsMaxTokens(parseInt(e.target.value))} className="w-full accent-accent" />
                 </div>
-                <div><label className="mb-1 flex items-center justify-between text-xs text-zinc-400">Max cost <span className="font-mono text-zinc-500">${settingsMaxCost.toFixed(2)}</span></label>
-                  <input type="range" min={0.1} max={50} step={0.1} value={settingsMaxCost} onChange={(e) => setSettingsMaxCost(parseFloat(e.target.value))} className="w-full accent-pal-500" />
+                <div><label className="mb-1 flex items-center justify-between text-xs text-fg-2">Max cost <span className="font-mono text-fg-3">${settingsMaxCost.toFixed(2)}</span></label>
+                  <input type="range" min={0.1} max={50} step={0.1} value={settingsMaxCost} onChange={(e) => setSettingsMaxCost(parseFloat(e.target.value))} className="w-full accent-accent" />
                 </div>
               </div>
             </div>
 
             {/* Privacy & Security */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <h3 className="text-sm font-semibold text-zinc-200">Privacy & Security</h3>
-              <div><label className="mb-1 block text-xs text-zinc-400">Data retention period</label>
-                <select value={settingsRetention} onChange={(e) => setSettingsRetention(e.target.value)} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50">
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
+              <h3 className="text-sm font-semibold text-fg">Privacy & Security</h3>
+              <div><label className="mb-1 block text-xs text-fg-2">Data retention period</label>
+                <select value={settingsRetention} onChange={(e) => setSettingsRetention(e.target.value)} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                   <option value="30d">30 days</option><option value="90d">90 days</option><option value="180d">180 days</option><option value="365d">1 year</option><option value="forever">Forever</option>
                 </select>
               </div>
               <div className="flex items-center justify-between">
-                <div><span className="text-xs font-medium text-zinc-300">{"\uD83D\uDD12"} Encrypt all run data</span><p className="text-[11px] text-zinc-500">End-to-end encryption for all inputs and outputs</p></div>
-                <button type="button" role="switch" aria-checked={settingsEncrypt} onClick={() => setSettingsEncrypt(!settingsEncrypt)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", settingsEncrypt ? "bg-pal-500" : "bg-zinc-700")}>
+                <div><span className="text-xs font-medium text-fg-2">{"\uD83D\uDD12"} Encrypt all run data</span><p className="text-[11px] text-fg-3">End-to-end encryption for all inputs and outputs</p></div>
+                <button type="button" role="switch" aria-checked={settingsEncrypt} onClick={() => setSettingsEncrypt(!settingsEncrypt)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", settingsEncrypt ? "bg-accent" : "bg-line-strong")}>
                   <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", settingsEncrypt ? "translate-x-4" : "translate-x-0.5")} />
                 </button>
               </div>
               <div className="flex items-center justify-between">
-                <div><span className="text-xs font-medium text-zinc-300">{"\uD83D\uDEE1\uFE0F"} Enable audit logging</span><p className="text-[11px] text-zinc-500">Full audit trail for compliance</p></div>
-                <button type="button" role="switch" aria-checked={settingsAuditLog} onClick={() => setSettingsAuditLog(!settingsAuditLog)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", settingsAuditLog ? "bg-pal-500" : "bg-zinc-700")}>
+                <div><span className="text-xs font-medium text-fg-2">{"\uD83D\uDEE1\uFE0F"} Enable audit logging</span><p className="text-[11px] text-fg-3">Full audit trail for compliance</p></div>
+                <button type="button" role="switch" aria-checked={settingsAuditLog} onClick={() => setSettingsAuditLog(!settingsAuditLog)} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", settingsAuditLog ? "bg-accent" : "bg-line-strong")}>
                   <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", settingsAuditLog ? "translate-x-4" : "translate-x-0.5")} />
                 </button>
               </div>
-              <div className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
-                <span className="text-[11px] font-medium text-zinc-400">Data residency:</span>
-                <span className="rounded bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-zinc-300">US-East-1</span>
+              <div className="flex items-center gap-2 rounded-lg bg-raised px-3 py-2">
+                <span className="text-[11px] font-medium text-fg-2">Data residency:</span>
+                <span className="rounded bg-raised px-2 py-0.5 text-[11px] font-medium text-fg-2">US-East-1</span>
               </div>
             </div>
 
             <AgentMcpSection agentName={name} />
 
             {/* Safety & Guardrails */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200"><ShieldAlert className="h-4 w-4 text-amber-400" /> Safety & Guardrails</h3>
-              <p className="text-[11px] text-zinc-500">Client-side filters applied to agent output before display</p>
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><ShieldAlert className="h-4 w-4 text-warn" /> Safety & Guardrails</h3>
+              <p className="text-[11px] text-fg-3">Client-side filters applied to agent output before display</p>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <div><span className="text-xs font-medium text-zinc-300">Enable content filtering</span><p className="text-[11px] text-zinc-500">Flag and redact potential secrets in output</p></div>
-                  <button type="button" role="switch" aria-checked={guardrails.contentFilter} onClick={() => handleSaveGuardrails({ ...guardrails, contentFilter: !guardrails.contentFilter })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", guardrails.contentFilter ? "bg-pal-500" : "bg-zinc-700")}>
+                  <div><span className="text-xs font-medium text-fg-2">Enable content filtering</span><p className="text-[11px] text-fg-3">Flag and redact potential secrets in output</p></div>
+                  <button type="button" role="switch" aria-checked={guardrails.contentFilter} onClick={() => handleSaveGuardrails({ ...guardrails, contentFilter: !guardrails.contentFilter })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", guardrails.contentFilter ? "bg-accent" : "bg-line-strong")}>
                     <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", guardrails.contentFilter ? "translate-x-4" : "translate-x-0.5")} />
                   </button>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div><span className="text-xs font-medium text-zinc-300">Block PII in output</span><p className="text-[11px] text-zinc-500">Redact emails, phone numbers, SSNs, card numbers</p></div>
-                  <button type="button" role="switch" aria-checked={guardrails.blockPII} onClick={() => handleSaveGuardrails({ ...guardrails, blockPII: !guardrails.blockPII })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", guardrails.blockPII ? "bg-pal-500" : "bg-zinc-700")}>
+                  <div><span className="text-xs font-medium text-fg-2">Block PII in output</span><p className="text-[11px] text-fg-3">Redact emails, phone numbers, SSNs, card numbers</p></div>
+                  <button type="button" role="switch" aria-checked={guardrails.blockPII} onClick={() => handleSaveGuardrails({ ...guardrails, blockPII: !guardrails.blockPII })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", guardrails.blockPII ? "bg-accent" : "bg-line-strong")}>
                     <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", guardrails.blockPII ? "translate-x-4" : "translate-x-0.5")} />
                   </button>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div><span className="text-xs font-medium text-zinc-300">Block toxic content</span><p className="text-[11px] text-zinc-500">Block output containing harmful or toxic content</p></div>
-                  <button type="button" role="switch" aria-checked={guardrails.blockToxic} onClick={() => handleSaveGuardrails({ ...guardrails, blockToxic: !guardrails.blockToxic })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", guardrails.blockToxic ? "bg-pal-500" : "bg-zinc-700")}>
+                  <div><span className="text-xs font-medium text-fg-2">Block toxic content</span><p className="text-[11px] text-fg-3">Block output containing harmful or toxic content</p></div>
+                  <button type="button" role="switch" aria-checked={guardrails.blockToxic} onClick={() => handleSaveGuardrails({ ...guardrails, blockToxic: !guardrails.blockToxic })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", guardrails.blockToxic ? "bg-accent" : "bg-line-strong")}>
                     <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", guardrails.blockToxic ? "translate-x-4" : "translate-x-0.5")} />
                   </button>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Blocked topics (comma-separated)</label>
-                  <input type="text" value={blockedTopicsInput} onChange={(e) => { setBlockedTopicsInput(e.target.value); const topics = e.target.value.split(",").map(t => t.trim()).filter(Boolean); handleSaveGuardrails({ ...guardrails, blockedTopics: topics }); }} placeholder="e.g., politics, religion, violence" className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-pal-500/50" />
+                  <label className="mb-1 block text-xs text-fg-2">Blocked topics (comma-separated)</label>
+                  <input type="text" value={blockedTopicsInput} onChange={(e) => { setBlockedTopicsInput(e.target.value); const topics = e.target.value.split(",").map(t => t.trim()).filter(Boolean); handleSaveGuardrails({ ...guardrails, blockedTopics: topics }); }} placeholder="e.g., politics, religion, violence" className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg placeholder:text-fg-3 outline-none focus:border-accent" />
                 </div>
                 <div>
-                  <label className="mb-1 flex items-center justify-between text-xs text-zinc-400">Max response length <span className="font-mono text-zinc-500">{guardrails.maxResponseLength === 0 ? "Unlimited" : `${guardrails.maxResponseLength.toLocaleString()} chars`}</span></label>
-                  <input type="range" min={0} max={10000} step={100} value={guardrails.maxResponseLength} onChange={(e) => handleSaveGuardrails({ ...guardrails, maxResponseLength: parseInt(e.target.value) })} className="w-full accent-pal-500" />
+                  <label className="mb-1 flex items-center justify-between text-xs text-fg-2">Max response length <span className="font-mono text-fg-3">{guardrails.maxResponseLength === 0 ? "Unlimited" : `${guardrails.maxResponseLength.toLocaleString()} chars`}</span></label>
+                  <input type="range" min={0} max={10000} step={100} value={guardrails.maxResponseLength} onChange={(e) => handleSaveGuardrails({ ...guardrails, maxResponseLength: parseInt(e.target.value) })} className="w-full accent-accent" />
                 </div>
               </div>
               {hasActiveGuardrails(guardrails) && (
-                <div className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] text-amber-400">
+                <div className="flex items-center gap-1.5 rounded-lg bg-warn-soft px-3 py-2 text-[11px] text-warn">
                   <ShieldAlert className="h-3 w-3" /> Guardrails active -- output will be filtered
                 </div>
               )}
             </div>
 
-            <button onClick={handleSaveSettings} disabled={savingSettings} className="inline-flex items-center gap-2 rounded-lg bg-pal-500 px-5 py-2.5 text-sm font-medium text-on-flame hover:bg-pal-400 disabled:opacity-50">
+            <button onClick={handleSaveSettings} disabled={savingSettings} className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-on-action hover:opacity-90 disabled:opacity-50">
               {savingSettings ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving...</> : "Save Settings"}
             </button>
 
             {/* Sharing (Feature 4) */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5 space-y-4">
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-200"><Share2 className="h-4 w-4 text-violet-400" /> Sharing</h3>
-                <button type="button" role="switch" aria-checked={sharing.isPublic} onClick={() => handleSharingChange({ isPublic: !sharing.isPublic })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", sharing.isPublic ? "bg-pal-500" : "bg-zinc-700")}>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><Share2 className="h-4 w-4 text-accent" /> Sharing</h3>
+                <button type="button" role="switch" aria-checked={sharing.isPublic} onClick={() => handleSharingChange({ isPublic: !sharing.isPublic })} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", sharing.isPublic ? "bg-accent" : "bg-line-strong")}>
                   <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", sharing.isPublic ? "translate-x-4" : "translate-x-0.5")} />
                 </button>
               </div>
-              <p className="text-[11px] text-zinc-500">{sharing.isPublic ? "Anyone with the link can access this agent" : "This agent is private"}</p>
+              <p className="text-[11px] text-fg-3">{sharing.isPublic ? "Anyone with the link can access this agent" : "This agent is private"}</p>
               {sharing.isPublic && (
                 <>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Access level</label>
-                    <select value={sharing.accessLevel} onChange={(e) => handleSharingChange({ accessLevel: e.target.value as SharingConfig["accessLevel"] })} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-pal-500/50">
+                    <label className="mb-1 block text-xs text-fg-2">Access level</label>
+                    <select value={sharing.accessLevel} onChange={(e) => handleSharingChange({ accessLevel: e.target.value as SharingConfig["accessLevel"] })} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg outline-none focus:border-accent">
                       <option value="view">View only</option>
                       <option value="run">Can run</option>
                       <option value="fork">Can fork</option>
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Shareable URL</label>
+                    <label className="mb-1 block text-xs text-fg-2">Shareable URL</label>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-xs text-zinc-400 select-all">https://dshakes.github.io/pal/agents/public/{sharing.publicId}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(`https://dshakes.github.io/pal/agents/public/${sharing.publicId}`); toast.success("Link copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-surface-3">
+                      <code className="flex-1 truncate rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg-2 select-all">https://dshakes.github.io/pal/agents/public/{sharing.publicId}</code>
+                      <button onClick={() => { navigator.clipboard.writeText(`https://dshakes.github.io/pal/agents/public/${sharing.publicId}`); toast.success("Link copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
                         <Copy className="h-3 w-3" /> Copy
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 rounded-lg bg-surface-0 px-3 py-2.5">
-                    <Link className="h-4 w-4 text-violet-400 shrink-0" />
+                  <div className="flex items-center gap-3 rounded-lg bg-canvas px-3 py-2.5">
+                    <Link className="h-4 w-4 text-accent shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-300">Public ID: {sharing.publicId}</p>
-                      <p className="text-[11px] text-zinc-500">Access: {sharing.accessLevel === "view" ? "View only" : sharing.accessLevel === "run" ? "Can run" : "Can fork"}</p>
+                      <p className="text-xs font-medium text-fg-2">Public ID: {sharing.publicId}</p>
+                      <p className="text-[11px] text-fg-3">Access: {sharing.accessLevel === "view" ? "View only" : sharing.accessLevel === "run" ? "Can run" : "Can fork"}</p>
                     </div>
                   </div>
                 </>
@@ -1801,87 +1490,87 @@ export default function AgentDetailPage() {
             </div>
 
             {/* A2A & Sharing (Gap 4) */}
-            <div className="rounded-xl border border-indigo-500/20 bg-surface-1 p-5 space-y-4">
+            <div className="rounded-xl border border-accent bg-panel p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Network className="h-4 w-4 text-indigo-400" />
-                  <h3 className="text-sm font-semibold text-zinc-200">A2A Agent Card</h3>
-                  <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[9px] font-medium text-indigo-400">A2A Protocol</span>
+                  <Network className="h-4 w-4 text-accent" />
+                  <h3 className="text-sm font-semibold text-fg">A2A Agent Card</h3>
+                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[9px] font-medium text-accent">A2A Protocol</span>
                 </div>
-                <button type="button" role="switch" aria-checked={a2aEnabled} onClick={() => { const next = !a2aEnabled; setA2aEnabled(next); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.enabled = next; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } toast.success(next ? "A2A Agent Card published" : "A2A Agent Card unpublished"); }} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", a2aEnabled ? "bg-pal-500" : "bg-zinc-700")}>
+                <button type="button" role="switch" aria-checked={a2aEnabled} onClick={() => { const next = !a2aEnabled; setA2aEnabled(next); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.enabled = next; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } toast.success(next ? "A2A Agent Card published" : "A2A Agent Card unpublished"); }} className={clsx("relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors", a2aEnabled ? "bg-accent" : "bg-line-strong")}>
                   <span className={clsx("inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform", a2aEnabled ? "translate-x-4" : "translate-x-0.5")} />
                 </button>
               </div>
-              <p className="text-[11px] text-zinc-500">Publish this agent as an A2A Agent Card so other agents and platforms can discover and invoke it.</p>
+              <p className="text-[11px] text-fg-3">Publish this agent as an A2A Agent Card so other agents and platforms can discover and invoke it.</p>
               {a2aEnabled && (
                 <>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Agent Card URL</label>
+                    <label className="mb-1 block text-xs text-fg-2">Agent Card URL</label>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-xs text-zinc-400 select-all">{apiBase}/v1/agents/{name}/card</code>
-                      <button onClick={() => { navigator.clipboard.writeText(`${apiBase}/v1/agents/${name}/card`); toast.success("Card URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-surface-3">
+                      <code className="flex-1 truncate rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg-2 select-all">{apiBase}/v1/agents/{name}/card</code>
+                      <button onClick={() => { navigator.clipboard.writeText(`${apiBase}/v1/agents/${name}/card`); toast.success("Card URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
                         <Copy className="h-3 w-3" /> Copy
                       </button>
                     </div>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Agent Card Preview</label>
-                    <pre className="rounded-lg border border-zinc-800 bg-surface-0 p-3 font-mono text-[11px] text-zinc-500 overflow-x-auto leading-relaxed max-h-40 overflow-y-auto">{JSON.stringify({ name, description: agent?.description || "", version: "0.1.0", capabilities: ["text-generation"], endpoint: `${apiBase}/v1/agents/${name}/a2a/invoke`, auth: { type: "bearer", description: "PAL API key" }, inputSchema: (() => { try { return JSON.parse(a2aInputSchema); } catch { return {}; } })(), outputSchema: (() => { try { return JSON.parse(a2aOutputSchema); } catch { return {}; } })(), provider: { name: "PAL", url: "https://dshakes.github.io/pal" } }, null, 2)}</pre>
+                    <label className="mb-1 block text-xs text-fg-2">Agent Card Preview</label>
+                    <pre className="rounded-lg border border-line bg-canvas p-3 font-mono text-[11px] text-fg-3 overflow-x-auto leading-relaxed max-h-40 overflow-y-auto">{JSON.stringify({ name, description: agent?.description || "", version: "0.1.0", capabilities: ["text-generation"], endpoint: `${apiBase}/v1/agents/${name}/a2a/invoke`, auth: { type: "bearer", description: "PAL API key" }, inputSchema: (() => { try { return JSON.parse(a2aInputSchema); } catch { return {}; } })(), outputSchema: (() => { try { return JSON.parse(a2aOutputSchema); } catch { return {}; } })(), provider: { name: "PAL", url: "https://dshakes.github.io/pal" } }, null, 2)}</pre>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Input Schema (JSON)</label>
-                    <textarea value={a2aInputSchema} onChange={(e) => { setA2aInputSchema(e.target.value); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.inputSchema = e.target.value; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } }} rows={3} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50 resize-none" />
+                    <label className="mb-1 block text-xs text-fg-2">Input Schema (JSON)</label>
+                    <textarea value={a2aInputSchema} onChange={(e) => { setA2aInputSchema(e.target.value); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.inputSchema = e.target.value; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } }} rows={3} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg placeholder:text-fg-3 outline-none focus:border-accent resize-none" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Output Schema (JSON)</label>
-                    <textarea value={a2aOutputSchema} onChange={(e) => { setA2aOutputSchema(e.target.value); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.outputSchema = e.target.value; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } }} rows={3} className="w-full rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-indigo-500/50 resize-none" />
+                    <label className="mb-1 block text-xs text-fg-2">Output Schema (JSON)</label>
+                    <textarea value={a2aOutputSchema} onChange={(e) => { setA2aOutputSchema(e.target.value); try { const cfg = JSON.parse(localStorage.getItem(`pal_a2a_${name}`) || "{}"); cfg.outputSchema = e.target.value; localStorage.setItem(`pal_a2a_${name}`, JSON.stringify(cfg)); } catch { /* */ } }} rows={3} className="w-full rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-xs text-fg placeholder:text-fg-3 outline-none focus:border-accent resize-none" />
                   </div>
                 </>
               )}
             </div>
 
             {/* Deploy to Cloud (Gap 5) */}
-            <div className="rounded-xl border border-cyan-500/20 bg-surface-1 p-5 space-y-4">
+            <div className="rounded-xl border border-accent bg-panel p-5 space-y-4">
               <div className="flex items-center gap-2">
-                <Cloud className="h-4 w-4 text-cyan-400" />
-                <h3 className="text-sm font-semibold text-zinc-200">Deploy to PAL Cloud</h3>
-                {cloudDeployStatus === "live" && <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-medium text-emerald-400">Live</span>}
-                {cloudDeployStatus === "stopped" && <span className="rounded-full bg-zinc-500/10 px-2 py-0.5 text-[9px] font-medium text-zinc-400">Stopped</span>}
+                <Cloud className="h-4 w-4 text-accent" />
+                <h3 className="text-sm font-semibold text-fg">Deploy to PAL Cloud</h3>
+                {cloudDeployStatus === "live" && <span className="rounded-full bg-ok-soft px-2 py-0.5 text-[9px] font-medium text-ok">Live</span>}
+                {cloudDeployStatus === "stopped" && <span className="rounded-full bg-raised px-2 py-0.5 text-[9px] font-medium text-fg-2">Stopped</span>}
               </div>
-              <p className="text-[11px] text-zinc-500">Deploy this agent to PAL Cloud for managed hosting with usage-based billing. No infrastructure to manage.</p>
+              <p className="text-[11px] text-fg-3">Deploy this agent to PAL Cloud for managed hosting with usage-based billing. No infrastructure to manage.</p>
               {cloudDeployStatus === "not_deployed" && (
-                <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent deployed to PAL Cloud"); } catch (err) { toast.error(`Deploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
+                <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent deployed to PAL Cloud"); } catch (err) { toast.error(`Deploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-action px-4 py-2.5 text-sm font-medium text-on-action transition-colors hover:opacity-90 disabled:opacity-50">
                   {deploying ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deploying...</> : <><Cloud className="h-3.5 w-3.5" /> Deploy to Cloud</>}
                 </button>
               )}
               {cloudDeployStatus === "live" && (
                 <div className="space-y-3">
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-400">Live URL</label>
+                    <label className="mb-1 block text-xs text-fg-2">Live URL</label>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate rounded-lg border border-emerald-500/20 bg-surface-0 px-3 py-2 font-mono text-xs text-emerald-400 select-all">{cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`}</code>
-                      <button onClick={() => { navigator.clipboard.writeText(cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`); toast.success("URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-surface-3">
+                      <code className="flex-1 truncate rounded-lg border border-ok bg-canvas px-3 py-2 font-mono text-xs text-ok select-all">{cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`}</code>
+                      <button onClick={() => { navigator.clipboard.writeText(cloudDeployUrl || `${apiBase}/v1/agents/${name}/a2a/invoke`); toast.success("URL copied"); }} className="inline-flex items-center gap-1 rounded-lg border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-hover">
                         <Copy className="h-3 w-3" /> Copy
                       </button>
                     </div>
                   </div>
-                  <div className="rounded-lg border border-zinc-800 bg-surface-0 p-3 space-y-2">
-                    <span className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Usage This Month</span>
+                  <div className="rounded-lg border border-line bg-canvas p-3 space-y-2">
+                    <span className="text-[11px] font-medium text-fg-3 uppercase tracking-wider">Usage This Month</span>
                     <div className="grid grid-cols-3 gap-3">
-                      <div><p className="text-lg font-semibold text-zinc-100">142</p><p className="text-[11px] text-zinc-500">Sessions</p></div>
-                      <div><p className="text-lg font-semibold text-zinc-100">48.2k</p><p className="text-[11px] text-zinc-500">Tokens</p></div>
-                      <div><p className="text-lg font-semibold text-zinc-100">3.2h</p><p className="text-[11px] text-zinc-500">Compute</p></div>
+                      <div><p className="text-lg font-semibold text-fg">142</p><p className="text-[11px] text-fg-3">Sessions</p></div>
+                      <div><p className="text-lg font-semibold text-fg">48.2k</p><p className="text-[11px] text-fg-3">Tokens</p></div>
+                      <div><p className="text-lg font-semibold text-fg">3.2h</p><p className="text-[11px] text-fg-3">Compute</p></div>
                     </div>
-                    <div className="flex items-center gap-2 pt-1 border-t border-zinc-800">
-                      <DollarSign className="h-3 w-3 text-zinc-500" />
-                      <span className="text-xs text-zinc-400">Estimated cost: <span className="font-medium text-zinc-200">$4.82</span>/month</span>
+                    <div className="flex items-center gap-2 pt-1 border-t border-line">
+                      <DollarSign className="h-3 w-3 text-fg-3" />
+                      <span className="text-xs text-fg-2">Estimated cost: <span className="font-medium text-fg">$4.82</span>/month</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={async () => { setDeploying(true); try { await api.deployAgent(name); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-surface-3 disabled:opacity-50">
+                    <button onClick={async () => { setDeploying(true); try { await api.deployAgent(name); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover disabled:opacity-50">
                       {deploying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Cloud className="h-3 w-3" />} Redeploy
                     </button>
-                    <button onClick={async () => { setStopping(true); try { await api.stopCloudDeployment(name); setCloudDeployStatus("stopped"); setCloudDeployUrl(""); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: "stopped", url: "" })); toast.success("Deployment stopped"); } catch (err) { toast.error(`Failed to stop deployment — ${err instanceof Error ? err.message : String(err)}`); } finally { setStopping(false); } }} disabled={stopping} className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+                    <button onClick={async () => { setStopping(true); try { await api.stopCloudDeployment(name); setCloudDeployStatus("stopped"); setCloudDeployUrl(""); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: "stopped", url: "" })); toast.success("Deployment stopped"); } catch (err) { toast.error(`Failed to stop deployment — ${err instanceof Error ? err.message : String(err)}`); } finally { setStopping(false); } }} disabled={stopping} className="inline-flex items-center gap-2 rounded-lg border border-bad px-3 py-1.5 text-xs font-medium text-bad hover:bg-bad-soft disabled:opacity-50">
                       {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />} Stop
                     </button>
                   </div>
@@ -1889,8 +1578,8 @@ export default function AgentDetailPage() {
               )}
               {cloudDeployStatus === "stopped" && (
                 <div className="space-y-3">
-                  <p className="text-xs text-zinc-500">This agent was previously deployed and is now stopped.</p>
-                  <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-cyan-500 disabled:opacity-50">
+                  <p className="text-xs text-fg-3">This agent was previously deployed and is now stopped.</p>
+                  <button onClick={async () => { setDeploying(true); try { const result = await api.deployAgent(name); setCloudDeployStatus(result.status); setCloudDeployUrl(result.url); localStorage.setItem(`pal_deploy_${name}`, JSON.stringify({ status: result.status, url: result.url })); toast.success("Agent redeployed"); } catch (err) { toast.error(`Redeploy failed — ${err instanceof Error ? err.message : String(err)}`); } finally { setDeploying(false); } }} disabled={deploying} className="inline-flex items-center gap-2 rounded-lg bg-action px-4 py-2 text-sm font-medium text-on-action transition-colors hover:opacity-90 disabled:opacity-50">
                     {deploying ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deploying...</> : <><Cloud className="h-3.5 w-3.5" /> Redeploy</>}
                   </button>
                 </div>
@@ -1898,11 +1587,11 @@ export default function AgentDetailPage() {
             </div>
 
             {/* Danger Zone */}
-            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5 space-y-3">
-              <h3 className="text-sm font-semibold text-red-400">Danger Zone</h3>
-              <p className="text-xs text-zinc-500">Deleting this agent will remove it and all associated data. This cannot be undone.</p>
-              <div className="text-xs text-zinc-500">{agentRuns.length} runs, {succeededRuns} succeeded, {formatCost(totalCost)} total cost</div>
-              <button onClick={() => setShowDeleteConfirm(true)} className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10">
+            <div className="rounded-xl border border-bad bg-bad-soft p-5 space-y-3">
+              <h3 className="text-sm font-semibold text-bad">Danger Zone</h3>
+              <p className="text-xs text-fg-3">Deleting this agent will remove it and all associated data. This cannot be undone.</p>
+              <div className="text-xs text-fg-3">{agentRuns.length} runs, {succeededRuns} succeeded, {formatCost(totalCost)} total cost</div>
+              <button onClick={() => setShowDeleteConfirm(true)} className="inline-flex items-center gap-2 rounded-lg border border-bad px-4 py-2 text-xs font-medium text-bad hover:bg-bad-soft">
                 <Trash2 className="h-3 w-3" /> Delete Agent
               </button>
             </div>

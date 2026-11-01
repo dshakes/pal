@@ -81,7 +81,7 @@ function Sparkline({ values }: { values: number[] }) {
     <svg
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
-      className="h-12 w-full text-violet-400"
+      className="h-12 w-full text-accent"
       aria-hidden
     >
       <polyline
@@ -217,7 +217,7 @@ function StatCard({
   trend?: "up" | "down" | "neutral";
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
+    <div className="rounded-xl border border-line bg-panel p-5">
       <div className="flex items-center justify-between">
         <div className={clsx("flex h-9 w-9 items-center justify-center rounded-lg", iconBg)}>
           <Icon className={clsx("h-4.5 w-4.5", iconColor)} />
@@ -226,7 +226,7 @@ function StatCard({
           <span
             className={clsx(
               "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-              trend === "up" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400",
+              trend === "up" ? "bg-ok-soft text-ok" : "bg-bad-soft text-bad",
             )}
           >
             {trend === "up" ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
@@ -234,9 +234,9 @@ function StatCard({
           </span>
         )}
       </div>
-      <p className="mt-3 text-2xl font-semibold text-zinc-100">{value}</p>
-      <p className="mt-0.5 text-xs text-zinc-500">{label}</p>
-      {subValue && <p className="mt-1 text-[12px] text-zinc-600">{subValue}</p>}
+      <p className="mt-3 text-2xl font-semibold text-fg">{value}</p>
+      <p className="mt-0.5 text-xs text-fg-3">{label}</p>
+      {subValue && <p className="mt-1 text-[12px] text-fg-3">{subValue}</p>}
     </div>
   );
 }
@@ -248,7 +248,7 @@ function StatCard({
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
   const w = max > 0 ? Math.max(2, (value / max) * 100) : 0;
   return (
-    <div className="h-2 w-full rounded-full bg-surface-3">
+    <div className="h-2 w-full rounded-full bg-raised">
       <div className={clsx("h-2 rounded-full", color)} style={{ width: `${w}%` }} />
     </div>
   );
@@ -262,8 +262,8 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
 function MetricField({ label, value, tone }: { label: string; value: string; tone?: "danger" }) {
   return (
     <div>
-      <p className="text-[12px] uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className={clsx("text-xs tabular-nums", tone === "danger" ? "text-red-400" : "text-zinc-200")}>{value}</p>
+      <p className="text-[12px] uppercase tracking-wide text-fg-3">{label}</p>
+      <p className={clsx("text-xs tabular-nums", tone === "danger" ? "text-bad" : "text-fg")}>{value}</p>
     </div>
   );
 }
@@ -445,7 +445,7 @@ export default function EvaluationsPage() {
         title="Analytics"
         description="Success rate, cost, latency, and eval failures across your runs."
         action={
-          <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-surface-0 p-0.5">
+          <div className="flex items-center gap-1 rounded-lg border border-line bg-canvas p-0.5">
             {(["7d", "30d", "all"] as const).map((range) => (
               <button
                 key={range}
@@ -453,8 +453,8 @@ export default function EvaluationsPage() {
                 className={clsx(
                   "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
                   timeRange === range
-                    ? "bg-surface-3 text-zinc-100"
-                    : "text-zinc-500 hover:text-zinc-300",
+                    ? "bg-raised text-fg"
+                    : "text-fg-3 hover:text-fg",
                 )}
               >
                 {range === "7d" ? "7 days" : range === "30d" ? "30 days" : "All time"}
@@ -472,8 +472,8 @@ export default function EvaluationsPage() {
             value={pct(successRate)}
             subValue={`${totalSucceeded} succeeded / ${terminalTotal} terminal`}
             icon={CheckCircle2}
-            iconColor="text-emerald-400"
-            iconBg="bg-emerald-500/10"
+            iconColor="text-ok"
+            iconBg="bg-ok-soft"
             trend={successRate >= 0.9 ? "up" : successRate < 0.7 ? "down" : "neutral"}
           />
           <StatCard
@@ -481,37 +481,37 @@ export default function EvaluationsPage() {
             value={fmtUsd(totalCost)}
             subValue={`${fmtUsd(avgCost)} avg per run`}
             icon={DollarSign}
-            iconColor="text-amber-400"
-            iconBg="bg-amber-500/10"
+            iconColor="text-warn"
+            iconBg="bg-warn-soft"
           />
           <StatCard
             label="Avg latency"
             value={fmtDuration(avgLatency)}
             subValue={`${fmt(totalTokens, 0)} total tokens`}
             icon={Clock}
-            iconColor="text-blue-400"
-            iconBg="bg-blue-500/10"
+            iconColor="text-accent"
+            iconBg="bg-accent-soft"
           />
           <StatCard
             label="Failed runs"
             value={String(totalFailed)}
             subValue={totalRuns > 0 ? `${pct(totalFailed / totalRuns)} error rate` : "No runs yet"}
             icon={XCircle}
-            iconColor="text-red-400"
-            iconBg="bg-red-500/10"
+            iconColor="text-bad"
+            iconBg="bg-bad-soft"
             trend={totalFailed === 0 ? "up" : "down"}
           />
         </div>
 
         {/* Daily trend chart */}
         <div>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-            <TrendingUp className="h-4 w-4 text-zinc-500" />
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-fg">
+            <TrendingUp className="h-4 w-4 text-fg-3" />
             Activity over time
           </h2>
-          <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
+          <div className="rounded-xl border border-line bg-panel p-5">
             {totalRuns === 0 ? (
-              <div className="flex h-[240px] items-center justify-center text-sm text-zinc-500">
+              <div className="flex h-[240px] items-center justify-center text-sm text-fg-3">
                 No runs in this window yet.
               </div>
             ) : (
@@ -527,18 +527,18 @@ export default function EvaluationsPage() {
 
         {/* Observability — eval quality trend + top failing cases */}
         <div>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-            <Microscope className="h-4 w-4 text-zinc-500" />
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-fg">
+            <Microscope className="h-4 w-4 text-fg-3" />
             Observability
           </h2>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Quality trend */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
-              <h3 className="mb-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <div className="rounded-xl border border-line bg-panel p-5">
+              <h3 className="mb-4 text-xs font-medium uppercase tracking-wide text-fg-3">
                 Quality trend
               </h3>
               {!evalTrends || evalTrends.points.length < 2 ? (
-                <div className="flex h-[92px] items-center justify-center text-sm text-zinc-500">
+                <div className="flex h-[92px] items-center justify-center text-sm text-fg-3">
                   Not enough eval runs yet.
                 </div>
               ) : (
@@ -550,10 +550,10 @@ export default function EvaluationsPage() {
                     <div>
                       <div className="flex items-end justify-between">
                         <div>
-                          <p className="text-2xl font-semibold tabular-nums text-zinc-100">
+                          <p className="text-2xl font-semibold tabular-nums text-fg">
                             {pct(latest)}
                           </p>
-                          <p className="mt-0.5 text-xs text-zinc-500">
+                          <p className="mt-0.5 text-xs text-fg-3">
                             latest score · {pts.length} runs
                           </p>
                         </div>
@@ -561,10 +561,10 @@ export default function EvaluationsPage() {
                           className={clsx(
                             "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
                             evalTrends.regressing
-                              ? "bg-red-500/10 text-red-400"
+                              ? "bg-bad-soft text-bad"
                               : improving
-                              ? "bg-emerald-500/10 text-emerald-400"
-                              : "bg-surface-3 text-zinc-400",
+                              ? "bg-ok-soft text-ok"
+                              : "bg-raised text-fg-2",
                           )}
                         >
                           {evalTrends.regressing
@@ -584,13 +584,13 @@ export default function EvaluationsPage() {
             </div>
 
             {/* Top failing cases */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
+            <div className="rounded-xl border border-line bg-panel p-5">
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <h3 className="text-xs font-medium uppercase tracking-wide text-fg-3">
                   Top failing cases
                 </h3>
                 {evalFailures && evalFailures.runsScanned > 0 && (
-                  <span className="text-[11px] text-zinc-600">
+                  <span className="text-[11px] text-fg-3">
                     {evalFailures.runsScanned} runs scanned
                   </span>
                 )}
@@ -609,23 +609,23 @@ export default function EvaluationsPage() {
                   {evalFailures.clusters.map((c) => (
                     <div
                       key={c.case}
-                      className="rounded-lg bg-surface-0 p-3"
+                      className="rounded-lg bg-canvas p-3"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-xs font-medium text-zinc-200">
+                        <span className="truncate text-xs font-medium text-fg">
                           {c.case}
                         </span>
-                        <span className="shrink-0 text-[11px] tabular-nums text-red-400">
+                        <span className="shrink-0 text-[11px] tabular-nums text-bad">
                           {c.failures}/{c.seen} · {pct(c.failRate)}
                         </span>
                       </div>
                       {c.sampleError && (
-                        <p className="mt-1 truncate text-[12px] text-zinc-500">
+                        <p className="mt-1 truncate text-[12px] text-fg-3">
                           {c.sampleError}
                         </p>
                       )}
                       <div className="mt-1 flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-zinc-600">last seen {relTime(c.lastSeen)}</p>
+                        <p className="text-[11px] text-fg-3">last seen {relTime(c.lastSeen)}</p>
                         <ExplainInline
                           size="xs"
                           label="Why?"
@@ -648,66 +648,66 @@ export default function EvaluationsPage() {
 
         {/* Agent performance table */}
         <div>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-            <Bot className="h-4 w-4 text-zinc-500" />
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-fg">
+            <Bot className="h-4 w-4 text-fg-3" />
             Agent Performance
           </h2>
           {mergedAgentMetrics.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-surface-1 py-12">
-              <BarChart3 className="mb-3 h-8 w-8 text-zinc-600" />
-              <p className="text-sm text-zinc-500">No agent data yet. Run some agents to see metrics.</p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-line bg-panel py-12">
+              <BarChart3 className="mb-3 h-8 w-8 text-fg-3" />
+              <p className="text-sm text-fg-3">No agent data yet. Run some agents to see metrics.</p>
             </div>
           ) : (
             <>
               {/* Desktop: table, unchanged */}
-              <div className="hidden overflow-hidden rounded-xl border border-zinc-800 md:block">
+              <div className="hidden overflow-hidden rounded-xl border border-line md:block">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-zinc-800 bg-surface-1">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Agent</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">Runs</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">Success rate</th>
-                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-zinc-500 md:table-cell">Avg cost</th>
-                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-zinc-500 lg:table-cell">Avg latency</th>
-                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-zinc-500 md:table-cell">Total cost</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">Errors</th>
+                    <tr className="border-b border-line bg-panel">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-fg-3">Agent</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-fg-3">Runs</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-fg-3">Success rate</th>
+                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-fg-3 md:table-cell">Avg cost</th>
+                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-fg-3 lg:table-cell">Avg latency</th>
+                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-fg-3 md:table-cell">Total cost</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-fg-3">Errors</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-800/50">
+                  <tbody className="divide-y divide-line">
                     {mergedAgentMetrics.map((a) => (
-                      <tr key={a.name} className="bg-surface-0 transition-colors hover:bg-surface-1">
+                      <tr key={a.name} className="bg-canvas transition-colors hover:bg-hover">
                         <td className="px-4 py-3">
-                          <span className="font-medium text-zinc-200">{a.name}</span>
+                          <span className="font-medium text-fg">{a.name}</span>
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-400">{a.totalRuns}</td>
+                        <td className="px-4 py-3 text-right text-fg-2">{a.totalRuns}</td>
                         <td className="px-4 py-3 text-right">
                           <span
                             className={clsx(
                               "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
                               a.successRate >= 0.9
-                                ? "bg-emerald-500/10 text-emerald-400"
+                                ? "bg-ok-soft text-ok"
                                 : a.successRate >= 0.7
-                                ? "bg-amber-500/10 text-amber-400"
-                                : "bg-red-500/10 text-red-400",
+                                ? "bg-warn-soft text-warn"
+                                : "bg-bad-soft text-bad",
                             )}
                           >
                             {pct(a.successRate)}
                           </span>
                         </td>
-                        <td className="hidden px-4 py-3 text-right text-zinc-400 md:table-cell">
+                        <td className="hidden px-4 py-3 text-right text-fg-2 md:table-cell">
                           {fmtUsd(a.avgCost)}
                         </td>
-                        <td className="hidden px-4 py-3 text-right text-zinc-400 lg:table-cell">
+                        <td className="hidden px-4 py-3 text-right text-fg-2 lg:table-cell">
                           {fmtDuration(a.avgLatencyMs)}
                         </td>
-                        <td className="hidden px-4 py-3 text-right text-zinc-400 md:table-cell">
+                        <td className="hidden px-4 py-3 text-right text-fg-2 md:table-cell">
                           {fmtUsd(a.totalCost)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           {a.failed > 0 ? (
-                            <span className="text-red-400">{a.failed}</span>
+                            <span className="text-bad">{a.failed}</span>
                           ) : (
-                            <span className="text-zinc-600">0</span>
+                            <span className="text-fg-3">0</span>
                           )}
                         </td>
                       </tr>
@@ -719,17 +719,17 @@ export default function EvaluationsPage() {
               {/* Mobile: stacked cards, same data */}
               <div className="space-y-2 md:hidden">
                 {mergedAgentMetrics.map((a) => (
-                  <div key={a.name} className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
+                  <div key={a.name} className="rounded-xl border border-line bg-panel p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-zinc-200">{a.name}</span>
+                      <span className="truncate text-sm font-medium text-fg">{a.name}</span>
                       <span
                         className={clsx(
                           "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
                           a.successRate >= 0.9
-                            ? "bg-emerald-500/10 text-emerald-400"
+                            ? "bg-ok-soft text-ok"
                             : a.successRate >= 0.7
-                            ? "bg-amber-500/10 text-amber-400"
-                            : "bg-red-500/10 text-red-400",
+                            ? "bg-warn-soft text-warn"
+                            : "bg-bad-soft text-bad",
                         )}
                       >
                         {pct(a.successRate)}
@@ -751,20 +751,20 @@ export default function EvaluationsPage() {
 
         {/* Cost attribution */}
         <div>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-            <DollarSign className="h-4 w-4 text-zinc-500" />
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-fg">
+            <DollarSign className="h-4 w-4 text-fg-3" />
             Cost Attribution
           </h2>
           {mergedAgentMetrics.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-surface-1 py-12">
-              <DollarSign className="mb-3 h-8 w-8 text-zinc-600" />
-              <p className="text-sm text-zinc-500">No cost data available yet.</p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-line bg-panel py-12">
+              <DollarSign className="mb-3 h-8 w-8 text-fg-3" />
+              <p className="text-sm text-fg-3">No cost data available yet.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {/* Cost by agent bar chart */}
-              <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
-                <h3 className="mb-4 text-xs font-medium text-zinc-500 uppercase tracking-wide">Cost by agent</h3>
+              <div className="rounded-xl border border-line bg-panel p-5">
+                <h3 className="mb-4 text-xs font-medium text-fg-3 uppercase tracking-wide">Cost by agent</h3>
                 <div className="space-y-3">
                   {mergedAgentMetrics
                     .filter((a) => a.totalCost > 0)
@@ -772,47 +772,47 @@ export default function EvaluationsPage() {
                     .map((a) => (
                       <div key={a.name}>
                         <div className="mb-1 flex items-center justify-between">
-                          <span className="text-xs font-medium text-zinc-300 truncate max-w-[60%]">{a.name}</span>
-                          <span className="text-xs text-zinc-500">{fmtUsd(a.totalCost)}</span>
+                          <span className="text-xs font-medium text-fg-2 truncate max-w-[60%]">{a.name}</span>
+                          <span className="text-xs text-fg-3">{fmtUsd(a.totalCost)}</span>
                         </div>
                         <MiniBar
                           value={a.totalCost}
                           max={maxCostAgent?.totalCost ?? 1}
-                          color="bg-amber-500/60"
+                          color="bg-warn-soft"
                         />
                       </div>
                     ))}
                   {mergedAgentMetrics.filter((a) => a.totalCost > 0).length === 0 && (
-                    <p className="py-4 text-center text-xs text-zinc-600">No cost data</p>
+                    <p className="py-4 text-center text-xs text-fg-3">No cost data</p>
                   )}
                 </div>
               </div>
 
               {/* Cost top-level stats */}
-              <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
-                <h3 className="mb-4 text-xs font-medium text-zinc-500 uppercase tracking-wide">Cost breakdown</h3>
+              <div className="rounded-xl border border-line bg-panel p-5">
+                <h3 className="mb-4 text-xs font-medium text-fg-3 uppercase tracking-wide">Cost breakdown</h3>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Total spend</span>
-                    <span className="text-sm font-semibold text-zinc-100">{fmtUsd(totalCost)}</span>
+                    <span className="text-sm text-fg-2">Total spend</span>
+                    <span className="text-sm font-semibold text-fg">{fmtUsd(totalCost)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Average cost per run</span>
-                    <span className="text-sm font-medium text-zinc-200">{fmtUsd(avgCost)}</span>
+                    <span className="text-sm text-fg-2">Average cost per run</span>
+                    <span className="text-sm font-medium text-fg">{fmtUsd(avgCost)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Most expensive agent</span>
-                    <span className="text-sm font-medium text-zinc-200">
+                    <span className="text-sm text-fg-2">Most expensive agent</span>
+                    <span className="text-sm font-medium text-fg">
                       {maxCostAgent ? `${maxCostAgent.name} (${fmtUsd(maxCostAgent.totalCost)})` : "N/A"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Total tokens</span>
-                    <span className="text-sm font-medium text-zinc-200">{fmt(totalTokens, 0)}</span>
+                    <span className="text-sm text-fg-2">Total tokens</span>
+                    <span className="text-sm font-medium text-fg">{fmt(totalTokens, 0)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Active agents</span>
-                    <span className="text-sm font-medium text-zinc-200">
+                    <span className="text-sm text-fg-2">Active agents</span>
+                    <span className="text-sm font-medium text-fg">
                       {mergedAgentMetrics.filter((a) => a.totalRuns > 0).length}
                     </span>
                   </div>
@@ -824,45 +824,45 @@ export default function EvaluationsPage() {
 
         {/* Model usage */}
         <div>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-            <Zap className="h-4 w-4 text-zinc-500" />
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-fg">
+            <Zap className="h-4 w-4 text-fg-3" />
             Model Usage
           </h2>
           {modelMetrics.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-zinc-800 bg-surface-1 py-12">
-              <Zap className="mb-3 h-8 w-8 text-zinc-600" />
-              <p className="text-sm text-zinc-500">No model usage data yet.</p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-line bg-panel py-12">
+              <Zap className="mb-3 h-8 w-8 text-fg-3" />
+              <p className="text-sm text-fg-3">No model usage data yet.</p>
             </div>
           ) : (
             <>
               {/* Desktop: table, unchanged */}
-              <div className="hidden overflow-hidden rounded-xl border border-zinc-800 md:block">
+              <div className="hidden overflow-hidden rounded-xl border border-line md:block">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-zinc-800 bg-surface-1">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Model</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">Runs</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">Total cost</th>
-                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-zinc-500 md:table-cell">Avg cost</th>
-                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-zinc-500 md:table-cell">Tokens in</th>
-                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-zinc-500 md:table-cell">Tokens out</th>
+                    <tr className="border-b border-line bg-panel">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-fg-3">Model</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-fg-3">Runs</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-fg-3">Total cost</th>
+                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-fg-3 md:table-cell">Avg cost</th>
+                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-fg-3 md:table-cell">Tokens in</th>
+                      <th className="hidden px-4 py-3 text-right text-xs font-medium text-fg-3 md:table-cell">Tokens out</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-800/50">
+                  <tbody className="divide-y divide-line">
                     {modelMetrics.map((m) => (
-                      <tr key={m.model} className="bg-surface-0 transition-colors hover:bg-surface-1">
+                      <tr key={m.model} className="bg-canvas transition-colors hover:bg-hover">
                         <td className="px-4 py-3">
-                          <span className="font-medium text-zinc-200">{m.model}</span>
+                          <span className="font-medium text-fg">{m.model}</span>
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-400">{m.runs}</td>
-                        <td className="px-4 py-3 text-right text-zinc-400">{fmtUsd(m.totalCost)}</td>
-                        <td className="hidden px-4 py-3 text-right text-zinc-400 md:table-cell">
+                        <td className="px-4 py-3 text-right text-fg-2">{m.runs}</td>
+                        <td className="px-4 py-3 text-right text-fg-2">{fmtUsd(m.totalCost)}</td>
+                        <td className="hidden px-4 py-3 text-right text-fg-2 md:table-cell">
                           {fmtUsd(m.avgCost)}
                         </td>
-                        <td className="hidden px-4 py-3 text-right text-zinc-400 md:table-cell">
+                        <td className="hidden px-4 py-3 text-right text-fg-2 md:table-cell">
                           {fmt(m.totalTokensIn, 0)}
                         </td>
-                        <td className="hidden px-4 py-3 text-right text-zinc-400 md:table-cell">
+                        <td className="hidden px-4 py-3 text-right text-fg-2 md:table-cell">
                           {fmt(m.totalTokensOut, 0)}
                         </td>
                       </tr>
@@ -874,8 +874,8 @@ export default function EvaluationsPage() {
               {/* Mobile: stacked cards, same data */}
               <div className="space-y-2 md:hidden">
                 {modelMetrics.map((m) => (
-                  <div key={m.model} className="rounded-xl border border-zinc-800 bg-surface-1 p-4">
-                    <span className="text-sm font-medium text-zinc-200">{m.model}</span>
+                  <div key={m.model} className="rounded-xl border border-line bg-panel p-4">
+                    <span className="text-sm font-medium text-fg">{m.model}</span>
                     <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5">
                       <MetricField label="Runs" value={String(m.runs)} />
                       <MetricField label="Total cost" value={fmtUsd(m.totalCost)} />
@@ -892,18 +892,18 @@ export default function EvaluationsPage() {
 
         {/* Quality signals */}
         <div>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-zinc-200">
-            <AlertTriangle className="h-4 w-4 text-zinc-500" />
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-fg">
+            <AlertTriangle className="h-4 w-4 text-fg-3" />
             Quality Signals
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* Recent failures */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
-              <h3 className="mb-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">Recent failures</h3>
+            <div className="rounded-xl border border-line bg-panel p-5">
+              <h3 className="mb-3 text-xs font-medium text-fg-3 uppercase tracking-wide">Recent failures</h3>
               {filteredRuns.filter((r) => r.status === "failed").length === 0 ? (
                 <div className="flex items-center gap-2 py-4">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-sm text-emerald-400">No failures in this period</span>
+                  <CheckCircle2 className="h-4 w-4 text-ok" />
+                  <span className="text-sm text-ok">No failures in this period</span>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -911,13 +911,13 @@ export default function EvaluationsPage() {
                     .filter((r) => r.status === "failed")
                     .slice(0, 5)
                     .map((r) => (
-                      <div key={r.id} className="flex items-start gap-2 rounded-lg bg-red-500/5 p-2">
-                        <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                      <div key={r.id} className="flex items-start gap-2 rounded-lg bg-bad-soft p-2">
+                        <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-bad" />
                         <div className="min-w-0">
-                          <p className="truncate text-xs font-medium text-zinc-300">
+                          <p className="truncate text-xs font-medium text-fg-2">
                             {r.agentName ?? r.agentId}
                           </p>
-                          <p className="truncate text-[12px] text-zinc-500">
+                          <p className="truncate text-[12px] text-fg-3">
                             {r.error?.message ?? "Unknown error"}
                           </p>
                         </div>
@@ -928,8 +928,8 @@ export default function EvaluationsPage() {
             </div>
 
             {/* Error rates by agent */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
-              <h3 className="mb-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">Error rates</h3>
+            <div className="rounded-xl border border-line bg-panel p-5">
+              <h3 className="mb-3 text-xs font-medium text-fg-3 uppercase tracking-wide">Error rates</h3>
               <div className="space-y-2">
                 {mergedAgentMetrics
                   .filter((a) => a.totalRuns > 0)
@@ -937,15 +937,15 @@ export default function EvaluationsPage() {
                   .slice(0, 5)
                   .map((a) => (
                     <div key={a.name} className="flex items-center justify-between">
-                      <span className="truncate text-xs text-zinc-300 max-w-[60%]">{a.name}</span>
+                      <span className="truncate text-xs text-fg-2 max-w-[60%]">{a.name}</span>
                       <span
                         className={clsx(
                           "text-xs font-medium",
                           a.errorRate === 0
-                            ? "text-emerald-400"
+                            ? "text-ok"
                             : a.errorRate < 0.1
-                            ? "text-amber-400"
-                            : "text-red-400",
+                            ? "text-warn"
+                            : "text-bad",
                         )}
                       >
                         {pct(a.errorRate)}
@@ -953,30 +953,30 @@ export default function EvaluationsPage() {
                     </div>
                   ))}
                 {mergedAgentMetrics.filter((a) => a.totalRuns > 0).length === 0 && (
-                  <p className="py-4 text-center text-xs text-zinc-600">No data</p>
+                  <p className="py-4 text-center text-xs text-fg-3">No data</p>
                 )}
               </div>
             </div>
 
             {/* Throughput */}
-            <div className="rounded-xl border border-zinc-800 bg-surface-1 p-5">
-              <h3 className="mb-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">Throughput</h3>
+            <div className="rounded-xl border border-line bg-panel p-5">
+              <h3 className="mb-3 text-xs font-medium text-fg-3 uppercase tracking-wide">Throughput</h3>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Total runs</span>
-                  <span className="text-sm font-semibold text-zinc-100">{totalRuns}</span>
+                  <span className="text-sm text-fg-2">Total runs</span>
+                  <span className="text-sm font-semibold text-fg">{totalRuns}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Succeeded</span>
-                  <span className="text-sm font-medium text-emerald-400">{totalSucceeded}</span>
+                  <span className="text-sm text-fg-2">Succeeded</span>
+                  <span className="text-sm font-medium text-ok">{totalSucceeded}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Failed</span>
-                  <span className="text-sm font-medium text-red-400">{totalFailed}</span>
+                  <span className="text-sm text-fg-2">Failed</span>
+                  <span className="text-sm font-medium text-bad">{totalFailed}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-zinc-400">Avg output tokens</span>
-                  <span className="text-sm font-medium text-zinc-200">
+                  <span className="text-sm text-fg-2">Avg output tokens</span>
+                  <span className="text-sm font-medium text-fg">
                     {totalRuns > 0
                       ? fmt(
                           filteredRuns.reduce((s, r) => s + (r.tokensOut ?? 0), 0) / totalRuns,

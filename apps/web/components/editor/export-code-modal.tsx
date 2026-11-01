@@ -163,28 +163,28 @@ export function ExportCodeModal({
 
   return (
     <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="modal-content mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-zinc-700 bg-surface-1 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-content mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-line-strong bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-700 px-5 py-4">
-          <h2 className="text-sm font-semibold text-zinc-200">
+        <div className="flex items-center justify-between border-b border-line-strong px-5 py-4">
+          <h2 className="text-sm font-semibold text-fg">
             Export as Code
           </h2>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-300"
+            className="rounded-md p-1 text-fg-3 transition-colors hover:bg-hover hover:text-fg"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Format toggle */}
-        <div className="flex gap-2 border-b border-zinc-700/50 px-5 py-3">
+        <div className="flex gap-2 border-b border-line-strong px-5 py-3">
           <button
             onClick={() => setFormat("typescript")}
             className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
               format === "typescript"
-                ? "bg-pal-500/20 text-pal-400"
-                : "text-zinc-500 hover:text-zinc-300"
+                ? "bg-accent-soft text-accent"
+                : "text-fg-3 hover:text-fg"
             }`}
           >
             TypeScript
@@ -193,8 +193,8 @@ export function ExportCodeModal({
             onClick={() => setFormat("yaml")}
             className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
               format === "yaml"
-                ? "bg-pal-500/20 text-pal-400"
-                : "text-zinc-500 hover:text-zinc-300"
+                ? "bg-accent-soft text-accent"
+                : "text-fg-3 hover:text-fg"
             }`}
           >
             Agent Config (JSON)
@@ -203,16 +203,16 @@ export function ExportCodeModal({
 
         {/* Code */}
         <div className="flex-1 overflow-auto px-5 py-4">
-          <pre className="overflow-x-auto rounded-lg border border-zinc-800 bg-surface-0 p-4 text-xs leading-relaxed text-zinc-300">
+          <pre className="overflow-x-auto rounded-lg border border-line bg-canvas p-4 text-xs leading-relaxed text-fg-2">
             <code>{code}</code>
           </pre>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end border-t border-zinc-700 px-5 py-3">
+        <div className="flex justify-end border-t border-line-strong px-5 py-3">
           <button
             onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-pal-500 px-4 py-2 text-xs font-medium text-black transition-colors hover:bg-pal-400"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-black transition-colors hover:opacity-90"
           >
             {copied ? (
               <>

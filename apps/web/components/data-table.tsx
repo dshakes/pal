@@ -11,6 +11,8 @@ import clsx from "clsx";
 export interface Column<T> {
   key: string;
   header: string;
+  /** Keep the header for screen readers only (action columns). */
+  headerHidden?: boolean;
   render: (row: T) => ReactNode;
   className?: string;
   sortable?: boolean;
@@ -143,6 +145,8 @@ export function DataTable<T>({
                         {active && sort!.dir === "asc" && <ChevronUp className="h-3 w-3" aria-hidden />}
                         {active && sort!.dir === "desc" && <ChevronDown className="h-3 w-3" aria-hidden />}
                       </button>
+                    ) : col.headerHidden ? (
+                      <span className="sr-only">{col.header}</span>
                     ) : (
                       col.header
                     )}

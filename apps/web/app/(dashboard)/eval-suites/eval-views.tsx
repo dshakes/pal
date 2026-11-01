@@ -43,10 +43,10 @@ export function Pill({
     <span
       className={clsx(
         "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        tone === "ok" && "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
-        tone === "bad" && "border-red-500/20 bg-red-500/10 text-red-400",
-        tone === "warn" && "border-amber-500/20 bg-amber-500/10 text-amber-400",
-        tone === "muted" && "border-zinc-700 bg-surface-2 text-zinc-400",
+        tone === "ok" && "border-ok bg-ok-soft text-ok",
+        tone === "bad" && "border-bad bg-bad-soft text-bad",
+        tone === "warn" && "border-warn bg-warn-soft text-warn",
+        tone === "muted" && "border-line-strong bg-raised text-fg-2",
       )}
     >
       {children}
@@ -65,7 +65,7 @@ export function ScoreTrend({ values }: { values: number[] }) {
     .map((v, i) => `${((i / (values.length - 1)) * W).toFixed(2)},${(H - ((v - min) / range) * H).toFixed(2)}`)
     .join(" ");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-10 w-full text-violet-400" aria-hidden>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-10 w-full text-accent" aria-hidden>
       <polyline
         points={pts}
         fill="none"
@@ -82,15 +82,15 @@ export function ScoreTrend({ values }: { values: number[] }) {
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className="truncate font-mono text-sm tabular-nums text-zinc-100">{value}</p>
+      <p className="text-[11px] uppercase tracking-wide text-fg-3">{label}</p>
+      <p className="truncate font-mono text-sm tabular-nums text-fg">{value}</p>
     </div>
   );
 }
 
 function Json({ v }: { v: unknown }) {
   return (
-    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-surface-2 p-2 font-mono text-[11px] text-zinc-300">
+    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-raised p-2 font-mono text-[11px] text-fg-2">
       {typeof v === "string" ? v : JSON.stringify(v, null, 2)}
     </pre>
   );
@@ -98,7 +98,7 @@ function Json({ v }: { v: unknown }) {
 
 function AssertionRow({ a }: { a: EvalAssertion }) {
   return (
-    <div className="rounded-md border border-zinc-800 bg-surface-0 p-2">
+    <div className="rounded-md border border-line bg-canvas p-2">
       <div className="flex flex-wrap items-center gap-2">
         {a.skipped ? (
           <Pill tone="muted">skipped</Pill>
@@ -111,8 +111,8 @@ function AssertionRow({ a }: { a: EvalAssertion }) {
             <X className="h-3 w-3" /> fail
           </Pill>
         )}
-        <span className="font-mono text-xs text-zinc-200">{a.kind}</span>
-        <span className="font-mono text-[11px] text-zinc-500">
+        <span className="font-mono text-xs text-fg">{a.kind}</span>
+        <span className="font-mono text-[11px] text-fg-3">
           score {a.score.toFixed(2)}
           {a.stddev ? ` ±${a.stddev.toFixed(2)}` : ""}
           {a.samples ? ` · ${a.samples} judge samples` : ""}
@@ -124,9 +124,9 @@ function AssertionRow({ a }: { a: EvalAssertion }) {
           </Pill>
         )}
       </div>
-      {a.detail && <p className="mt-1 break-words text-xs text-zinc-400">{a.detail}</p>}
+      {a.detail && <p className="mt-1 break-words text-xs text-fg-2">{a.detail}</p>}
       {a.rationale && (
-        <p className="mt-1 break-words text-xs italic text-zinc-400">Judge: {a.rationale}</p>
+        <p className="mt-1 break-words text-xs italic text-fg-2">Judge: {a.rationale}</p>
       )}
     </div>
   );
@@ -134,30 +134,30 @@ function AssertionRow({ a }: { a: EvalAssertion }) {
 
 function SampleView({ s, idx }: { s: EvalSample; idx: number }) {
   return (
-    <div className="space-y-2 rounded-md border border-zinc-800 p-2">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-        <span className="font-medium text-zinc-300">Sample {idx + 1}</span>
+    <div className="space-y-2 rounded-md border border-line p-2">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-3">
+        <span className="font-medium text-fg-2">Sample {idx + 1}</span>
         {s.passed ? <Pill tone="ok">pass</Pill> : <Pill tone="bad">fail</Pill>}
         <span className="font-mono">
           {s.score.toFixed(2)} · {s.latencyMs}ms · {fmtUsd(s.costUsd)}
           {s.model ? ` · ${s.model}` : ""}
         </span>
       </div>
-      {s.error && <p className="break-words text-xs text-red-400">{s.error}</p>}
+      {s.error && <p className="break-words text-xs text-bad">{s.error}</p>}
       {s.output && <Json v={s.output} />}
       {s.toolCalls && s.toolCalls.length > 0 && (
         <ol className="space-y-1">
           {s.toolCalls.map((t, i) => (
-            <li key={i} className="rounded bg-surface-2 p-2">
+            <li key={i} className="rounded bg-raised p-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Wrench className="h-3 w-3 text-zinc-500" />
-                <span className="break-all font-mono text-xs text-zinc-200">{t.tool}</span>
+                <Wrench className="h-3 w-3 text-fg-3" />
+                <span className="break-all font-mono text-xs text-fg">{t.tool}</span>
                 <Pill tone={t.mocked ? "muted" : "warn"}>{t.mocked ? "mocked" : "not mocked"}</Pill>
                 {t.error && <Pill tone="bad">error</Pill>}
               </div>
               {t.args && Object.keys(t.args).length > 0 && <Json v={t.args} />}
               {t.error ? (
-                <p className="mt-1 break-words text-xs text-red-400">{t.error}</p>
+                <p className="mt-1 break-words text-xs text-bad">{t.error}</p>
               ) : t.result !== undefined ? (
                 <Json v={t.result} />
               ) : null}
@@ -180,26 +180,26 @@ function CaseRow({ c, delta }: { c: EvalCaseResult; delta?: EvalCaseDelta }) {
   const [open, setOpen] = useState(false);
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <div className="rounded-lg border border-zinc-800 bg-surface-1">
+    <div className="rounded-lg border border-line bg-panel">
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-left"
         aria-expanded={open}
       >
-        <Chevron className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-        <span className="min-w-0 flex-1 break-all font-mono text-xs text-zinc-100">{c.name}</span>
+        <Chevron className="h-3.5 w-3.5 shrink-0 text-fg-3" />
+        <span className="min-w-0 flex-1 break-all font-mono text-xs text-fg">{c.name}</span>
         {c.passed ? <Pill tone="ok">pass</Pill> : <Pill tone="bad">fail</Pill>}
         {c.flaky && <Pill tone="warn">flaky</Pill>}
         {delta?.regressed && <Pill tone="bad">regressed</Pill>}
-        <span className="font-mono text-xs tabular-nums text-zinc-300">
+        <span className="font-mono text-xs tabular-nums text-fg-2">
           {c.score.toFixed(2)}
-          {c.stddev ? <span className="text-zinc-500"> ±{c.stddev.toFixed(2)}</span> : null}
+          {c.stddev ? <span className="text-fg-3"> ±{c.stddev.toFixed(2)}</span> : null}
         </span>
         {delta && (
           <span
             className={clsx(
               "font-mono text-xs tabular-nums",
-              delta.delta < 0 ? "text-red-400" : delta.delta > 0 ? "text-emerald-400" : "text-zinc-500",
+              delta.delta < 0 ? "text-bad" : delta.delta > 0 ? "text-ok" : "text-fg-3",
             )}
             title={`baseline ${delta.baselineScore.toFixed(2)}`}
           >
@@ -208,16 +208,16 @@ function CaseRow({ c, delta }: { c: EvalCaseResult; delta?: EvalCaseDelta }) {
         )}
       </button>
       {open && (
-        <div className="space-y-3 border-t border-zinc-800 p-3">
-          <p className="font-mono text-[11px] text-zinc-500">
+        <div className="space-y-3 border-t border-line p-3">
+          <p className="font-mono text-[11px] text-fg-3">
             {c.passRate != null ? `pass rate ${(c.passRate * 100).toFixed(0)}% · ` : ""}
             {c.samples?.length ? `${c.samples.length} sample${c.samples.length === 1 ? "" : "s"} · ` : ""}
             agent {fmtUsd(c.costUsd)} · judge {fmtUsd(c.judgeCostUsd)}
           </p>
-          {c.error && <p className="break-words text-xs text-red-400">{c.error}</p>}
+          {c.error && <p className="break-words text-xs text-bad">{c.error}</p>}
           {c.assertions && c.assertions.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Assertions</p>
+              <p className="text-[11px] uppercase tracking-wide text-fg-3">Assertions</p>
               {c.assertions.map((a, i) => (
                 <AssertionRow key={i} a={a} />
               ))}
@@ -225,7 +225,7 @@ function CaseRow({ c, delta }: { c: EvalCaseResult; delta?: EvalCaseDelta }) {
           )}
           {c.samples && c.samples.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Samples & tool trajectory</p>
+              <p className="text-[11px] uppercase tracking-wide text-fg-3">Samples & tool trajectory</p>
               {c.samples.map((s, i) => (
                 <SampleView key={i} s={s} idx={i} />
               ))}
@@ -233,7 +233,7 @@ function CaseRow({ c, delta }: { c: EvalCaseResult; delta?: EvalCaseDelta }) {
           ) : (
             c.actual && (
               <div>
-                <p className="text-[11px] uppercase tracking-wide text-zinc-500">Output</p>
+                <p className="text-[11px] uppercase tracking-wide text-fg-3">Output</p>
                 <Json v={c.actual} />
               </div>
             )
@@ -256,7 +256,7 @@ export function RunResultView({ run }: { run: RunView }) {
         {run.stoppedEarly && <Pill tone="warn">Stopped early: {run.stoppedEarly}</Pill>}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 rounded-xl border border-zinc-800 bg-surface-1 p-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 rounded-xl border border-line bg-panel p-4 sm:grid-cols-4">
         <Stat label="Score" value={run.score.toFixed(3)} />
         <Stat label="Cases" value={`${run.casesPassed}/${run.casesTotal}`} />
         <Stat
@@ -273,7 +273,7 @@ export function RunResultView({ run }: { run: RunView }) {
       </div>
 
       {(run.regressedCases?.length ?? 0) > 0 && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-400">
+        <div className="rounded-lg border border-bad bg-bad-soft p-3 text-xs text-bad">
           <span className="font-medium">Regressed cases: </span>
           <span className="break-all font-mono">{run.regressedCases!.join(", ")}</span>
         </div>

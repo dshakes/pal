@@ -54,28 +54,28 @@ export function Toolbar({
   }
 
   return (
-    <div className="flex h-12 items-center justify-between border-b border-zinc-800 bg-surface-1 px-4">
+    <div className="flex h-12 items-center justify-between border-b border-line bg-panel px-4">
       {/* Left: back + agent name */}
       <div className="flex items-center gap-3">
         <button
           onClick={() => router.push(`/agents/${agentName}`)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-300"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-hover hover:text-fg"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <div className="h-4 w-px bg-zinc-800" />
-        <span className="text-sm font-medium text-zinc-300">{agentName}</span>
-        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500">
+        <div className="h-4 w-px bg-raised" />
+        <span className="text-sm font-medium text-fg-2">{agentName}</span>
+        <span className="rounded bg-raised px-1.5 py-0.5 text-[11px] font-medium text-fg-3">
           EDITOR
         </span>
 
         {/* Undo / Redo */}
-        <div className="ml-2 h-4 w-px bg-zinc-800" />
+        <div className="ml-2 h-4 w-px bg-raised" />
         <button
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-hover hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-2"
         >
           <Undo2 className="h-3.5 w-3.5" />
         </button>
@@ -83,7 +83,7 @@ export function Toolbar({
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-300 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-hover hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-2"
         >
           <Redo2 className="h-3.5 w-3.5" />
         </button>
@@ -93,18 +93,18 @@ export function Toolbar({
       <div className="flex items-center gap-1.5">
         {saveState === "saving" && (
           <>
-            <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
-            <span className="text-xs text-zinc-500">Saving...</span>
+            <Loader2 className="h-3 w-3 animate-spin text-fg-3" />
+            <span className="text-xs text-fg-3">Saving...</span>
           </>
         )}
         {saveState === "saved" && (
           <>
-            <Check className="h-3 w-3 text-emerald-400" />
-            <span className="text-xs text-emerald-400">Saved</span>
+            <Check className="h-3 w-3 text-ok" />
+            <span className="text-xs text-ok">Saved</span>
           </>
         )}
         {saveState === "idle" && (
-          <span className="text-xs text-zinc-600">All changes saved</span>
+          <span className="text-xs text-fg-3">All changes saved</span>
         )}
       </div>
 
@@ -112,7 +112,7 @@ export function Toolbar({
       <div className="flex items-center gap-2">
         <button
           onClick={onExportCode}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-surface-3"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-hover"
           title="Export as Code"
         >
           <Code className="h-3 w-3" />
@@ -120,7 +120,7 @@ export function Toolbar({
         </button>
         <button
           onClick={onTestRun}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-surface-3"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 transition-colors hover:bg-hover"
         >
           <Play className="h-3 w-3" />
           Test Run
@@ -130,8 +130,8 @@ export function Toolbar({
           className={clsx(
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
             saveState === "saving"
-              ? "border-zinc-700 text-zinc-500"
-              : "border-zinc-700 text-zinc-300 hover:bg-surface-3"
+              ? "border-line-strong text-fg-3"
+              : "border-line-strong text-fg-2 hover:bg-hover"
           )}
           disabled={saveState === "saving"}
         >
@@ -140,7 +140,7 @@ export function Toolbar({
         </button>
         <button
           onClick={onDeploy}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-pal-500 px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-pal-400"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-black transition-colors hover:opacity-90"
         >
           <Rocket className="h-3 w-3" />
           Deploy

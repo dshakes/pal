@@ -535,14 +535,14 @@ export function EditorCanvas({
       await api.saveWorkflow(agentName, workflow);
       // Show success notification
       const el = document.createElement("div");
-      el.className = "fixed top-4 right-4 z-[100] rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300 shadow-xl backdrop-blur-sm";
+      el.className = "fixed top-4 right-4 z-[100] rounded-lg border border-ok bg-ok-soft px-4 py-3 text-sm text-ok shadow-xl backdrop-blur-sm";
       el.textContent = "Workflow saved";
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 2000);
     } catch {
       // Backend unavailable — localStorage save is the fallback
       const el = document.createElement("div");
-      el.className = "fixed top-4 right-4 z-[100] rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 shadow-xl backdrop-blur-sm";
+      el.className = "fixed top-4 right-4 z-[100] rounded-lg border border-warn bg-warn-soft px-4 py-3 text-sm text-warn shadow-xl backdrop-blur-sm";
       el.textContent = "Saved locally (backend unavailable)";
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 3000);
@@ -567,7 +567,7 @@ export function EditorCanvas({
       console.error("[editor] Test run failed:", msg);
       // Use a temporary DOM notification
       const el = document.createElement("div");
-      el.className = "fixed top-4 right-4 z-[100] rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 shadow-xl backdrop-blur-sm";
+      el.className = "fixed top-4 right-4 z-[100] rounded-lg border border-bad bg-bad-soft px-4 py-3 text-sm text-bad shadow-xl backdrop-blur-sm";
       el.textContent = `Run failed: ${msg}`;
       document.body.appendChild(el);
       setTimeout(() => el.remove(), 5000);
@@ -581,7 +581,7 @@ export function EditorCanvas({
   // ---- Render ---------------------------------------------------------------
 
   return (
-    <div className="flex h-full flex-col bg-surface-0">
+    <div className="flex h-full flex-col bg-canvas">
       <Toolbar
         agentName={agentName}
         onSave={handleSave}
@@ -660,7 +660,7 @@ export function EditorCanvas({
             <Panel position="bottom-right" className="!m-3">
               <button
                 onClick={() => setMinimapVisible((v) => !v)}
-                className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-surface-1 px-3 text-xs font-medium text-zinc-400 shadow-lg transition-colors hover:bg-surface-3 hover:text-zinc-200"
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-panel px-3 text-xs font-medium text-fg-2 shadow-lg transition-colors hover:bg-hover hover:text-fg"
               >
                 {minimapVisible ? (
                   <>

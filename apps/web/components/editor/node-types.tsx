@@ -49,20 +49,20 @@ const colorMap: Record<
 > = {
   trigger: {
     border: "border-l-emerald-500",
-    iconBg: "bg-emerald-500/10",
-    iconText: "text-emerald-400",
+    iconBg: "bg-ok-soft",
+    iconText: "text-ok",
     ring: "ring-emerald-500/50",
   },
   "ai-step": {
     border: "border-l-indigo-500",
-    iconBg: "bg-indigo-500/10",
-    iconText: "text-indigo-400",
-    ring: "ring-indigo-500/50",
+    iconBg: "bg-accent-soft",
+    iconText: "text-accent",
+    ring: "ring-line-strong",
   },
   tool: {
     border: "border-l-blue-500",
-    iconBg: "bg-blue-500/10",
-    iconText: "text-blue-400",
+    iconBg: "bg-accent-soft",
+    iconText: "text-accent",
     ring: "ring-blue-500/50",
   },
   condition: {
@@ -73,14 +73,14 @@ const colorMap: Record<
   },
   loop: {
     border: "border-l-purple-500",
-    iconBg: "bg-purple-500/10",
-    iconText: "text-purple-400",
+    iconBg: "bg-accent-soft",
+    iconText: "text-accent",
     ring: "ring-purple-500/50",
   },
   approval: {
     border: "border-l-red-500",
-    iconBg: "bg-red-500/10",
-    iconText: "text-red-400",
+    iconBg: "bg-bad-soft",
+    iconText: "text-bad",
     ring: "ring-red-500/50",
   },
   connector: {
@@ -97,9 +97,9 @@ const colorMap: Record<
   },
   end: {
     border: "border-l-zinc-500",
-    iconBg: "bg-zinc-500/10",
-    iconText: "text-zinc-400",
-    ring: "ring-zinc-500/50",
+    iconBg: "bg-raised",
+    iconText: "text-fg-2",
+    ring: "ring-line-strong",
   },
 };
 
@@ -124,7 +124,7 @@ function NodeShell({
   return (
     <div
       className={clsx(
-        "min-w-[200px] max-w-[260px] rounded-lg border border-zinc-700/80 border-l-[3px] bg-surface-1 shadow-lg shadow-black/20 transition-shadow",
+        "min-w-[200px] max-w-[260px] rounded-lg border border-line-strong border-l-[3px] bg-panel shadow-lg shadow-black/20 transition-shadow",
         colors.border,
         selected && `ring-2 ${colors.ring}`
       )}
@@ -140,16 +140,16 @@ function NodeShell({
         >
           {icon}
         </div>
-        <span className="truncate text-xs font-medium text-zinc-200">
+        <span className="truncate text-xs font-medium text-fg">
           {label}
         </span>
       </div>
 
       {/* Preview / body */}
       {(preview || children) && (
-        <div className="border-t border-zinc-700/50 px-3 py-2">
+        <div className="border-t border-line-strong px-3 py-2">
           {preview && (
-            <p className="truncate text-[12px] text-zinc-500">{preview}</p>
+            <p className="truncate text-[12px] text-fg-3">{preview}</p>
           )}
           {children}
         </div>
@@ -184,7 +184,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -203,7 +203,7 @@ function AiStepNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="ai-step"
@@ -212,10 +212,10 @@ function AiStepNodeComponent({ data, selected }: NodeProps) {
         preview={preview}
       >
         <div className="mt-1 flex items-center gap-2">
-          <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-[11px] font-medium text-indigo-400">
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">
             {d.capability}
           </span>
-          <span className="text-[11px] text-zinc-600">
+          <span className="text-[11px] text-fg-3">
             temp {d.temperature}
           </span>
         </div>
@@ -223,7 +223,7 @@ function AiStepNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -240,7 +240,7 @@ function ToolNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="tool"
@@ -251,7 +251,7 @@ function ToolNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -268,7 +268,7 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="condition"
@@ -281,14 +281,14 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
         position={Position.Bottom}
         id="true"
         style={{ left: "30%" }}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-emerald-600 !bg-emerald-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-ok !bg-ok"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="false"
         style={{ left: "70%" }}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-red-600 !bg-red-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-bad !bg-bad"
       />
     </>
   );
@@ -307,7 +307,7 @@ function LoopNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="loop"
@@ -315,14 +315,14 @@ function LoopNodeComponent({ data, selected }: NodeProps) {
         selected={!!selected}
         preview={preview}
       >
-        <span className="text-[11px] text-zinc-600">
+        <span className="text-[11px] text-fg-3">
           concurrency: {d.concurrency}
         </span>
       </NodeShell>
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -341,7 +341,7 @@ function ApprovalNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="approval"
@@ -349,14 +349,14 @@ function ApprovalNodeComponent({ data, selected }: NodeProps) {
         selected={!!selected}
         preview={preview}
       >
-        <span className="text-[11px] text-zinc-600">
+        <span className="text-[11px] text-fg-3">
           timeout: {d.timeoutMinutes}m
         </span>
       </NodeShell>
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -376,7 +376,7 @@ function ConnectorNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="connector"
@@ -387,7 +387,7 @@ function ConnectorNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -404,7 +404,7 @@ function SubagentNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="subagent"
@@ -415,7 +415,7 @@ function SubagentNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
     </>
   );
@@ -432,7 +432,7 @@ function EndNodeComponent({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-zinc-600 !bg-zinc-400"
+        className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-line-strong !bg-zinc-400"
       />
       <NodeShell
         nodeType="end"
