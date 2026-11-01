@@ -33,6 +33,7 @@ test.beforeAll(async () => {
   // llm-replay stands in for the provider, so a dummy key is enough.
   await api("/v1/settings/llm-providers", { method: "POST", body: JSON.stringify({ provider: "openai", apiKey: "sk-e2e-dummy-key" }) });
   await api("/v1/agents", { method: "POST", body: JSON.stringify({ name: "core-agent", description: "E2E agent for the runtime core", systemPrompt: "Be brief." }) });
+  await api("/v1/agents", { method: "POST", body: JSON.stringify({ name: "fresh-agent", description: "Never run", systemPrompt: "Be brief." }) });
   const run = await api<{ id: string }>("/v1/runs", { method: "POST", body: JSON.stringify({ agentName: "core-agent", input: { message: "hello core" } }) });
   runId = run.id;
   for (let i = 0; i < 30; i++) {
@@ -82,4 +83,14 @@ test("agent page: lifecycle rail tabs are linkable and keyboard-navigable", asyn
   await page.keyboard.press("ArrowRight");
   await expect(rail.getByRole("tab", { name: /Promote/ })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("heading", { name: /Agent environments/ })).toBeVisible();
+});
+
+test("agent Observe renders for an agent with no run history (forecast has no estimate)", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await signedIn(page);
+  await page.goto("/agents/fresh-agent?tab=observe");
+  await expect(page.getByRole("heading", { name: "Reliability" })).toBeVisible();
+  await expect(page.getByText("No cost history yet")).toBeVisible();
+  expect(errors).toEqual([]);
 });

@@ -2704,9 +2704,11 @@ export interface ForecastResult {
   agentName: string;
   model: string;
   provider: string;
-  estimatedTokensIn: number;
-  estimatedTokensOut: number;
-  estimatedCostUsd: number;
+  /** Absent when the agent has no successful run history (server sends nil). */
+  estimatedTokensIn?: number;
+  estimatedTokensOut?: number;
+  estimatedCostUsd?: number;
+  noHistoricalData?: boolean;
   confidence: number;
   reasoning: Record<string, unknown>;
   budget?: {
