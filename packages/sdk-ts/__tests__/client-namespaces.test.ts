@@ -312,6 +312,55 @@ describe("PalClient namespaces (wire contract)", () => {
     expect(bodyOf(lastCall().init)).toEqual({ agentName: "a", limit: 5 });
   });
 
+  it("debug.analyze posts to /v1/debug/analyze and decodes a proposal with an action", async () => {
+    mockFetch({
+      summary: "s", rootCause: "rc", confidence: "high", grounded: true, citations: [{ ref: "run:1", label: "l" }],
+      proposals: [{ id: "p1", kind: "rollback", title: "t", rationale: "r", citations: ["run:1"], risk: "low",
+        action: { method: "POST", path: "/v1/agents/a/environments/prod/rollback", idempotencyKey: "k" } }],
+      dropped: [], subject: { kind: "run", runId: "1", agentName: "a" }, evidence: { runs: 1 }, costUsd: 0.01,
+      requiresApproval: true, generatedAt: "now",
+    });
+    const rep = await client.debug.analyze({ kind: "run", runId: "1" });
+    const { url, init } = lastCall();
+    expect(url).toBe("http://localhost:9/v1/debug/analyze");
+    expect(init.method).toBe("POST");
+    expect(bodyOf(init)).toEqual({ kind: "run", runId: "1" });
+    expect(rep.proposals[0].action?.path).toBe("/v1/agents/a/environments/prod/rollback");
+    expect(rep.requiresApproval).toBe(true);
+  });
+
+  it("debug.analyze surfaces 402 as PalApiError", async () => {
+    mockFetch({ error: "x", code: "budget_exceeded" }, 402);
+    await expect(client.debug.analyze({ kind: "run", runId: "1" })).rejects.toMatchObject({ status: 402 });
+  });
+
+  it("support.ask / escalate / listEscalations / getEscalation hit the right endpoints", async () => {
+    mockFetch({ answer: "a", citations: [], docs: [], actions: [{ kind: "debug_run", runId: "1" }],
+      suggestEscalation: false, grounded: true, costUsd: 0, requiresApproval: false });
+    const a = await client.support.ask({ question: "why?", runId: "1", history: [{ role: "user", text: "hi" }] });
+    expect(lastCall().url).toBe("http://localhost:9/v1/support/ask");
+    expect(lastCall().init.method).toBe("POST");
+    expect(bodyOf(lastCall().init)).toEqual({ question: "why?", runId: "1", history: [{ role: "user", text: "hi" }] });
+    expect(a.actions[0].kind).toBe("debug_run");
+
+    mockFetch({ id: "e1", digest: "d", algorithm: "ed25519", signature: "s", createdAt: "t", bundle: { q: 1 } }, 201);
+    const e = await client.support.escalate({ question: "help", incidentId: "i1" });
+    expect(lastCall().url).toBe("http://localhost:9/v1/support/escalations");
+    expect(lastCall().init.method).toBe("POST");
+    expect(bodyOf(lastCall().init)).toEqual({ question: "help", incidentId: "i1" });
+    expect(e.id).toBe("e1");
+
+    mockFetch({ escalations: [{ id: "e1", subjectKind: "run", question: "q", digest: "d", algorithm: "a", createdBy: "u", createdAt: "t" }] });
+    const l = await client.support.listEscalations();
+    expect(lastCall().url).toBe("http://localhost:9/v1/support/escalations");
+    expect(l.escalations).toHaveLength(1);
+
+    mockFetch({ id: "e 1", subjectKind: "run", question: "q", digest: "d", algorithm: "a", createdBy: "u", createdAt: "t", signature: "s", bundle: {} });
+    const g = await client.support.getEscalation("e 1");
+    expect(lastCall().url).toBe("http://localhost:9/v1/support/escalations/e%201");
+    expect(g.signature).toBe("s");
+  });
+
   it("evalBaselines.set posts agentName/branch/evalRunId to /v1/eval-baselines", async () => {
     await client.evalBaselines.set({ agentName: "triage", branch: "main", evalRunId: "run-1" });
     const { url, init } = lastCall();

@@ -1,0 +1,194 @@
+// Pure logic for the debug + support agents (ADR 0059). The server proposes;
+// this module decides whether the dashboard is allowed to SEND a proposal at
+// all (allowlist mirrored from services/testdata/debug_action_allowlist.json,
+// pinned by debug.test.mts) and whether its precondition still holds.
+
+export type DebugKind =
+  | "rollback"
+  | "prompt_patch"
+  | "model_change"
+  | "eval_case"
+  | "budget"
+  | "policy"
+  | "retry";
+
+export interface DebugAction {
+  method: "POST" | "PATCH" | "PUT";
+  path: string;
+  body?: unknown;
+  idempotencyKey?: string;
+}
+
+export interface DebugPrecondition {
+  path: string;
+  expect: Record<string, unknown>;
+}
+
+export interface DebugProposal {
+  id: string;
+  kind: DebugKind;
+  title: string;
+  rationale: string;
+  citations: string[];
+  risk: "low" | "medium" | "high";
+  action?: DebugAction;
+  precondition?: DebugPrecondition;
+  href?: string;
+  diff?: { field: string; before: string; after: string };
+  followUp?: string;
+}
+
+export interface DebugEvidence {
+  ref: string;
+  label: string;
+  detail?: string;
+}
+
+export interface DebugReport {
+  summary: string;
+  rootCause: string;
+  confidence: "high" | "medium" | "low";
+  grounded: boolean;
+  citations: DebugEvidence[];
+  proposals: DebugProposal[];
+  dropped: { kind: string; reason: string }[];
+  subject: { kind: string; runId?: string; incidentId?: string; agentName: string; case?: string };
+  evidence: Record<string, number>;
+  costUsd: number;
+  requiresApproval: true;
+  generatedAt: string;
+}
+
+export type DebugTarget =
+  | { kind: "run"; runId: string }
+  | { kind: "incident"; incidentId: string }
+  | { kind: "eval_case"; case: string; agentName?: string };
+
+export const ACTION_ALLOWLIST: { kind: DebugKind; method: string; path: RegExp }[] = [
+  { kind: "rollback", method: "POST", path: /^\/v1\/agents\/[A-Za-z0-9._%-]+\/environments\/(sandbox|staging|prod)\/rollback$/ },
+  { kind: "rollback", method: "POST", path: /^\/v1\/incidents\/[0-9a-fA-F-]{36}\/rollback$/ },
+  { kind: "prompt_patch", method: "PATCH", path: /^\/v1\/agents\/[A-Za-z0-9._%-]+$/ },
+  { kind: "model_change", method: "PATCH", path: /^\/v1\/agents\/[A-Za-z0-9._%-]+$/ },
+  { kind: "eval_case", method: "POST", path: /^\/v1\/eval-suites$/ },
+  { kind: "budget", method: "PUT", path: /^\/v1\/agents\/[A-Za-z0-9._%-]+\/budget$/ },
+  { kind: "retry", method: "POST", path: /^\/v1\/runs$/ },
+];
+
+export const PRECONDITION_ALLOWLIST: RegExp[] = [
+  /^\/v1\/agents\/[A-Za-z0-9._%-]+$/,
+  /^\/v1\/agents\/[A-Za-z0-9._%-]+\/budget$/,
+];
+
+/** True only for an action of this proposal's kind inside the allowlist.
+ *  A policy proposal never has a sendable action. */
+export function actionAllowed(p: Pick<DebugProposal, "kind" | "action" | "precondition">): boolean {
+  if (p.kind === "policy" || !p.action) return false;
+  const a = p.action;
+  const ok = ACTION_ALLOWLIST.some((x) => x.kind === p.kind && x.method === a.method && x.path.test(a.path));
+  if (!ok) return false;
+  return !p.precondition || PRECONDITION_ALLOWLIST.some((re) => re.test(p.precondition!.path));
+}
+
+function sameValue(want: unknown, got: unknown): boolean {
+  const norm = (v: unknown) => (v === undefined || v === null ? "" : v);
+  const w = norm(want);
+  const g = norm(got);
+  if (typeof w === "number" || typeof g === "number") {
+    const a = Number(w);
+    const b = Number(g);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-9;
+  }
+  return JSON.stringify(w) === JSON.stringify(g);
+}
+
+/** Checks a fresh GET of the precondition path. Missing keys read as "". */
+export function preconditionHolds(
+  expect: Record<string, unknown>,
+  current: Record<string, unknown> | null | undefined,
+): { ok: true } | { ok: false; field: string } {
+  for (const [k, v] of Object.entries(expect)) {
+    if (!sameValue(v, current?.[k])) return { ok: false, field: k };
+  }
+  return { ok: true };
+}
+
+/** Docs links: absolute only when a docs origin is configured. */
+export function docsHref(path: string, base: string | undefined): string | null {
+  if (!base || !path.startsWith("/docs/")) return null;
+  return base.replace(/\/+$/, "") + path;
+}
+
+/** Debug target for something the Explain tab already lists. */
+export function debugTargetFrom(req: { kind: string; runId?: string; case?: string; agentName?: string }): DebugTarget | null {
+  if (req.kind === "run" && req.runId) return { kind: "run", runId: req.runId };
+  if (req.kind === "eval_case" && req.case) return { kind: "eval_case", case: req.case, agentName: req.agentName };
+  return null;
+}
+
+export function confirmLabel(kind: DebugKind): string {
+  switch (kind) {
+    case "rollback":
+      return "Roll back";
+    case "prompt_patch":
+      return "Save to working copy";
+    case "model_change":
+      return "Switch model on working copy";
+    case "eval_case":
+      return "Create regression suite";
+    case "budget":
+      return "Raise the limit";
+    case "retry":
+      return "Retry the run";
+    default:
+      return "Apply";
+  }
+}
+
+export const KIND_LABEL: Record<DebugKind, string> = {
+  rollback: "Rollback",
+  prompt_patch: "Prompt",
+  model_change: "Model",
+  eval_case: "Eval case",
+  budget: "Budget",
+  policy: "Policy",
+  retry: "Retry",
+};
+
+/** Display form of a ref: a UUID is cut to its first 8 hex digits. */
+export function shortRef(ref: string): string {
+  return ref.replace(/([0-9a-fA-F]{8})-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, "$1…");
+}
+
+/** Splits text on [ref] markers so cited refs can render as chips. */
+export function splitRefs(text: string): { text: string; ref?: string }[] {
+  const out: { text: string; ref?: string }[] = [];
+  const re = /\[([a-z-]+:[^\[\]\s]{1,80})\]/g;
+  let last = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > last) out.push({ text: text.slice(last, m.index) });
+    out.push({ text: m[1], ref: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
+
+export type SupportAction =
+  | { kind: "debug_run"; runId: string; label?: string }
+  | { kind: "debug_incident"; incidentId: string; label?: string }
+  | { kind: "open"; href: string; label?: string };
+
+export interface SupportAnswer {
+  answer: string;
+  citations: DebugEvidence[];
+  docs: { slug: string; title: string; path: string }[];
+  actions: SupportAction[];
+  suggestEscalation: boolean;
+  grounded: boolean;
+  costUsd: number;
+}
+
+/** Client-side mirror of the server's href allowlist: same-origin dashboard paths only. */
+export function safeInternalHref(href: string): boolean {
+  return /^\/[a-z][a-z0-9/_-]*(\?tab=[a-z-]+)?$/i.test(href) && !href.startsWith("//") && !href.includes("..");
+}

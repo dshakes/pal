@@ -15,6 +15,9 @@ import type { ExplainRequest } from "@/lib/api";
 import { ExplainInline } from "@/components/explain-inline";
 import { PlanView, useAssist } from "@/components/assist-plan";
 import { Kbd } from "@/components/ui";
+import { DebugThis } from "@/components/debug-panel";
+import { SupportPanel } from "@/components/support-panel";
+import { debugTargetFrom } from "@/lib/debug";
 
 export interface ExplainTarget {
   id: string;
@@ -129,7 +132,7 @@ export function AgentSurface() {
 
           <Tabs.Root defaultValue="ask" className="flex min-h-0 flex-1 flex-col">
             <Tabs.List aria-label="Agent" className="flex gap-1 border-b border-line px-3">
-              {[["ask", "Ask"], ["explain", "Explain"]].map(([v, l]) => (
+              {[["ask", "Ask"], ["explain", "Explain"], ["support", "Support"]].map(([v, l]) => (
                 <Tabs.Trigger
                   key={v}
                   value={v}
@@ -213,16 +216,22 @@ export function AgentSurface() {
                     <li key={t.id} className="rounded-[10px] border border-line p-3">
                       <p className="truncate text-[13px] font-medium text-fg">{t.label}</p>
                       {t.sub && <p className="mt-0.5 line-clamp-2 text-[12px] text-fg-3">{t.sub}</p>}
-                      <ExplainInline request={t.request} label="Explain" size="xs" className="mt-2" />
+                      <div className="mt-2 flex flex-wrap items-start gap-1.5">
+                        <ExplainInline request={t.request} label="Explain" size="xs" />
+                        {debugTargetFrom(t.request) && <DebugThis target={debugTargetFrom(t.request)!} label="Debug" size="xs" />}
+                      </div>
                     </li>
                   ))}
                 </ul>
               ) : (
                 <div className="py-10 text-center">
                   <p className="text-[13px] text-fg-2">Nothing here needs explaining.</p>
-                  <p className="mt-1 text-[12px] text-fg-3">Failed runs and eval cases on this page show up here.</p>
+                  <p className="mt-1 text-[12px] text-fg-3">Failed runs and eval cases on this page show up here, with Explain and Debug.</p>
                 </div>
               )}
+            </Tabs.Content>
+            <Tabs.Content value="support" className="flex min-h-0 flex-1 flex-col outline-none">
+              <SupportPanel onNavigate={close} />
             </Tabs.Content>
           </Tabs.Root>
     </>

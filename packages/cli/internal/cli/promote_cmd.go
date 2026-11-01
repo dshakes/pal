@@ -23,6 +23,11 @@ import (
 
 // promoHTTP returns the status and decoded JSON object (or {"items": [...]} for arrays).
 func promoHTTP(method, path string, body any) (int, map[string]any, error) {
+	return promoHTTPKey(method, path, body, "")
+}
+
+// promoHTTPKey is promoHTTP plus an optional Idempotency-Key header.
+func promoHTTPKey(method, path string, body any, idemKey string) (int, map[string]any, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -40,6 +45,9 @@ func promoHTTP(method, path string, body any) (int, map[string]any, error) {
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if idemKey != "" {
+		req.Header.Set("Idempotency-Key", idemKey)
 	}
 	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
 	if err != nil {

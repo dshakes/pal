@@ -1,0 +1,13 @@
+{
+  "_comment": "ADR 0059. The only requests a debug-agent proposal may carry. The Go builder (debug_logic.go) is tested to stay inside it and the dashboard executor (apps/web/lib/debug.ts) refuses anything outside it. Change both sides together. policy proposals carry no action at all.",
+  "actions": [
+    {"kind": "rollback", "method": "POST", "path": "^/v1/agents/[A-Za-z0-9._%-]+/environments/(sandbox|staging|prod)/rollback$"},
+    {"kind": "rollback", "method": "POST", "path": "^/v1/incidents/[0-9a-fA-F-]{36}/rollback$"},
+    {"kind": "prompt_patch", "method": "PATCH", "path": "^/v1/agents/[A-Za-z0-9._%-]+$"},
+    {"kind": "model_change", "method": "PATCH", "path": "^/v1/agents/[A-Za-z0-9._%-]+$"},
+    {"kind": "eval_case", "method": "POST", "path": "^/v1/eval-suites$"},
+    {"kind": "budget", "method": "PUT", "path": "^/v1/agents/[A-Za-z0-9._%-]+/budget$"},
+    {"kind": "retry", "method": "POST", "path": "^/v1/runs$"}
+  ],
+  "preconditions": ["^/v1/agents/[A-Za-z0-9._%-]+$", "^/v1/agents/[A-Za-z0-9._%-]+/budget$"]
+}
