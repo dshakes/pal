@@ -81,7 +81,15 @@ type debugProposalDTO struct {
 		Field  string `json:"field"`
 		Before string `json:"before"`
 		After  string `json:"after"`
+		Hunk   *struct {
+			Offset        int    `json:"offset"`
+			ContextBefore string `json:"contextBefore"`
+			Removed       string `json:"removed"`
+			Added         string `json:"added"`
+			ContextAfter  string `json:"contextAfter"`
+		} `json:"hunk"`
 	} `json:"diff"`
+	Preview  string `json:"preview"`
 	FollowUp string `json:"followUp"`
 }
 
@@ -138,11 +146,44 @@ func debugPreconditionHolds(expect, live map[string]any) string {
 	return ""
 }
 
-func clipLines(s string, max int) string {
-	if len(s) <= max {
-		return s
+// Terminal escapes and control characters (except tab/newline) are stripped
+// from everything the server sends before it is printed.
+var (
+	termEscRe  = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]`)
+	termCtrlRe = regexp.MustCompile(`[\x00-\x08\x0b-\x1f\x7f\x{80}-\x{9f}]`)
+)
+
+func termSafe(s string) string {
+	return termCtrlRe.ReplaceAllString(termEscRe.ReplaceAllString(s, ""), "")
+}
+
+// debugHunkMax bounds what the CLI will ask a person to review in a terminal.
+const debugHunkMax = 8000
+
+// checkPromptHunk proves the change on screen is the whole change: applying
+// the shown hunk to the shown "before" must give exactly the prompt the PATCH
+// sends. Otherwise (or if the hunk is too large to show in full) refuse.
+func checkPromptHunk(p debugProposalDTO) error {
+	d := p.Diff
+	if d == nil || d.Hunk == nil {
+		return fmt.Errorf("refusing: prompt patch has no reviewable hunk")
 	}
-	return s[:max] + fmt.Sprintf("… (+%d bytes)", len(s)-max)
+	h := d.Hunk
+	if len(h.Removed)+len(h.Added) > debugHunkMax {
+		return fmt.Errorf("refusing: patch too large to review in a terminal; use the dashboard")
+	}
+	if h.Offset < 0 || h.Offset+len(h.Removed) > len(d.Before) || d.Before[h.Offset:h.Offset+len(h.Removed)] != h.Removed {
+		return fmt.Errorf("refusing: hunk does not match the current prompt")
+	}
+	body, _ := p.Action.Body.(map[string]any)
+	sent, _ := body["systemPrompt"].(string)
+	if d.Before[:h.Offset]+h.Added+d.Before[h.Offset+len(h.Removed):] != sent || sent != d.After {
+		return fmt.Errorf("refusing: the request would change more than the change shown")
+	}
+	if termSafe(h.Removed) != h.Removed || termSafe(h.Added) != h.Added {
+		return fmt.Errorf("refusing: patch contains control characters")
+	}
+	return nil
 }
 
 func indent(s, pre string) string {
@@ -150,39 +191,56 @@ func indent(s, pre string) string {
 }
 
 func renderDebugReport(w io.Writer, r *debugReportDTO) {
-	fmt.Fprintf(w, "Summary:    %s\n", r.Summary)
-	fmt.Fprintf(w, "Root cause: %s\n", r.RootCause)
-	fmt.Fprintf(w, "Confidence: %s\n", r.Confidence)
+	fmt.Fprintf(w, "Summary:    %s\n", termSafe(r.Summary))
+	fmt.Fprintf(w, "Root cause: %s\n", termSafe(r.RootCause))
+	fmt.Fprintf(w, "Confidence: %s\n", termSafe(r.Confidence))
 	if !r.Grounded {
 		fmt.Fprintln(w, "WARNING: ungrounded - the analysis cites no verified evidence; treat it as a guess.")
 	}
 	if len(r.Citations) > 0 {
 		fmt.Fprintln(w, "\nEvidence:")
 		for _, c := range r.Citations {
-			fmt.Fprintf(w, "  [%s] %s\n", c.Ref, c.Label)
+			fmt.Fprintf(w, "  [%s] %s\n", termSafe(c.Ref), termSafe(c.Label))
 		}
 	}
 	for i, p := range r.Proposals {
-		fmt.Fprintf(w, "\n#%d %s  (%s, risk: %s)\n", i+1, p.Title, p.Kind, p.Risk)
-		fmt.Fprintf(w, "   why: %s\n", p.Rationale)
-		if p.Diff != nil {
-			fmt.Fprintf(w, "   %s:\n   --- before\n%s\n   +++ after\n%s\n", p.Diff.Field,
-				indent(clipLines(p.Diff.Before, 600), "   - "), indent(clipLines(p.Diff.After, 600), "   + "))
+		fmt.Fprintf(w, "\n#%d %s  (%s, risk: %s)\n", i+1, termSafe(p.Title), termSafe(p.Kind), termSafe(p.Risk))
+		fmt.Fprintf(w, "   why: %s\n", termSafe(p.Rationale))
+		switch d := p.Diff; {
+		case d != nil && d.Hunk != nil:
+			// The whole change, unclipped; only the surrounding context is cut.
+			h := d.Hunk
+			fmt.Fprintf(w, "   %s change at byte %d:\n", termSafe(d.Field), h.Offset)
+			if h.ContextBefore != "" {
+				fmt.Fprintf(w, "%s\n", indent(termSafe(h.ContextBefore), "     "))
+			}
+			if h.Removed != "" {
+				fmt.Fprintf(w, "%s\n", indent(termSafe(h.Removed), "   - "))
+			}
+			fmt.Fprintf(w, "%s\n", indent(termSafe(h.Added), "   + "))
+			if h.ContextAfter != "" {
+				fmt.Fprintf(w, "%s\n", indent(termSafe(h.ContextAfter), "     "))
+			}
+		case d != nil:
+			fmt.Fprintf(w, "   %s: %s -> %s\n", termSafe(d.Field), termSafe(d.Before), termSafe(d.After))
+		}
+		if p.Preview != "" {
+			fmt.Fprintf(w, "   creates:\n%s\n", indent(termSafe(p.Preview), "     "))
 		}
 		if p.Action != nil {
-			fmt.Fprintf(w, "   would send: %s %s\n", p.Action.Method, p.Action.Path)
+			fmt.Fprintf(w, "   would send: %s %s\n", termSafe(p.Action.Method), termSafe(p.Action.Path))
 		}
 		if p.Kind == "policy" || (p.Action == nil && p.Href != "") {
-			fmt.Fprintf(w, "   edit in the dashboard: %s (policy changes are never one-click)\n", p.Href)
+			fmt.Fprintf(w, "   edit in the dashboard: %s (policy changes are never one-click)\n", termSafe(p.Href))
 		}
 		if p.FollowUp != "" {
-			fmt.Fprintf(w, "   follow-up: %s\n", p.FollowUp)
+			fmt.Fprintf(w, "   follow-up: %s\n", termSafe(p.FollowUp))
 		}
 	}
 	if len(r.Dropped) > 0 {
 		fmt.Fprintln(w, "\nDropped proposals:")
 		for _, d := range r.Dropped {
-			fmt.Fprintf(w, "  - %s: %s\n", d.Kind, d.Reason)
+			fmt.Fprintf(w, "  - %s: %s\n", termSafe(d.Kind), termSafe(d.Reason))
 		}
 	}
 }
@@ -192,6 +250,11 @@ func applyDebugProposal(cmd *cobra.Command, p debugProposalDTO) error {
 	a := p.Action
 	if err := checkDebugAction(p.Kind, a.Method, a.Path); err != nil {
 		return err
+	}
+	if p.Kind == "prompt_patch" {
+		if err := checkPromptHunk(p); err != nil {
+			return err
+		}
 	}
 	if pc := p.Precondition; pc != nil {
 		if err := checkDebugPreconditionPath(pc.Path); err != nil {
@@ -253,7 +316,7 @@ func debugAnalyze(cmd *cobra.Command, body map[string]any, asJSON bool) error {
 		if p.Action == nil {
 			continue
 		}
-		fmt.Fprintf(w, "\nApply #%d %s? [y/N] ", i+1, p.Title)
+		fmt.Fprintf(w, "\nApply #%d %s? [y/N] ", i+1, termSafe(p.Title))
 		line, rerr := in.ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(line)); a == "y" || a == "yes" {
 			if err := applyDebugProposal(cmd, p); err != nil {

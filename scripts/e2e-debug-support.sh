@@ -107,9 +107,9 @@ for p in r["proposals"]:
     assert p["action"]["path"] in ("/v1/agents/e2e-digest", "/v1/runs"), p["action"]
 PY
 ok "grounded report; invented ref, unknown kind and non-replayable eval case dropped; state unchanged"
-spent=$(sql "select coalesce(sum(cost_usd),0) > 0 or coalesce(sum(tokens_in),0) > 0 from agent_usage_daily where agent_name='__agentless__'")
+spent=$(sql "select coalesce(sum(cost_usd),0) > 0 or coalesce(sum(tokens_in),0) > 0 from agent_usage_daily where agent_name='__pal_debug__'")
 [ "$spent" = t ] || fail "debug model call not metered"
-ok "debug spend metered under __agentless__"
+ok "debug spend metered under __pal_debug__"
 
 # 3. A person applies the prompt patch: precondition first, then the exact request.
 python3 - "$tmp/report.json" "$tmp" <<'PY'
@@ -160,6 +160,14 @@ other=$(curl -fs -X POST "$api/auth/signup" -H 'content-type: application/json' 
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$api/v1/debug/analyze" -H "Authorization: Bearer $other" -H 'content-type: application/json' -d "{\"kind\":\"run\",\"runId\":\"$run\"}")
 [ "$code" = 404 ] || fail "cross-tenant analyze: want 404, got $code"
 ok "another tenant gets 404"
+# A widget-style key (runs:execute only) reads nothing through the agents.
+wkey=$(curl -fs -X POST "$api/v1/api-keys" "${auth[@]}" -d '{"name":"widget","scopes":["runs:execute"]}' | jq_ 'd["rawKey"]')
+for path in /v1/debug/analyze /v1/support/ask /v1/support/escalations; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$api$path" -H "Authorization: Bearer $wkey" -H 'content-type: application/json' \
+    -d "{\"kind\":\"run\",\"runId\":\"$run\",\"question\":\"why did it fail?\"}")
+  [ "$code" = 403 ] || fail "runs:execute-only key on $path: want 403, got $code"
+done
+ok "a runs:execute-only API key gets 403 on every debug/support route"
 
 # 6. CLI never applies without a terminal.
 before=$(state)
@@ -190,6 +198,7 @@ for leak in ada@example.com secret-repo-name; do
 done
 echo "$stored" | grep -q '"inputKeys": \["channel", "owner", "repo"\]' || echo "$stored" | grep -q '"inputKeys":\["channel","owner","repo"\]' || fail "bundle should carry input keys only: $stored"
 [ "$(sql "select algorithm from support_escalations where id='$esc'")" != "" ] || fail "escalation not signed"
+[ "$(curl -fs "$api/v1/support/escalations/$esc/verify" "${auth[@]}" | jq_ 'd["valid"]')" = True ] || fail "escalation does not verify"
 ok "escalation stored, signed, input values and email absent"
 
 echo "E2E PASS: debug + support agents"

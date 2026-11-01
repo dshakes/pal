@@ -19,10 +19,12 @@ package handlers
 //   - Secrets: evidence passes obs.Redact / RedactString before the model sees
 //     it, and the report passes redactSecrets (invariant #10).
 //   - Model + money: CompleteInternalWithUsage with capability "auto" (model
-//     router seam, invariant #6); the tenant-wide cap is checked first and the
-//     spend is recorded under "__agentless__" (the debug agent's spend is not
-//     the debugged agent's, so an agent blocked by its own budget can still be
-//     debugged — and the budget page shows that spend under workspace usage).
+//     router seam, invariant #6). Before the call: a per-tenant hourly rate
+//     limit, the tenant-wide cap and the debug agents' own daily cap, both with
+//     a real estimate (admitDebugCall). Spend accrues to "__pal_debug__", not to
+//     the debugged agent, so an agent blocked by its own budget stays debuggable.
+//   - Authorization: runs:execute + agents:read + budgets:read, always enforced
+//     (debugCallerAllowed) — a runs:execute-only widget key gets 403.
 
 import (
 	"context"
@@ -46,7 +48,6 @@ import (
 
 const (
 	debugMaxEvents     = 80
-	debugUsageBucket   = "__agentless__"
 	debugMaxQuestion   = 600
 	debugEventDetail   = 400
 	debugRunTextDetail = 600
@@ -74,8 +75,9 @@ func NewDebugHandler(srv *server.Server, auth *AuthHandler, llm *LlmProxyHandler
 
 func (h *DebugHandler) logger() *zap.Logger { return h.srv.Logger.Named("debug-agent") }
 
-// RegisterRoutes: analyze spends tenant money on a model call → runs:execute,
-// the same scope as /v1/assist/explain.
+// RegisterRoutes: analyze spends tenant money (runs:execute) AND reads the
+// agent definition and budget, so the handler also requires agents:read and
+// budgets:read, always (debugCallerAllowed).
 func (h *DebugHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/debug/analyze", h.auth.WithScope(ScopeRunsExecute, h.Analyze))
 }
@@ -117,10 +119,18 @@ func (h *DebugHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
+	if !debugCallerAllowed(claims, debugScopes...) {
+		writeInsufficientScope(w, debugScopes...)
+		return
+	}
 	tenantID := claims.TenantID
 	var req debugRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if strings.ContainsRune(req.Question, 0) || strings.ContainsRune(req.Case, 0) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not contain NUL"})
 		return
 	}
 	switch req.Kind {
@@ -149,7 +159,6 @@ func (h *DebugHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := middleware.InjectTenantID(r.Context(), tenantID)
-	middleware.EnrichSpan(ctx, tenantID, claims.Subject, req.RunID, "")
 
 	var facts debugFacts
 	var items []debugItem
@@ -169,6 +178,7 @@ func (h *DebugHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 			return e
 		}
 		e = g.agentContext()
+		g.finish()
 		items = g.items
 		return e
 	})
@@ -183,22 +193,20 @@ func (h *DebugHandler) Analyze(w http.ResponseWriter, r *http.Request) {
 	}
 	subject.AgentName, subject.RunID, subject.IncidentID = facts.AgentName, facts.RunID, facts.IncidentID
 	if req.Kind == "eval_case" {
-		subject.Case = clip(req.Case, 200)
+		subject.Case = cleanText(req.Case, 200)
 	}
-
-	// Metering (budgets section of CLAUDE.md): the tenant-wide hard cap blocks.
-	if bc := CheckTenantBudget(ctx, h.srv.Pool, tenantID, 0); !bc.Allowed && bc.HardFail {
-		if bc.Unavailable {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "budget check unavailable; retry shortly"})
-			return
-		}
-		writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "budget exceeded: " + bc.Reason, "code": "budget_exceeded"})
-		return
-	}
+	// The span carries the run the evidence was actually read from (for an
+	// incident, its primary affected run), not just what the request named.
+	middleware.EnrichSpan(ctx, tenantID, claims.Subject, facts.RunID, "")
 
 	nonce := newNonce()
-	label := subjectLabel(req, facts)
-	text, tin, tout, cost, err := h.complete(ctx, tenantID, debugSystemPrompt, debugUserPrompt(label, facts, items, clip(req.Question, debugMaxQuestion), nonce))
+	user := debugUserPrompt(subjectLabel(req, facts), facts, items, cleanText(req.Question, debugMaxQuestion), nonce)
+	// Metering (budgets section of CLAUDE.md): rate limit, tenant cap and the
+	// debug agents' own daily cap, each with a real estimate of this call.
+	if !admitDebugCall(ctx, w, h.auth, h.srv.Pool, tenantID, "analyze", len(debugSystemPrompt)+len(user)) {
+		return
+	}
+	text, tin, tout, cost, err := h.complete(ctx, tenantID, debugSystemPrompt, user)
 	if err == nil {
 		if recErr := RecordUsageSpend(ctx, h.srv.Pool, tenantID, debugUsageBucket, tin, tout, cost); recErr != nil {
 			h.logger().Warn("debug: RecordUsageSpend failed", zap.Error(recErr))
@@ -237,7 +245,7 @@ func subjectLabel(req debugRequest, f debugFacts) string {
 	case "incident":
 		return "incident " + f.IncidentID
 	case "eval_case":
-		return fmt.Sprintf("failing eval case %q", clip(req.Case, 200))
+		return fmt.Sprintf("failing eval case %q", cleanText(req.Case, 200))
 	}
 	return "run " + f.RunID
 }
@@ -267,8 +275,13 @@ type debugGather struct {
 	badVersion, goodVersion string
 	agentID                 string
 	createdAt               time.Time
+	// bytes of evidence kept, and items dropped for the debugEvidenceBudget.
+	bytes, dropped int
 }
 
+// add keeps one evidence item: redacted BEFORE it is clipped (a secret split
+// by the cut must not survive half-masked), stripped of control characters,
+// and only while the total stays under debugEvidenceBudget.
 func (g *debugGather) add(ref, label, detail string) {
 	if g.refs == nil {
 		g.refs = map[string]bool{}
@@ -276,8 +289,23 @@ func (g *debugGather) add(ref, label, detail string) {
 	if g.refs[ref] {
 		return
 	}
+	it := debugItem{Ref: ref, Label: cleanText(label, 300), Detail: cleanText(detail, 1500)}
+	size := len(it.Ref) + len(it.Label) + len(it.Detail) + 8
+	if g.bytes+size > debugEvidenceBudget {
+		g.dropped++
+		return
+	}
 	g.refs[ref] = true
-	g.items = append(g.items, debugItem{Ref: ref, Label: obs.RedactString(clip(label, 300)), Detail: obs.RedactString(clip(detail, 1500))})
+	g.bytes += size
+	g.items = append(g.items, it)
+}
+
+// finish records, as evidence itself, that some evidence was left out.
+func (g *debugGather) finish() {
+	if g.dropped > 0 {
+		g.items = append(g.items, debugItem{Ref: "evidence:truncated",
+			Label: fmt.Sprintf("%d more evidence items were left out to stay within the evidence budget", g.dropped)})
+	}
 }
 
 var budgetSignalRe = regexp.MustCompile(`(?i)budget|\b402\b|spend limit|run limit reached|token limit reached`)
@@ -330,7 +358,7 @@ func (g *debugGather) run(runID string, primary bool) error {
 	}
 	g.add("run:"+runID, fmt.Sprintf("run %s status=%s agent=%s version=%s cost=$%.4f duration=%s started=%s",
 		runID, status, agentName, firstNonEmpty(version, "?"), cost, dur, created.UTC().Format(time.RFC3339)),
-		strings.TrimSpace("input: "+obs.RedactString(clip(inputText, debugRunTextDetail))+" | error: "+compactJSON(errV, debugRunTextDetail)+" | output: "+compactJSON(outV, debugRunTextDetail)))
+		strings.TrimSpace("input: "+cleanText(inputText, debugRunTextDetail)+" | error: "+compactJSON(errV, debugRunTextDetail)+" | output: "+compactJSON(outV, debugRunTextDetail)))
 	if budgetSignalRe.MatchString(string(runErr)) && g.f.BudgetSignalRef == "" {
 		g.f.BudgetSignalRef = "run:" + runID
 	}
@@ -339,7 +367,8 @@ func (g *debugGather) run(runID string, primary bool) error {
 	}
 	g.f.RunID, g.f.AgentName, g.agentID, g.createdAt = runID, agentName, agentID, created
 	g.f.RunFailed = status == "failed"
-	g.f.InputText = clip(inputText, 4000)
+	// The regression case stores this input in an eval suite: redacted first.
+	g.f.InputText = clip(redactText(inputText), 4000)
 	var in map[string]any
 	if json.Unmarshal(input, &in) == nil && in != nil {
 		g.f.RunInput = in
@@ -377,12 +406,29 @@ func (g *debugGather) run(runID string, primary bool) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, e := range evs {
-		ref := fmt.Sprintf("ev:%d", e.seq)
-		detail := compactJSON(e.payload, debugEventDetail)
-		g.add(ref, fmt.Sprintf("%s step=%s attempt=%d at=%s", e.kind, firstNonEmpty(e.step, "-"), e.attempt, e.at.UTC().Format("15:04:05.000")), detail)
+	// The journal gets at most debugJournalBudget: keep the NEWEST events (the
+	// failure is usually at the end), shown oldest first.
+	type evItem struct {
+		ref, label, detail string
+		e                  ev
+	}
+	var kept []evItem
+	used := 0
+	for i := len(evs) - 1; i >= 0; i-- {
+		e := evs[i]
+		it := evItem{ref: fmt.Sprintf("ev:%d", e.seq), e: e, detail: compactJSON(e.payload, debugEventDetail),
+			label: fmt.Sprintf("%s step=%s attempt=%d at=%s", e.kind, firstNonEmpty(e.step, "-"), e.attempt, e.at.UTC().Format("15:04:05.000"))}
+		if used += len(it.label) + len(it.detail) + 16; used > debugJournalBudget {
+			g.dropped += i + 1
+			break
+		}
+		kept = append(kept, it)
+	}
+	for i := len(kept) - 1; i >= 0; i-- {
+		ref, detail, e := kept[i].ref, kept[i].detail, kept[i].e
+		g.add(ref, kept[i].label, detail)
 		if e.kind == "policy_denied" {
-			s := func(k string) string { v, _ := e.payload[k].(string); return obs.RedactString(clip(v, 200)) }
+			s := func(k string) string { v, _ := e.payload[k].(string); return cleanText(v, 200) }
 			g.f.Denials = append(g.f.Denials, debugDenial{Ref: ref, Kind: s("kind"), Target: s("target"), Reason: s("reason")})
 		}
 		if g.f.BudgetSignalRef == "" && (strings.Contains(e.kind, "budget") || (strings.Contains(e.kind, "fail") && budgetSignalRe.MatchString(detail))) {
@@ -452,7 +498,7 @@ func (g *debugGather) incident(id string) error {
 		d.OpenedAt.UTC().Format(time.RFC3339), d.Title),
 		fmt.Sprintf("suspected cause: %s | first bad version: %s | last good version: %s | rollback suggested: %v | summary: %s | evidence: %s",
 			d.SuspectedCause, firstNonEmpty(d.FirstBadVersion, "?"), firstNonEmpty(d.LastGoodVersion, "?"), d.Rollback.Suggested,
-			d.Summary, clip(string(d.Evidence), 600)))
+			d.Summary, cleanText(string(d.Evidence), 600)))
 	rows, err := g.tx.Query(g.ctx, `SELECT id, at, actor, action, detail FROM agent_incident_events
 		WHERE incident_id=$1 AND tenant_id=$2 ORDER BY id LIMIT 20`, id, g.tenant)
 	if err != nil {
@@ -527,7 +573,7 @@ func (g *debugGather) evalCase(agentName, caseName string) error {
 		}
 		g.add("eval:"+runID, fmt.Sprintf("eval run %s at %s, agent version %s: case %q failed (score %.2f)", runID,
 			created.UTC().Format(time.RFC3339), firstNonEmpty(version, "?"), caseName, c.Score),
-			"expected: "+clip(c.Expected, 600)+" | actual: "+clip(c.Actual, 900)+" | error: "+clip(c.Error, 600))
+			"expected: "+cleanText(c.Expected, 600)+" | actual: "+cleanText(c.Actual, 900)+" | error: "+cleanText(c.Error, 600))
 		for i, a := range c.Assertions {
 			if i >= 6 {
 				break
@@ -542,7 +588,7 @@ func (g *debugGather) evalCase(agentName, caseName string) error {
 		_ = json.Unmarshal([]byte(suiteRaw), &suiteCases)
 		for _, c := range suiteCases {
 			if c.Name == caseName {
-				g.add("case:definition", "eval case definition", "input: "+clip(c.Input, 800)+" | assert: "+compactJSON(c.Assert, 500))
+				g.add("case:definition", "eval case definition", "input: "+cleanText(c.Input, 800)+" | assert: "+compactJSON(c.Assert, 500))
 			}
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -580,6 +626,7 @@ func (g *debugGather) agentContext() error {
 		return err
 	default:
 		g.f.AgentExists, g.f.DraftPrompt, g.f.DraftModel = true, snap.SystemPrompt, snap.Model
+		g.f.PromptHasSecret = obs.ContainsSecret(snap.SystemPrompt)
 		var manifest []byte
 		if err := g.tx.QueryRow(g.ctx, `SELECT COALESCE(av.manifest,'{}'::jsonb)::text FROM agent_versions av
 			JOIN agents a ON a.current_version_id = av.id WHERE a.tenant_id = $1 AND a.name = $2`, g.tenant, agent).Scan(&manifest); err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -615,7 +662,7 @@ func (g *debugGather) agentContext() error {
 			rows.Close()
 			return err
 		}
-		g.add(fmt.Sprintf("promo:%d", id), fmt.Sprintf("%s %s in %s by %s (%s)", at.UTC().Format(time.RFC3339), action, env, kind, actor), clip(detail, 400))
+		g.add(fmt.Sprintf("promo:%d", id), fmt.Sprintf("%s %s in %s by %s (%s)", at.UTC().Format(time.RFC3339), action, env, kind, actor), cleanText(detail, 400))
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

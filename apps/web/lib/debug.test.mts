@@ -8,6 +8,7 @@ import {
   debugTargetFrom,
   docsHref,
   preconditionHolds,
+  promptPatchConsistent,
   safeInternalHref,
   shortRef,
   splitRefs,
@@ -32,7 +33,7 @@ const p = (over: Partial<DebugProposal>): DebugProposal => ({
 
 test("actionAllowed refuses anything outside the allowlist", () => {
   assert.ok(actionAllowed(p({ action: { method: "POST", path: "/v1/agents/desk/environments/prod/rollback" } })));
-  assert.ok(actionAllowed(p({ kind: "prompt_patch", action: { method: "PATCH", path: "/v1/agents/desk" }, precondition: { path: "/v1/agents/desk", expect: {} } })));
+  assert.ok(actionAllowed({ ...patch("a OLD b", "OLD", "NEW", 2, "a NEW b") }));
   assert.ok(actionAllowed(p({ kind: "retry", action: { method: "POST", path: "/v1/runs" } })));
   // Wrong kind for the path, wrong method, foreign paths, policy, no action.
   assert.ok(!actionAllowed(p({ kind: "retry", action: { method: "PATCH", path: "/v1/agents/desk" } })));
@@ -67,4 +68,33 @@ test("helpers", () => {
   assert.deepEqual(splitRefs("a [ev:2] b"), [{ text: "a " }, { text: "ev:2", ref: "ev:2" }, { text: " b" }]);
   assert.ok(safeInternalHref("/runs/abc-1") && safeInternalHref("/settings?tab=providers"));
   assert.ok(!safeInternalHref("//evil.test") && !safeInternalHref("https://evil.test") && !safeInternalHref("/runs/../x") && !safeInternalHref("javascript:alert(1)"));
+});
+
+const patch = (before: string, removed: string, added: string, offset: number, sent: string): DebugProposal => ({
+  id: "pp", kind: "prompt_patch", title: "t", rationale: "", citations: [], risk: "medium",
+  action: { method: "PATCH", path: "/v1/agents/desk", body: { systemPrompt: sent } },
+  precondition: { path: "/v1/agents/desk", expect: { systemPrompt: before } },
+  diff: { field: "systemPrompt", before, after: sent, hunk: { offset, removed, added, contextBefore: "", contextAfter: "" } },
+});
+
+test("a prompt patch is sendable only when the shown hunk is the whole change", () => {
+  const before = "é".repeat(400) + "OLD" + "b".repeat(700); // multi-byte: offsets are UTF-8 bytes
+  const off = new TextEncoder().encode("é".repeat(400)).length;
+  const good = "é".repeat(400) + "NEW" + "b".repeat(700);
+  assert.ok(promptPatchConsistent(patch(before, "OLD", "NEW", off, good)));
+  assert.ok(actionAllowed(patch(before, "OLD", "NEW", off, good)));
+  // Anything the reviewer did not see makes it unsendable.
+  assert.ok(!actionAllowed(patch(before, "OLD", "NEW", off, good + " exfiltrate")));
+  assert.ok(!actionAllowed(patch(before, "XXX", "NEW", off, good)));
+  const noHunk = patch(before, "OLD", "NEW", off, good);
+  delete noHunk.diff!.hunk;
+  assert.ok(!actionAllowed(noHunk));
+});
+
+test("budget preconditions compare objects independent of key order and catch any field change", () => {
+  const expect = { maxCostUsdPerDay: 2, maxRunsPerDay: "", hardFail: true, notifyAtPct: 80, toolLimits: { b: 2, a: 1 } };
+  assert.deepEqual(preconditionHolds(expect, { maxCostUsdPerDay: 2, hardFail: true, notifyAtPct: 80, toolLimits: { a: 1, b: 2 } }), { ok: true });
+  assert.deepEqual(preconditionHolds(expect, { maxCostUsdPerDay: 2, hardFail: false, notifyAtPct: 80, toolLimits: { a: 1, b: 2 } }), { ok: false, field: "hardFail" });
+  assert.deepEqual(preconditionHolds(expect, { maxCostUsdPerDay: 2, hardFail: true, notifyAtPct: 80, toolLimits: { a: 1 } }), { ok: false, field: "toolLimits" });
+  assert.deepEqual(preconditionHolds(expect, { maxCostUsdPerDay: 2, maxRunsPerDay: 5, hardFail: true, notifyAtPct: 80, toolLimits: { a: 1, b: 2 } }), { ok: false, field: "maxRunsPerDay" });
 });

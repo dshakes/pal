@@ -34,11 +34,31 @@ var secretVal = []*regexp.Regexp{
 	regexp.MustCompile(`pal_brg_[A-Za-z0-9]{8,}`),
 }
 
-// RedactString masks secret-shaped substrings and bounds the length.
-func RedactString(s string) string {
+// jsonSecretPair matches a JSON (or JSON-like) "key": "value" pair whose key
+// names a secret, inside free text — e.g. an error string carrying
+// {"password":"hunter2"}. The key is kept; the value is masked.
+var jsonSecretPair = regexp.MustCompile(`(?i)("(?:[A-Za-z0-9_\-]*(?:secret|passw|api[_-]?key|authorization|credential|cookie|private[_-]?key|signature|bearer)[A-Za-z0-9_\-]*|[A-Za-z0-9_\-]*token)"\s*:\s*)"(?:[^"\\]|\\.)*"`)
+
+// RedactJSONSecretPairs masks only the values of secret-named JSON keys in text.
+func RedactJSONSecretPairs(s string) string {
+	return jsonSecretPair.ReplaceAllString(s, `${1}"`+Redacted+`"`)
+}
+
+// RedactAll masks secret-shaped substrings without bounding the length.
+func RedactAll(s string) string {
+	s = RedactJSONSecretPairs(s)
 	for _, re := range secretVal {
 		s = re.ReplaceAllString(s, Redacted)
 	}
+	return s
+}
+
+// ContainsSecret reports whether s holds anything RedactAll would mask.
+func ContainsSecret(s string) bool { return RedactAll(s) != s }
+
+// RedactString masks secret-shaped substrings and bounds the length.
+func RedactString(s string) string {
+	s = RedactAll(s)
 	if len(s) > maxStr {
 		s = s[:maxStr] + "…[truncated]"
 	}

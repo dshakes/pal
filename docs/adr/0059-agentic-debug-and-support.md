@@ -98,15 +98,62 @@ shown and allowlisted dashboard paths. An ungrounded answer suggests escalation.
 - Incident fields, failing eval case names, promotions and environments.
 - The question and the transcript.
 
-Every free-text field passes secret redaction plus email and phone masking (`minimizePII`). The
-bundle is signed over its canonical JSON with the receipt key (Ed25519, with an HMAC-SHA256 fallback)
-and stored in `support_escalations` (migration 0044, RLS, append-only for `pal_app`).
+Every free-text field is redacted (secret-shaped values, and the values of secret-named JSON keys
+inside text, e.g. `{"password":"…"}` in an error string), stripped of control characters, then
+email/phone-masked (`minimizePII`). The bundle carries `"type": "pal.support_escalation.v1"`, is signed
+over its canonical JSON with the receipt key (Ed25519, with an HMAC-SHA256 fallback), and the exact
+signed bytes are stored verbatim (`signed_payload`) next to the queryable `bundle` JSONB in
+`support_escalations` (migration 0044, RLS, append-only for `pal_app`).
+`GET /v1/support/escalations/{id}/verify` recomputes the digest over those bytes and checks the
+signature, type and tenant. Text containing NUL is rejected with 400.
 
-### 5. Money
+### 5. Authorization
 
-Both agents check the tenant-wide hard cap (402) before the model call. They record spend under
-`__agentless__`, the workspace bucket, not under the agent being debugged. An agent blocked by its
-own budget is the common case to debug, and debugging it must not consume that agent's budget.
+The debug and support agents read across scope domains: the agent definition (including its system
+prompt), its budget, runs, incidents and promotions. So a caller needs `runs:execute` **and**
+`agents:read` **and** `budgets:read`. JWT users (not kiosk) hold them. A key needs all three, or a
+coarse `admin`/`write` scope that implies them. A `runs:execute`-only key, for example a public
+web-chat widget key, gets 403. This check runs inside the handler and is **always** enforced,
+independent of `PAL_AUTHZ_ENFORCE`, because route-level scope enforcement is off by default in dev.
+
+Escalations are workspace support records. Opening one needs `settings:write`; listing, reading and
+verifying need `settings:read`. Kiosk sessions are refused on every route.
+
+### 6. Money and limits
+
+Both agents bound what one call can cost and how often it can happen:
+
+- Evidence is capped at 48 KB in total, and the journal at 24 KB of that. The newest events are kept,
+  and an `evidence:truncated` item says what was left out.
+- Every free-text item is redacted before it is clipped, so a secret cut in half cannot survive.
+- Before the model call:
+  - a per-tenant hourly rate limit (`PAL_DEBUG_RATE_PER_HOUR`, default 30, per route; Redis fixed
+    window that fails open like the auth limiters);
+  - the tenant-wide hard cap, checked with a real estimate of this call (prompt size plus maximum
+    output at a deliberately high blended price);
+  - the debug agents' own daily cap (`PAL_DEBUG_MAX_USD_PER_DAY`, default 1.00, `off` disables).
+    This cap keeps a tenant with only per-agent budgets bounded too.
+
+Spend is recorded under the `__pal_debug__` usage row. That row counts toward the tenant-wide cap, but
+not toward the agent being debugged: an agent blocked by its own budget is the common case to debug,
+and debugging it must not consume that budget.
+
+### 7. Reviewability of a proposal
+
+- A prompt patch carries an explicit **hunk**: byte offset, removed text, added text, and display
+  context. The removed and added text are never clipped. A patch whose `find` + `replace` exceeds
+  4000 bytes is not proposed.
+- The dashboard and the CLI send a prompt patch only if the hunk shown, applied to the prompt shown,
+  is exactly the prompt the PATCH carries. A change the person did not see cannot ride along.
+- A budget proposal is preconditioned on **every** field its PUT sends, so a concurrent edit to
+  hard-fail, the per-run limit or the tool limits makes it stale instead of reverting it.
+- An `eval_case` proposal shows what it creates (the input, the judge rubric and the recorded tool
+  results) before it is confirmed.
+- A rollback proposal's audit note is fixed text plus the proposal id, never model text.
+- Model text is stripped of terminal escapes and control characters on the server, and again in the
+  CLI.
+- A working-copy prompt that holds a secret-shaped value is redacted for the model and is never
+  offered as a patch.
 
 ## Consequences
 

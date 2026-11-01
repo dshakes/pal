@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS support_escalations (
 	subject_id   TEXT NOT NULL DEFAULT '',
 	question     TEXT NOT NULL,
 	bundle       JSONB NOT NULL,
+	-- The exact canonical bytes the signature covers (bundle above is the
+	-- queryable copy; jsonb reorders keys, so it cannot be re-verified).
+	signed_payload TEXT NOT NULL,
 	digest       TEXT NOT NULL,
 	signature    TEXT NOT NULL,
 	algorithm    TEXT NOT NULL,

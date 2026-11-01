@@ -194,7 +194,41 @@ export function DebugReportView({ report, onClose, className }: { report: DebugR
   );
 }
 
+/** The exact edit, in full: removed and added text are never clipped (the
+ *  server bounds them); only the surrounding context is shortened. */
+function HunkView({ diff }: { diff: NonNullable<DebugProposal["diff"]> }) {
+  const h = diff.hunk!;
+  const [full, setFull] = useState(false);
+  return (
+    <div className="mt-1.5 min-w-0 rounded-md border border-line bg-canvas">
+      <p className="border-b border-line px-2 py-1 text-[11px] text-fg-3">
+        Change to {diff.field} at byte {h.offset}
+      </p>
+      <pre className="whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[11px] leading-relaxed [overflow-wrap:anywhere]">
+        {h.contextBefore && <span className="text-fg-3">{h.contextBefore}</span>}
+        {h.removed && <del className="bg-bad-soft text-bad">{h.removed}</del>}
+        <ins className="bg-ok-soft text-ok no-underline">{h.added}</ins>
+        {h.contextAfter && <span className="text-fg-3">{h.contextAfter}</span>}
+      </pre>
+      <button
+        type="button"
+        onClick={() => setFull((v) => !v)}
+        aria-expanded={full}
+        className="focus-ring w-full border-t border-line px-2 py-1 text-left text-[11px] text-fg-3 hover:text-fg"
+      >
+        {full ? "Hide" : "Show"} the whole prompt after this change
+      </button>
+      {full && (
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words border-t border-line px-2 py-1.5 font-mono text-[11px] text-fg-2 [overflow-wrap:anywhere]">
+          {diff.after}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function DiffView({ diff }: { diff: NonNullable<DebugProposal["diff"]> }) {
+  if (diff.hunk) return <HunkView diff={diff} />;
   const long = diff.before.length > 80 || diff.after.length > 80;
   if (!long) {
     return (
@@ -278,6 +312,12 @@ function ProposalCard({ p, evidence }: { p: DebugProposal; evidence: Map<string,
         </p>
       )}
       {p.diff && <DiffView diff={p.diff} />}
+      {p.preview && (
+        <div className="mt-1.5 rounded-md border border-line bg-canvas">
+          <p className="border-b border-line px-2 py-1 text-[11px] text-fg-3">This creates</p>
+          <pre className="whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[11px] text-fg-2 [overflow-wrap:anywhere]">{p.preview}</pre>
+        </div>
+      )}
       {p.followUp && <p className="mt-1.5 text-[11.5px] text-fg-3">{p.followUp}</p>}
 
       {p.kind === "policy" && p.href ? (

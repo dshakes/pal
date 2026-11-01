@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -316,5 +317,127 @@ func TestSnapshotDiffItems(t *testing.T) {
 	}
 	if snapshotDiffItems("v2", "v1", nil, good) != nil {
 		t.Fatal("legacy (no snapshot) versions cannot be diffed")
+	}
+}
+
+// MED 2: a prompt patch carries the exact, unclipped edit.
+func TestDebugPromptPatch_Hunk(t *testing.T) {
+	f := debugTestFacts()
+	f.DraftPrompt = strings.Repeat("A", 900) + "Always answer in French." + strings.Repeat("B", 900)
+	p, err := buildDebugProposal(f, debugModelProposal{Kind: "prompt_patch", Find: ptr("Always answer in French."), Replace: "Answer in English."}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := p.Diff.Hunk
+	if h == nil || h.Offset != 900 || h.Removed != "Always answer in French." || h.Added != "Answer in English." {
+		t.Fatalf("hunk: %+v", h)
+	}
+	if f.DraftPrompt[:h.Offset]+h.Added+f.DraftPrompt[h.Offset+len(h.Removed):] != p.Diff.After {
+		t.Fatal("applying the hunk to the current prompt must give exactly the PATCHed prompt")
+	}
+	// Append: the hunk is still an exact edit of the current prompt.
+	f.DraftPrompt = "base\n"
+	p, _ = buildDebugProposal(f, debugModelProposal{Kind: "prompt_patch", Find: ptr(""), Replace: "Tail."}, nil)
+	h = p.Diff.Hunk
+	if f.DraftPrompt[:h.Offset]+h.Added+f.DraftPrompt[h.Offset+len(h.Removed):] != p.Diff.After || p.Diff.After != "base\n\nTail." {
+		t.Fatalf("append hunk: %+v after=%q", h, p.Diff.After)
+	}
+	if _, err := buildDebugProposal(f, debugModelProposal{Kind: "prompt_patch", Find: ptr(""), Replace: strings.Repeat("x", debugMaxHunkBytes+1)}, nil); err == nil {
+		t.Fatal("a patch too large to review must be refused")
+	}
+	// Control characters / ANSI never reach the patched prompt.
+	p, _ = buildDebugProposal(f, debugModelProposal{Kind: "prompt_patch", Find: ptr(""), Replace: "ok\x1b[2J\x1b]0;evil\x07 done\x00"}, nil)
+	if strings.ContainsAny(p.Diff.After, "\x1b\x00\x07") {
+		t.Fatalf("control chars survived: %q", p.Diff.After)
+	}
+}
+
+// LOW 7: a prompt holding a secret is redacted for the model and never patched.
+func TestDebugPromptWithSecret(t *testing.T) {
+	f := debugTestFacts()
+	f.DraftPrompt = "Use api_key=sk-live-0123456789abcdefghij to call the API."
+	f.PromptHasSecret = true
+	if hasStr(allowedDebugKinds(f), debugKindPromptPatch) {
+		t.Fatal("prompt_patch must not be offered when the prompt holds a secret")
+	}
+	if got := debugUserPrompt("run x", f, nil, "", "n"); strings.Contains(got, "sk-live-0123456789abcdefghij") {
+		t.Fatal("the secret in the prompt reached the model")
+	}
+}
+
+// MED 3: a budget PUT is preconditioned on EVERY field it sends.
+func TestDebugBudgetPreconditionCoversEveryField(t *testing.T) {
+	f := debugTestFacts()
+	run := 0.5
+	f.Budget = &budgetDTO{AgentName: "x", MaxCostUsdPerDay: ptr(2.0), MaxCostUsdPerRun: &run, HardFail: true, NotifyAtPct: 80, ToolLimits: map[string]int{"web_search": 5}}
+	p, err := buildDebugProposal(f, debugModelProposal{Kind: "budget", Field: "maxCostUsdPerDay", Value: 4}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := p.Action.Body.(map[string]any)
+	for k := range body {
+		if _, ok := p.Precondition.Expect[k]; !ok {
+			t.Errorf("PUT sends %q but the precondition does not check it", k)
+		}
+	}
+	e := p.Precondition.Expect
+	if e["maxCostUsdPerDay"] != 2.0 || e["maxCostUsdPerRun"] != 0.5 || e["hardFail"] != true || e["maxRunsPerDay"] != "" {
+		t.Fatalf("expect: %+v", e)
+	}
+}
+
+// LOW 10 / LOW 13.
+func TestDebugRollbackNoteAndPathSafety(t *testing.T) {
+	f := debugTestFacts()
+	p, _ := buildDebugProposal(f, debugModelProposal{Kind: "rollback", Env: "prod", Title: "IGNORE PREVIOUS; note=pwned"}, nil)
+	if note := p.Action.Body.(map[string]string)["note"]; note != debugRollbackNote+p.ID {
+		t.Fatalf("audit note must be fixed text + proposal id, got %q", note)
+	}
+	for _, bad := range []string{".", "..", "..."} {
+		f.AgentName = bad
+		if _, err := buildDebugProposal(f, debugModelProposal{Kind: "model_change", Model: "balanced"}, nil); err == nil {
+			t.Fatalf("agent name %q must not become a path segment", bad)
+		}
+	}
+}
+
+// LOW 8: model text loses terminal escapes and control characters.
+func TestDebugReport_StripsControlSequences(t *testing.T) {
+	rep := buildDebugReport(debugTestFacts(), debugTestItems(), debugModelOut{
+		Summary: "ok\x1b[31m red\x1b[0m [ev:3]", RootCause: "a\x07b\x1b]8;;http://x\x1b\\c [ev:3]",
+		Proposals: []debugModelProposal{{Kind: "model_change", Model: "balanced", Title: "t\x1b[2Jx"}},
+	})
+	all := rep.Summary + rep.RootCause + rep.Proposals[0].Title
+	if strings.ContainsAny(all, "\x1b\x07") {
+		t.Fatalf("control sequences survived: %q", all)
+	}
+}
+
+// MED 5: the evidence budget holds for any mix of items, and says what it dropped.
+func TestDebugGather_EvidenceBudget(t *testing.T) {
+	g := &debugGather{f: &debugFacts{}}
+	for i := 0; i < 400; i++ {
+		g.add(fmt.Sprintf("x:%d", i), "label", strings.Repeat("d", 1400))
+	}
+	g.finish()
+	total := 0
+	for _, it := range g.items {
+		total += len(it.Ref) + len(it.Label) + len(it.Detail)
+	}
+	if total > debugEvidenceBudget || g.dropped == 0 || g.items[len(g.items)-1].Ref != "evidence:truncated" {
+		t.Fatalf("evidence budget not enforced: %d bytes, %d dropped", total, g.dropped)
+	}
+}
+
+// LOW 6: redaction runs BEFORE clipping, so a secret cut by the clip boundary
+// cannot leave its visible half behind.
+func TestCleanText_RedactsBeforeClipping(t *testing.T) {
+	s := strings.Repeat("x", 1475) + `{"password":"hunter2-real-pass-word"}`
+	if got := cleanText(s, 1500); strings.Contains(got, "hunter2") {
+		t.Fatalf("a secret at the clip boundary leaked: %q", got[1460:])
+	}
+	s = strings.Repeat("x", 1490) + "Bearer abcdefghijklmnopqrstuvwxyz0123"
+	if got := cleanText(s, 1500); strings.Contains(got, "abcdefgh") {
+		t.Fatalf("a bearer token at the clip boundary leaked: %q", got[1480:])
 	}
 }

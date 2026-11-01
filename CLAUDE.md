@@ -411,19 +411,28 @@ is the exact request to an EXISTING endpoint (rollback, `PATCH /v1/agents` worki
 regression case with the run's recorded tool results as mocks, budget raise ≤10x, retry with
 `Idempotency-Key`); policy proposals only link to the editor. Clients send one only on that person's
 confirm, inside `services/testdata/debug_action_allowlist.json` (Go builder, `apps/web/lib/debug.ts` and
-the CLI all test against it), after re-reading the precondition ("stale proposal" on change). Spend:
-tenant cap checked (402), recorded under `__agentless__`. Escalation bundles are field-whitelisted (run
-input/output VALUES never included), `minimizePII`-masked, signed with the receipt key, stored in
-`support_escalations` (migration 0044, RLS). Code: `internal/handlers/{debug_agent,debug_logic,support_agent}.go`;
+the CLI all test against it), after re-reading the precondition (budget: EVERY field the PUT sends;
+"stale proposal" on change); a prompt patch is sent only if its explicit hunk applied to the shown prompt
+equals the PATCHed prompt. **Authz (always on, not `PAL_AUTHZ_ENFORCE`-gated):** analyze/ask need
+`runs:execute`+`agents:read`+`budgets:read` (a `runs:execute`-only widget key → 403; kiosk refused);
+escalations `settings:write` / `settings:read`. Evidence ≤48 KB (journal ≤24 KB, newest kept), redacted
+BEFORE clipping (incl. secret-named JSON keys inside text — `obs.RedactAll`). Spend: per-tenant hourly
+rate limit (`PAL_DEBUG_RATE_PER_HOUR`, 30), tenant cap with a real estimate, own daily cap
+(`PAL_DEBUG_MAX_USD_PER_DAY`, 1.00), recorded under `__pal_debug__`. Escalation bundles are
+field-whitelisted (run input/output VALUES never included), `minimizePII`-masked, typed
+(`pal.support_escalation.v1`), signed with the receipt key, signed bytes stored verbatim
+(`support_escalations.signed_payload`, migration 0044, RLS), verifiable at `/verify`. Docs index:
+regenerate with `scripts/gen-support-docs.py`. Code: `internal/handlers/{debug_agent,debug_logic,support_agent}.go`;
 dashboard `components/{debug-panel,support-panel}.tsx` ("Debug this" on run/incident/eval failures,
 Support tab in the agent panel); CLI `pal debug run|incident|eval`, `pal support [escalate]`.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| `POST` | `/v1/debug/analyze` | `{kind:"run"\|"incident"\|"eval_case", runId?, incidentId?, agentName?, case?, question?}` → grounded report + proposals (`runs:execute`) |
-| `POST` | `/v1/support/ask` | `{question, runId?, history?}` → answer, citations, docs, validated actions, `suggestEscalation` (`runs:execute`) |
-| `POST` | `/v1/support/escalations` | Redacted signed context bundle for a person (`runs:write`) |
-| `GET`  | `/v1/support/escalations[/{id}]` | List / detail incl. bundle (`runs:read`) |
+| `POST` | `/v1/debug/analyze` | `{kind:"run"\|"incident"\|"eval_case", runId?, incidentId?, agentName?, case?, question?}` → grounded report + proposals (`runs:execute`+`agents:read`+`budgets:read`) |
+| `POST` | `/v1/support/ask` | `{question, runId?, history?}` → answer, citations, docs, validated actions, `suggestEscalation` (`runs:execute`+`agents:read`+`budgets:read`) |
+| `POST` | `/v1/support/escalations` | Redacted signed context bundle for a person (`settings:write`) |
+| `GET`  | `/v1/support/escalations[/{id}]` | List / detail incl. bundle (`settings:read`) |
+| `GET`  | `/v1/support/escalations/{id}/verify` | Re-check digest + signature + type over the stored signed bytes (`settings:read`) |
 
 ### pal first-run (ADR 0048)
 

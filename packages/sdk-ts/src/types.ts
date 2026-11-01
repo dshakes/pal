@@ -1209,7 +1209,15 @@ export interface DebugProposal {
   action?: { method: string; path: string; body?: unknown; idempotencyKey?: string };
   precondition?: { path: string; expect: Record<string, unknown> };
   href?: string;
-  diff?: { field: string; before: unknown; after: unknown };
+  /** prompt_patch: `hunk` is the exact edit (removed/added never clipped). */
+  diff?: {
+    field: string;
+    before: unknown;
+    after: unknown;
+    hunk?: { offset: number; contextBefore: string; removed: string; added: string; contextAfter: string };
+  };
+  /** eval_case: the input, judge rubric and recorded tool results it creates. */
+  preview?: string;
   followUp?: string;
 }
 

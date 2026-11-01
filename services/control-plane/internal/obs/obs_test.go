@@ -224,3 +224,23 @@ func TestBuildTraceMCPToolCall(t *testing.T) {
 		t.Fatalf("b=%+v", b)
 	}
 }
+
+func TestRedactString_JSONSecretPairsInText(t *testing.T) {
+	in := `upstream said {"user":"ada","password":"hunter2-real","api_key": "k-123456789","nested":{"authToken":"t0k3n-abc"}} done`
+	got := RedactString(in)
+	for _, leak := range []string{"hunter2-real", "k-123456789", "t0k3n-abc"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("secret %q survived: %s", leak, got)
+		}
+	}
+	if !strings.Contains(got, `"user":"ada"`) || !strings.Contains(got, `"password":"[redacted]"`) {
+		t.Fatalf("non-secret keys must survive and the key must stay: %s", got)
+	}
+	if !ContainsSecret(in) || ContainsSecret(`{"tokens_in": 12, "max_tokens": 4}`) {
+		t.Fatal("ContainsSecret classification")
+	}
+	long := strings.Repeat("x", 5000) + ` password=supersecretvalue`
+	if strings.Contains(RedactAll(long), "supersecretvalue") || len(RedactAll(long)) < 5000 {
+		t.Fatal("RedactAll must redact past the length bound and not truncate")
+	}
+}

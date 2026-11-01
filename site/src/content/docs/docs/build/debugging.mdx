@@ -73,11 +73,23 @@ Proposals are gated on facts the server read. For example, a rollback is offered
 A prompt or model change edits the agent's working copy, not production. Production changes only when you freeze and promote the working copy (`pal freeze`, `pal promote`), and promotion runs the eval gate. Create the `eval_case` regression first, then replay it against the working copy with `POST /v1/eval-suites/{id}/run`. That reruns the failing input hermetically, with the recorded tool results.
 </Aside>
 
-A prompt, model or budget proposal carries a **precondition**: the value it was computed from. Before applying it, the dashboard and the CLI read the agent again. If the value has changed, they refuse with "stale proposal", so an approval never overwrites someone else's edit. PAL never widens an agent's policy in one click.
+A prompt patch shows the exact change, called the **hunk**: where it is, what it removes and what it adds. The removed and added text are never shortened. The dashboard and the CLI send a patch only if that hunk, applied to the current prompt, gives exactly the prompt the request would save. A change you didn't see can't ride along. An `eval_case` proposal shows the input, judge rubric and recorded tool results it will create before you confirm it.
+
+A prompt, model or budget proposal carries a **precondition**: the values it was computed from. For a budget, that is every field the request replaces. Before applying it, the dashboard and the CLI read the agent again. If the value has changed, they refuse with "stale proposal", so an approval never overwrites someone else's edit. PAL never widens an agent's policy in one click.
 
 ### Money and limits
 
-The model call uses capability `auto` through the model router. The tenant-wide daily cap is checked first (HTTP **402** when a hard-fail cap is reached). The spend is recorded under the workspace bucket `__agentless__`, not under the agent being debugged. That way an agent blocked by its own budget can still be debugged. Without a provider key the endpoint answers `400 {code:"no_provider"}`, and a failed model call answers `502 {code:"llm_failed"}`.
+The model call uses capability `auto` through the model router. Before it, the server applies three checks:
+
+- A per-tenant hourly rate limit: `PAL_DEBUG_RATE_PER_HOUR`, default 30 per route. Over the limit, HTTP **429**.
+- The tenant-wide daily cap, checked with an estimate of this call. Over it, HTTP **402** `budget_exceeded`.
+- The debug agents' own daily cap: `PAL_DEBUG_MAX_USD_PER_DAY`, default $1.00, `off` to disable. Over it, HTTP **402** `debug_budget_exceeded`.
+
+Spend is recorded under the `__pal_debug__` usage row. It counts toward the workspace cap but not toward the agent being debugged, so an agent blocked by its own budget can still be debugged. Evidence sent to the model is capped at 48 KB, keeping the newest journal events. Without a provider key the endpoint answers `400 {code:"no_provider"}`, and a failed model call answers `502 {code:"llm_failed"}`.
+
+### Who can call it
+
+`/v1/debug/analyze` and `/v1/support/ask` read the agent definition (including its prompt), its budget, runs and incidents. A caller needs `runs:execute`, `agents:read` and `budgets:read`. Signed-in users have them. An API key needs all three, or a coarse `write`/`admin` scope. A key with only `runs:execute`, such as a web-chat widget key, gets **403**. This check always applies, whatever `PAL_AUTHZ_ENFORCE` is set to. Opening an escalation needs `settings:write`; reading one needs `settings:read`.
 
 ## Ask the support agent
 
@@ -104,7 +116,7 @@ The server builds the bundle from a list of allowed fields:
 - Incident fields and timeline, failed eval case names, promotions, and what each environment serves.
 - Your question and the transcript.
 
-Every free-text field has secrets removed and emails and phone numbers masked. The bundle is signed over its canonical JSON with the [receipt](/docs/security/receipts/) key (Ed25519, or HMAC-SHA256 when no seed is set), and stored in `support_escalations`. Read escalations with `GET /v1/support/escalations` and `GET /v1/support/escalations/{id}`.
+Every free-text field has secrets removed, including the values of secret-named keys in JSON text such as `{"password": "…"}`. Control characters are stripped, and emails and phone numbers are masked. The bundle carries `"type": "pal.support_escalation.v1"` and is signed over its canonical JSON with the [receipt](/docs/security/receipts/) key (Ed25519, or HMAC-SHA256 when no seed is set). The exact signed bytes are stored. `GET /v1/support/escalations/{id}/verify` recomputes the digest and checks the signature. List and read escalations with `GET /v1/support/escalations` and `GET /v1/support/escalations/{id}`. Text containing a NUL character is rejected with 400.
 
 ## From the dashboard and the CLI
 

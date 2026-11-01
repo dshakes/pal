@@ -61,6 +61,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 
+	"github.com/dshakes/pal/services/control-plane/internal/obs"
 	"github.com/dshakes/pal/services/control-plane/internal/server"
 )
 
@@ -169,7 +170,7 @@ func redactSecrets(s string) string {
 	for _, re := range reOtherSecrets {
 		s = re.ReplaceAllString(s, "[redacted]")
 	}
-	return s
+	return obs.RedactJSONSecretPairs(s)
 }
 
 // ---- store -----------------------------------------------------------------------

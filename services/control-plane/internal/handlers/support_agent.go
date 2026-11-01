@@ -24,6 +24,7 @@ package handlers
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -41,7 +42,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/dshakes/pal/services/control-plane/internal/middleware"
-	"github.com/dshakes/pal/services/control-plane/internal/obs"
 	"github.com/dshakes/pal/services/control-plane/internal/server"
 )
 
@@ -72,13 +72,30 @@ func NewSupportHandler(srv *server.Server, auth *AuthHandler, llm *LlmProxyHandl
 
 func (h *SupportHandler) logger() *zap.Logger { return h.srv.Logger.Named("support-agent") }
 
-// RegisterRoutes: ask spends money (runs:execute); opening an escalation writes
-// a row (runs:write, like feedback); reading them is runs:read.
+// RegisterRoutes. Ask spends money and reads runs, incidents and agents:
+// runs:execute + agents:read + budgets:read, re-checked in-handler ALWAYS (a
+// runs:execute-only widget key gets 403). Escalations are workspace support
+// records: settings:write to open one, settings:read to read or verify them.
 func (h *SupportHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/support/ask", h.auth.WithScope(ScopeRunsExecute, h.Ask))
-	mux.HandleFunc("POST /v1/support/escalations", h.auth.WithScope(ScopeRunsWrite, h.Escalate))
-	mux.HandleFunc("GET /v1/support/escalations", h.auth.WithScope(ScopeRunsRead, h.ListEscalations))
-	mux.HandleFunc("GET /v1/support/escalations/{id}", h.auth.WithScope(ScopeRunsRead, h.GetEscalation))
+	mux.HandleFunc("POST /v1/support/escalations", h.auth.WithScope(ScopeSettingsWrite, h.Escalate))
+	mux.HandleFunc("GET /v1/support/escalations", h.auth.WithScope(ScopeSettingsRead, h.ListEscalations))
+	mux.HandleFunc("GET /v1/support/escalations/{id}", h.auth.WithScope(ScopeSettingsRead, h.GetEscalation))
+	mux.HandleFunc("GET /v1/support/escalations/{id}/verify", h.auth.WithScope(ScopeSettingsRead, h.VerifyEscalation))
+}
+
+// supportClaims authenticates and applies the always-on scope rule.
+func (h *SupportHandler) supportClaims(w http.ResponseWriter, r *http.Request, need ...Scope) (*PalClaims, bool) {
+	claims, err := h.auth.validateRequest(r)
+	if err != nil || claims.TenantID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return nil, false
+	}
+	if !debugCallerAllowed(claims, need...) {
+		writeInsufficientScope(w, need...)
+		return nil, false
+	}
+	return claims, true
 }
 
 type supportTurn struct {
@@ -96,7 +113,7 @@ func cleanTurns(in []supportTurn, max int) []supportTurn {
 		if t.Role == "agent" {
 			role = "agent"
 		}
-		if s := strings.TrimSpace(t.Text); s != "" {
+		if s := strings.TrimSpace(sanitizeText(t.Text)); s != "" {
 			out = append(out, supportTurn{Role: role, Text: clip(s, 1000)})
 		}
 	}
@@ -266,7 +283,7 @@ func buildSupportAnswer(f supportFacts, items []debugItem, out supportModelOut) 
 		valid["doc:"+d.Slug] = debugItem{Ref: "doc:" + d.Slug, Label: d.Title}
 	}
 	ans := supportAnswer{
-		Answer:           stripUnknownRefs(clip(strings.TrimSpace(redactSecrets(out.Answer)), 2400), valid),
+		Answer:           stripUnknownRefs(strings.TrimSpace(cleanText(out.Answer, 2400)), valid),
 		Citations:        []debugItem{},
 		Docs:             []supportDocRef{},
 		Actions:          []supportAction{},
@@ -314,7 +331,7 @@ func buildSupportAnswer(f supportFacts, items []debugItem, out supportModelOut) 
 			if !f.hrefAllowed(href) {
 				continue
 			}
-			act = supportAction{Kind: a.Kind, Href: href, Label: firstNonEmpty(clip(strings.TrimSpace(redactSecrets(a.Label)), 60), "Open")}
+			act = supportAction{Kind: a.Kind, Href: href, Label: firstNonEmpty(strings.TrimSpace(cleanText(a.Label, 60)), "Open")}
 		default:
 			continue
 		}
@@ -331,15 +348,18 @@ func buildSupportAnswer(f supportFacts, items []debugItem, out supportModelOut) 
 }
 
 func (h *SupportHandler) Ask(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.auth.validateRequest(r)
-	if err != nil || claims.TenantID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	claims, ok := h.supportClaims(w, r, debugScopes...)
+	if !ok {
 		return
 	}
 	tenantID := claims.TenantID
 	var req supportAskRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if turnsHaveNUL(req.Question, req.History) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not contain NUL"})
 		return
 	}
 	req.Question = strings.TrimSpace(req.Question)
@@ -358,6 +378,7 @@ func (h *SupportHandler) Ask(w http.ResponseWriter, r *http.Request) {
 	ctx := middleware.InjectTenantID(r.Context(), tenantID)
 	middleware.EnrichSpan(ctx, tenantID, claims.Subject, req.RunID, "")
 
+	var err error
 	facts := supportFacts{runs: map[string]bool{}, incidents: map[string]bool{}, agents: map[string]bool{}}
 	var items []debugItem
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
@@ -371,6 +392,7 @@ func (h *SupportHandler) Ask(w http.ResponseWriter, r *http.Request) {
 		if err := supportWorkspaceFacts(ctx, tx, tenantID, g, facts); err != nil {
 			return err
 		}
+		g.finish()
 		items = g.items
 		return nil
 	})
@@ -383,18 +405,16 @@ func (h *SupportHandler) Ask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
-	if bc := CheckTenantBudget(ctx, h.srv.Pool, tenantID, 0); !bc.Allowed && bc.HardFail {
-		if bc.Unavailable {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "budget check unavailable; retry shortly"})
-			return
-		}
-		writeJSON(w, http.StatusPaymentRequired, map[string]string{"error": "budget exceeded: " + bc.Reason, "code": "budget_exceeded"})
+	history := cleanTurns(req.History, supportMaxHistory)
+	for i := range history {
+		history[i].Text = redactText(history[i].Text)
+	}
+	nonce := newNonce()
+	user := supportUserPrompt(cleanText(req.Question, supportMaxQuestion), history, items, nonce)
+	if !admitDebugCall(ctx, w, h.auth, h.srv.Pool, tenantID, "support", len(supportSystemPrompt)+len(user)) {
 		return
 	}
-
-	history := cleanTurns(req.History, supportMaxHistory)
-	nonce := newNonce()
-	text, tin, tout, cost, err := h.complete(ctx, tenantID, supportSystemPrompt, supportUserPrompt(req.Question, history, items, nonce))
+	text, tin, tout, cost, err := h.complete(ctx, tenantID, supportSystemPrompt, user)
 	if err != nil {
 		h.logger().Warn("support: model call failed", zap.String("tenant_id", tenantID), zap.Error(err))
 		writeLLMAssistError(w, fmt.Errorf("support: %w", err))
@@ -435,7 +455,7 @@ func supportUserPrompt(question string, history []supportTurn, items []debugItem
 		fb.WriteString("\n")
 	}
 	b.WriteString("\n\n## Workspace facts\n")
-	b.WriteString(fenceUntrusted("facts", nonce, fb.String()))
+	b.WriteString(fenceData("facts", nonce, fb.String()))
 	lastUser := question
 	for _, t := range history {
 		if t.Role == "user" {
@@ -527,6 +547,18 @@ func supportWorkspaceFacts(ctx context.Context, tx pgx.Tx, tenantID string, g *d
 	return rows.Err()
 }
 
+func turnsHaveNUL(q string, turns []supportTurn) bool {
+	if strings.ContainsRune(q, 0) {
+		return true
+	}
+	for _, t := range turns {
+		if strings.ContainsRune(t.Text, 0) || strings.ContainsRune(t.Role, 0) {
+			return true
+		}
+	}
+	return false
+}
+
 // ---- escalation bundle -------------------------------------------------------------------
 
 var (
@@ -537,7 +569,7 @@ var (
 // minimizePII is the free-text filter for anything in a support bundle:
 // secrets out (both redactors), then emails and phone numbers masked.
 func minimizePII(s string) string {
-	s = obs.RedactString(redactSecrets(s))
+	s = sanitizeText(redactText(s))
 	s = reEmail.ReplaceAllString(s, "[email]")
 	return rePhone.ReplaceAllString(s, "[phone]")
 }
@@ -598,7 +630,12 @@ type bundlePromotion struct {
 	ActorKind string    `json:"actorKind"`
 }
 
+// supportBundleType is signed INSIDE the bundle so a signature over an
+// escalation can never be replayed as another PAL signed object (a receipt).
+const supportBundleType = "pal.support_escalation.v1"
+
 type supportBundle struct {
+	Type         string            `json:"type"`
 	Version      int               `json:"version"`
 	TenantID     string            `json:"tenantId"`
 	CreatedAt    time.Time         `json:"createdAt"`
@@ -621,15 +658,19 @@ type supportEscalateRequest struct {
 }
 
 func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.auth.validateRequest(r)
-	if err != nil || claims.TenantID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	claims, ok := h.supportClaims(w, r, ScopeSettingsWrite)
+	if !ok {
 		return
 	}
+	var err error
 	tenantID := claims.TenantID
 	var req supportEscalateRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if turnsHaveNUL(req.Question, req.Transcript) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not contain NUL"})
 		return
 	}
 	req.Question = strings.TrimSpace(req.Question)
@@ -644,7 +685,7 @@ func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
 	ctx := middleware.InjectTenantID(r.Context(), tenantID)
 	who := firstNonEmpty(claims.Email, claims.Subject, "api-key")
 	b := supportBundle{
-		Version: 1, TenantID: tenantID, CreatedAt: h.now().UTC().Truncate(time.Millisecond), CreatedBy: who,
+		Type: supportBundleType, Version: 1, TenantID: tenantID, CreatedAt: h.now().UTC().Truncate(time.Millisecond), CreatedBy: who,
 		Question: clip(minimizePII(req.Question), supportMaxQuestion), Transcript: []supportTurn{},
 		Subject: map[string]string{"kind": "none"}, EvalFailures: []bundleEval{}, Promotions: []bundlePromotion{}, Environments: []string{},
 	}
@@ -692,10 +733,11 @@ func (h *SupportHandler) Escalate(w http.ResponseWriter, r *http.Request) {
 			sig, alg = hmacSign(canonical), "HMAC-SHA256"
 		}
 		kind, subj := b.Subject["kind"], b.Subject["id"]
+		// signed_payload keeps the exact signed bytes (jsonb would reorder keys).
 		return tx.QueryRow(ctx, `INSERT INTO support_escalations
-			(tenant_id, subject_kind, subject_id, question, bundle, digest, signature, algorithm, created_by)
-			VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING id::text`,
-			tenantID, kind, subj, b.Question, string(canonical), digest, sig, alg, who).Scan(&id)
+			(tenant_id, subject_kind, subject_id, question, bundle, signed_payload, digest, signature, algorithm, created_by)
+			VALUES ($1,$2,$3,$4,$5::jsonb,$6::text,$7,$8,$9,$10) RETURNING id::text`,
+			tenantID, kind, subj, b.Question, string(canonical), string(canonical), digest, sig, alg, who).Scan(&id)
 	})
 	if errors.Is(err, errDebugNotFound) || errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "subject not found"})
@@ -872,11 +914,11 @@ type escalationDTO struct {
 }
 
 func (h *SupportHandler) ListEscalations(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.auth.validateRequest(r)
-	if err != nil || claims.TenantID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	claims, ok := h.supportClaims(w, r, ScopeSettingsRead)
+	if !ok {
 		return
 	}
+	var err error
 	ctx := middleware.InjectTenantID(r.Context(), claims.TenantID)
 	out := []escalationDTO{}
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
@@ -904,11 +946,11 @@ func (h *SupportHandler) ListEscalations(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *SupportHandler) GetEscalation(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.auth.validateRequest(r)
-	if err != nil || claims.TenantID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	claims, ok := h.supportClaims(w, r, ScopeSettingsRead)
+	if !ok {
 		return
 	}
+	var err error
 	id := r.PathValue("id")
 	if !isUUID(id) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "escalation not found"})
@@ -934,4 +976,59 @@ func (h *SupportHandler) GetEscalation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// verifyEscalationSignature checks stored signed bytes against the stored
+// digest and signature with the CURRENT receipt key.
+func verifyEscalationSignature(payload []byte, digest, sig, alg string) (digestOK, sigOK bool) {
+	sum := sha256.Sum256(payload)
+	digestOK = hex.EncodeToString(sum[:]) == digest
+	switch alg {
+	case "Ed25519":
+		if k := activeKey(); k.pub != nil {
+			raw, err := base64.StdEncoding.DecodeString(sig)
+			sigOK = err == nil && ed25519.Verify(k.pub, payload, raw)
+		}
+	case "HMAC-SHA256":
+		sigOK = hmac.Equal([]byte(hmacSign(payload)), []byte(sig))
+	}
+	return digestOK, sigOK
+}
+
+// VerifyEscalation handles GET /v1/support/escalations/{id}/verify: recomputes
+// the digest over the stored signed bytes and verifies the signature, and that
+// the signed bytes name this tenant and the escalation type.
+func (h *SupportHandler) VerifyEscalation(w http.ResponseWriter, r *http.Request) {
+	claims, ok := h.supportClaims(w, r, ScopeSettingsRead)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if !isUUID(id) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "escalation not found"})
+		return
+	}
+	ctx := middleware.InjectTenantID(r.Context(), claims.TenantID)
+	var payload, digest, sig, alg string
+	err := h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT signed_payload, digest, signature, algorithm FROM support_escalations
+			WHERE id = $1 AND tenant_id = $2`, id, claims.TenantID).Scan(&payload, &digest, &sig, &alg)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "escalation not found"})
+		return
+	}
+	if err != nil {
+		h.logger().Error("verify escalation", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+	digestOK, sigOK := verifyEscalationSignature([]byte(payload), digest, sig, alg)
+	var head struct {
+		Type     string `json:"type"`
+		TenantID string `json:"tenantId"`
+	}
+	typeOK := json.Unmarshal([]byte(payload), &head) == nil && head.Type == supportBundleType && head.TenantID == claims.TenantID
+	writeJSON(w, http.StatusOK, map[string]any{"valid": digestOK && sigOK && typeOK, "digestMatches": digestOK,
+		"signatureValid": sigOK, "typeMatches": typeOK, "algorithm": alg, "digest": digest})
 }

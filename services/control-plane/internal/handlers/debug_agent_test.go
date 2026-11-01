@@ -198,7 +198,7 @@ func TestDebugAnalyze_RunIsGroundedRedactedAndNeverApplied(t *testing.T) {
 	// Metering: the model call is recorded against the workspace bucket.
 	var cost float64
 	must(t, s.f.e.superPool.QueryRow(context.Background(), `SELECT COALESCE(SUM(cost_usd),0)::float8 FROM agent_usage_daily
-		WHERE tenant_id=$1 AND agent_name='__agentless__'`, s.f.tenant).Scan(&cost))
+		WHERE tenant_id=$1 AND agent_name='__pal_debug__'`, s.f.tenant).Scan(&cost))
 	if cost < 0.002 {
 		t.Fatalf("debug spend not metered: %v", cost)
 	}

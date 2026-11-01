@@ -36,6 +36,17 @@ type DebugProposalDiff struct {
 	Field  string `json:"field"`
 	Before any    `json:"before"`
 	After  any    `json:"after"`
+	// Hunk is the exact edit of a prompt_patch (Removed/Added never clipped).
+	Hunk *DebugProposalHunk `json:"hunk,omitempty"`
+}
+
+// DebugProposalHunk: at byte Offset of the current prompt, Removed becomes Added.
+type DebugProposalHunk struct {
+	Offset        int    `json:"offset"`
+	ContextBefore string `json:"contextBefore"`
+	Removed       string `json:"removed"`
+	Added         string `json:"added"`
+	ContextAfter  string `json:"contextAfter"`
 }
 
 // DebugProposal is one suggested remediation. Kind is one of rollback,
@@ -51,6 +62,7 @@ type DebugProposal struct {
 	Precondition *DebugProposalPrecondition `json:"precondition,omitempty"`
 	Href         string                     `json:"href,omitempty"`
 	Diff         *DebugProposalDiff         `json:"diff,omitempty"`
+	Preview      string                     `json:"preview,omitempty"`
 	FollowUp     string                     `json:"followUp,omitempty"`
 }
 

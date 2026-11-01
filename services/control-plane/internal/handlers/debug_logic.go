@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -71,6 +72,10 @@ type debugFacts struct {
 	Replayable  bool // tool-loop agent: the hermetic eval runner can replay a regression case
 	DraftPrompt string
 	DraftModel  string
+	// PromptHasSecret: the working-copy prompt holds a secret-shaped value. The
+	// model then sees it redacted and no prompt patch is offered (a patch would
+	// have to carry the secret back in its PATCH body).
+	PromptHasSecret bool
 
 	Budget          *budgetDTO
 	BudgetSignalRef string // evidence ref showing a budget block; "" → none
@@ -86,8 +91,11 @@ func allowedDebugKinds(f debugFacts) []string {
 	if len(f.RollbackEnvs) > 0 || f.IncidentRollback {
 		k = append(k, debugKindRollback)
 	}
+	if f.AgentExists && !f.PromptHasSecret {
+		k = append(k, debugKindPromptPatch)
+	}
 	if f.AgentExists {
-		k = append(k, debugKindPromptPatch, debugKindModelChange)
+		k = append(k, debugKindModelChange)
 	}
 	if f.RunID != "" && strings.TrimSpace(f.InputText) != "" && f.AgentExists && f.Replayable {
 		k = append(k, debugKindEvalCase)
@@ -153,9 +161,9 @@ func debugUserPrompt(subject string, f debugFacts, items []debugItem, question, 
 		}
 		ev.WriteString("\n")
 	}
-	b.WriteString(fenceUntrusted("evidence", nonce, ev.String()))
+	b.WriteString(fenceData("evidence", nonce, ev.String()))
 	if f.AgentExists {
-		fmt.Fprintf(&b, "\n\n## Current system prompt (working copy)\n%s\n", fenceUntrusted("prompt", nonce, clip(f.DraftPrompt, 6000)))
+		fmt.Fprintf(&b, "\n\n## Current system prompt (working copy)\n%s\n", fenceUntrusted("prompt", nonce, clip(redactText(f.DraftPrompt), 6000)))
 		fmt.Fprintf(&b, "Current model: %s\n", firstNonEmpty(f.DraftModel, "auto"))
 	}
 	return b.String()
@@ -217,10 +225,29 @@ type debugPrecondition struct {
 }
 
 type debugDiff struct {
-	Field  string `json:"field"`
-	Before string `json:"before"`
-	After  string `json:"after"`
+	Field  string     `json:"field"`
+	Before string     `json:"before"`
+	After  string     `json:"after"`
+	Hunk   *debugHunk `json:"hunk,omitempty"`
 }
+
+// debugHunk is the exact edit a prompt patch makes: at byte Offset of the
+// current prompt, Removed is replaced by Added. Removed/Added are never
+// clipped (debugMaxHunkBytes bounds them instead), so what a reviewer sees is
+// the whole change; ContextBefore/After are display-only.
+type debugHunk struct {
+	Offset        int    `json:"offset"`
+	ContextBefore string `json:"contextBefore"`
+	Removed       string `json:"removed"`
+	Added         string `json:"added"`
+	ContextAfter  string `json:"contextAfter"`
+}
+
+const (
+	debugMaxHunkBytes = 4000
+	debugHunkContext  = 160
+	debugRollbackNote = "debug agent proposal "
+)
 
 type debugProposal struct {
 	ID           string             `json:"id"`
@@ -233,7 +260,10 @@ type debugProposal struct {
 	Precondition *debugPrecondition `json:"precondition,omitempty"`
 	Href         string             `json:"href,omitempty"` // policy: where the human edits it
 	Diff         *debugDiff         `json:"diff,omitempty"`
-	FollowUp     string             `json:"followUp,omitempty"`
+	// Preview is what a non-diff proposal creates (eval_case: input, judge
+	// rubric, recorded tool results), shown before the person confirms.
+	Preview  string `json:"preview,omitempty"`
+	FollowUp string `json:"followUp,omitempty"`
 }
 
 type debugDropped struct {
@@ -285,8 +315,8 @@ func buildDebugReport(f debugFacts, items []debugItem, out debugModelOut) debugR
 		valid[it.Ref] = it
 	}
 	rep := debugReport{
-		Summary:   clip(strings.TrimSpace(redactSecrets(out.Summary)), 400),
-		RootCause: clip(strings.TrimSpace(redactSecrets(out.RootCause)), 2000),
+		Summary:   strings.TrimSpace(cleanText(out.Summary, 400)),
+		RootCause: strings.TrimSpace(cleanText(out.RootCause, 2000)),
 		Proposals: []debugProposal{},
 		Dropped:   []debugDropped{},
 		Citations: []debugItem{},
@@ -399,28 +429,63 @@ func budgetPutBody(b budgetDTO, field string, v float64) map[string]any {
 	return body
 }
 
+// budgetExpect is the GET /v1/agents/{name}/budget view of every field a budget
+// PUT sends; an unset limit (omitted by the GET) reads as "".
+func budgetExpect(b budgetDTO) map[string]any {
+	e := map[string]any{"maxCostUsdPerDay": "", "maxCostUsdPerRun": "", "maxTokensPerDay": "", "maxRunsPerDay": "",
+		"hardFail": b.HardFail, "notifyAtPct": b.NotifyAtPct, "toolLimits": ""}
+	if b.MaxCostUsdPerDay != nil {
+		e["maxCostUsdPerDay"] = *b.MaxCostUsdPerDay
+	}
+	if b.MaxCostUsdPerRun != nil {
+		e["maxCostUsdPerRun"] = *b.MaxCostUsdPerRun
+	}
+	if b.MaxTokensPerDay != nil {
+		e["maxTokensPerDay"] = *b.MaxTokensPerDay
+	}
+	if b.MaxRunsPerDay != nil {
+		e["maxRunsPerDay"] = *b.MaxRunsPerDay
+	}
+	if len(b.ToolLimits) > 0 {
+		e["toolLimits"] = b.ToolLimits
+	}
+	return e
+}
+
+func tailRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return "…" + string(r[len(r)-n:])
+}
+
+func headRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 func proposalID(kind string, parts ...any) string {
 	b, _ := json.Marshal(append([]any{kind}, parts...))
 	sum := sha256.Sum256(b)
 	return kind + "-" + hex.EncodeToString(sum[:4])
 }
 
-func pathEscapeName(s string) string {
-	// Agent names are kebab-case by validation; escape anyway so a name can
-	// never add a path segment.
-	r := strings.NewReplacer("/", "%2F", "?", "%3F", "#", "%23", " ", "%20", "%", "%25")
-	return r.Replace(s)
-}
-
 func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]debugItem) (debugProposal, error) {
 	p := debugProposal{
 		Kind:      mp.Kind,
-		Title:     clip(strings.TrimSpace(redactSecrets(mp.Title)), 120),
-		Rationale: stripUnknownRefs(clip(strings.TrimSpace(redactSecrets(mp.Rationale)), 800), valid),
+		Title:     strings.TrimSpace(cleanText(mp.Title, 120)),
+		Rationale: stripUnknownRefs(strings.TrimSpace(cleanText(mp.Rationale, 800)), valid),
 		Citations: filterRefs(append(append([]string{}, mp.Citations...), citeRe(mp.Rationale)...), valid),
 		Risk:      "medium",
 	}
-	agent := pathEscapeName(f.AgentName)
+	if strings.Trim(f.AgentName, ".") == "" {
+		return p, errors.New("agent name cannot be used in a request path")
+	}
+	agent := url.PathEscape(f.AgentName)
 	switch mp.Kind {
 	case debugKindRollback:
 		env := strings.TrimSpace(mp.Env)
@@ -433,38 +498,52 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		if f.IncidentRollback && env == "prod" && f.IncidentID != "" {
 			// The incident path re-checks that prod still serves the bad version
 			// and writes the incident timeline in the same transaction.
-			p.Action = &debugAction{Method: "POST", Path: "/v1/incidents/" + f.IncidentID + "/rollback"}
+			p.Action = &debugAction{Method: "POST", Path: "/v1/incidents/" + url.PathEscape(f.IncidentID) + "/rollback"}
+			p.ID = proposalID(p.Kind, p.Action.Path)
 		} else {
 			if !hasStr(f.RollbackEnvs, env) {
-				return p, fmt.Errorf("nothing to roll back in %q", clip(env, 20))
+				return p, fmt.Errorf("nothing to roll back in %q", clip(sanitizeText(env), 20))
 			}
-			p.Action = &debugAction{Method: "POST", Path: "/v1/agents/" + agent + "/environments/" + env + "/rollback",
-				Body: map[string]string{"note": "debug agent: " + firstNonEmpty(p.Title, "roll back")}}
+			path := "/v1/agents/" + agent + "/environments/" + env + "/rollback"
+			p.ID = proposalID(p.Kind, path)
+			// The audit note is fixed text + the proposal id: model text never
+			// lands in the append-only promotion audit.
+			p.Action = &debugAction{Method: "POST", Path: path, Body: map[string]string{"note": debugRollbackNote + p.ID}}
 		}
 		p.Title = firstNonEmpty(p.Title, "Roll back "+env)
 		p.FollowUp = "Rollback is idempotent and recorded in the promotion audit."
-		p.ID = proposalID(p.Kind, p.Action.Path)
 	case debugKindPromptPatch:
 		if mp.Find == nil {
 			return p, errors.New("find is required (\"\" appends)")
 		}
-		find, repl := *mp.Find, mp.Replace
+		find, repl := *mp.Find, sanitizeText(mp.Replace)
 		if strings.TrimSpace(repl) == "" && find == "" {
 			return p, errors.New("empty patch")
 		}
+		if len(find)+len(repl) > debugMaxHunkBytes {
+			return p, errors.New("patch too large to review; edit the prompt in the agent editor")
+		}
 		var next string
+		var h debugHunk
 		switch {
 		case find == "":
-			next = strings.TrimRight(f.DraftPrompt, "\n")
-			if next != "" {
-				next += "\n\n"
+			base := strings.TrimRight(f.DraftPrompt, "\n")
+			sep := ""
+			if base != "" {
+				sep = "\n\n"
 			}
-			next += repl
+			next = base + sep + repl
+			// Expressed as one edit on the CURRENT prompt: the trailing newlines
+			// (if any) are removed and separator+text added at their offset.
+			h = debugHunk{Offset: len(base), Removed: f.DraftPrompt[len(base):], Added: sep + repl}
 		case strings.Count(f.DraftPrompt, find) != 1:
 			return p, errors.New("find text does not occur exactly once in the current prompt")
 		default:
 			next = strings.Replace(f.DraftPrompt, find, repl, 1)
+			h = debugHunk{Offset: strings.Index(f.DraftPrompt, find), Removed: find, Added: repl}
 		}
+		h.ContextBefore = tailRunes(f.DraftPrompt[:h.Offset], debugHunkContext)
+		h.ContextAfter = headRunes(f.DraftPrompt[h.Offset+len(h.Removed):], debugHunkContext)
 		if next == f.DraftPrompt {
 			return p, errors.New("patch changes nothing")
 		}
@@ -474,7 +553,7 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		if redactSecrets(next) != next {
 			return p, errors.New("patch would put a secret in the prompt")
 		}
-		p.Diff = &debugDiff{Field: "systemPrompt", Before: f.DraftPrompt, After: next}
+		p.Diff = &debugDiff{Field: "systemPrompt", Before: f.DraftPrompt, After: next, Hunk: &h}
 		p.Precondition = &debugPrecondition{Path: "/v1/agents/" + agent, Expect: map[string]any{"systemPrompt": f.DraftPrompt}}
 		p.Action = &debugAction{Method: "PATCH", Path: "/v1/agents/" + agent, Body: map[string]string{"systemPrompt": next}}
 		p.Title = firstNonEmpty(p.Title, "Edit the system prompt")
@@ -495,7 +574,7 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		p.FollowUp = "Edits the working copy only; promote it through the eval gate to reach production."
 		p.ID = proposalID(p.Kind, m)
 	case debugKindEvalCase:
-		rubric := strings.TrimSpace(redactSecrets(mp.ExpectedBehavior))
+		rubric := strings.TrimSpace(cleanText(mp.ExpectedBehavior, debugMaxRubricRunes))
 		if rubric == "" {
 			return p, errors.New("expectedBehavior is required")
 		}
@@ -511,6 +590,15 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		}
 		if err := validateCase(c); err != nil {
 			return p, err
+		}
+		var tools []string
+		for _, m := range f.Mocks {
+			tools = append(tools, m.Tool)
+		}
+		p.Preview = "Input: " + clip(f.InputText, 600) + "\nJudge rubric (pass when): " + clip(rubric, debugMaxRubricRunes) +
+			fmt.Sprintf("\nRecorded tool results replayed: %d", len(f.Mocks))
+		if len(tools) > 0 {
+			p.Preview += " (" + strings.Join(tools, ", ") + ")"
 		}
 		p.Risk = "low"
 		p.Action = &debugAction{Method: "POST", Path: "/v1/eval-suites", Body: map[string]any{
@@ -535,7 +623,9 @@ func buildDebugProposal(f debugFacts, mp debugModelProposal, valid map[string]de
 		}
 		body := budgetPutBody(*f.Budget, mp.Field, mp.Value)
 		p.Diff = &debugDiff{Field: mp.Field, Before: fmt.Sprint(cur), After: fmt.Sprint(body[mp.Field])}
-		p.Precondition = &debugPrecondition{Path: "/v1/agents/" + agent + "/budget", Expect: map[string]any{mp.Field: cur}}
+		// PUT replaces the whole budget, so EVERY field it sends must still be
+		// what the analysis read; a concurrent edit makes the proposal stale.
+		p.Precondition = &debugPrecondition{Path: "/v1/agents/" + agent + "/budget", Expect: budgetExpect(*f.Budget)}
 		p.Action = &debugAction{Method: "PUT", Path: "/v1/agents/" + agent + "/budget", Body: body}
 		if !hasStr(p.Citations, f.BudgetSignalRef) {
 			p.Citations = append(p.Citations, f.BudgetSignalRef)

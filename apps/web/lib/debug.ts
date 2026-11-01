@@ -34,8 +34,37 @@ export interface DebugProposal {
   action?: DebugAction;
   precondition?: DebugPrecondition;
   href?: string;
-  diff?: { field: string; before: string; after: string };
+  diff?: { field: string; before: string; after: string; hunk?: DebugHunk };
+  /** What a non-diff proposal creates (eval_case: input, rubric, mocks). */
+  preview?: string;
   followUp?: string;
+}
+
+/** The exact edit a prompt patch makes at byte `offset` of the current prompt. */
+export interface DebugHunk {
+  offset: number;
+  contextBefore: string;
+  removed: string;
+  added: string;
+  contextAfter: string;
+}
+
+/** A prompt patch is sendable only if the hunk shown is the WHOLE change: the
+ *  shown hunk applied to the shown prompt must equal the prompt the PATCH
+ *  sends. Byte offsets come from Go, so compare on UTF-8 bytes. */
+export function promptPatchConsistent(p: Pick<DebugProposal, "diff" | "action">): boolean {
+  const d = p.diff;
+  const h = d?.hunk;
+  const sent = (p.action?.body as { systemPrompt?: unknown } | undefined)?.systemPrompt;
+  if (!d || !h || typeof sent !== "string" || h.offset < 0) return false;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const before = enc.encode(d.before);
+  const removed = enc.encode(h.removed);
+  if (h.offset + removed.length > before.length) return false;
+  if (dec.decode(before.slice(h.offset, h.offset + removed.length)) !== h.removed) return false;
+  const rebuilt = dec.decode(before.slice(0, h.offset)) + h.added + dec.decode(before.slice(h.offset + removed.length));
+  return rebuilt === sent && sent === d.after;
 }
 
 export interface DebugEvidence {
@@ -81,11 +110,12 @@ export const PRECONDITION_ALLOWLIST: RegExp[] = [
 
 /** True only for an action of this proposal's kind inside the allowlist.
  *  A policy proposal never has a sendable action. */
-export function actionAllowed(p: Pick<DebugProposal, "kind" | "action" | "precondition">): boolean {
+export function actionAllowed(p: Pick<DebugProposal, "kind" | "action" | "precondition"> & Partial<Pick<DebugProposal, "diff">>): boolean {
   if (p.kind === "policy" || !p.action) return false;
   const a = p.action;
   const ok = ACTION_ALLOWLIST.some((x) => x.kind === p.kind && x.method === a.method && x.path.test(a.path));
   if (!ok) return false;
+  if (p.kind === "prompt_patch" && !promptPatchConsistent(p as DebugProposal)) return false;
   return !p.precondition || PRECONDITION_ALLOWLIST.some((re) => re.test(p.precondition!.path));
 }
 
@@ -98,7 +128,16 @@ function sameValue(want: unknown, got: unknown): boolean {
     const b = Number(g);
     return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-9;
   }
-  return JSON.stringify(w) === JSON.stringify(g);
+  return stableStringify(w) === stableStringify(g);
+}
+
+/** JSON with object keys sorted, so key order can never fake a mismatch or a match. */
+function stableStringify(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  if (v && typeof v === "object") {
+    return `{${Object.keys(v as object).sort().map((k) => `${JSON.stringify(k)}:${stableStringify((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v);
 }
 
 /** Checks a fresh GET of the precondition path. Missing keys read as "". */

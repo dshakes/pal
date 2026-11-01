@@ -2131,6 +2131,7 @@ class DebugProposal:
     precondition: dict[str, Any] | None = None
     href: str = ""
     diff: dict[str, Any] | None = None
+    preview: str = ""
     follow_up: str = ""
 
     @classmethod
@@ -2146,6 +2147,7 @@ class DebugProposal:
             precondition=d.get("precondition"),
             href=d.get("href", ""),
             diff=d.get("diff"),
+            preview=d.get("preview", ""),
             follow_up=d.get("followUp", ""),
         )
 
