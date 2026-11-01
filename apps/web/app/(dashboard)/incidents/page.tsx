@@ -4,7 +4,8 @@
 // observability sweep. Detection is deterministic; a model only writes the
 // summary, and only when it cites the linked runs.
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Activity, RefreshCw } from "lucide-react";
 import { api, type Incident } from "@/lib/api";
@@ -15,6 +16,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/skeleton";
 import { TonePill } from "@/components/tone-pill";
 import { useToast } from "@/components/toast";
+import { useCan } from "@/components/role-gate";
 
 const FILTERS = [
   { id: "active", label: "Active" },
@@ -23,7 +25,20 @@ const FILTERS = [
 ] as const;
 
 export default function IncidentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <Incidents />
+    </Suspense>
+  );
+}
+
+// The server returns at most this many (newest first, resolved last).
+const LIST_CAP = 200;
+
+function Incidents() {
   const toast = useToast();
+  const agent = useSearchParams().get("agent") || undefined;
+  const canScan = useCan("agents:write");
   const [filter, setFilter] = useState<string>("active");
   const [items, setItems] = useState<Incident[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,12 +46,12 @@ export default function IncidentsPage() {
 
   const load = useCallback(async () => {
     try {
-      setItems(await api.listIncidents({ status: filter || undefined }));
+      setItems(await api.listIncidents({ status: filter || undefined, agent }));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load incidents");
     }
-  }, [filter]);
+  }, [filter, agent]);
 
   useEffect(() => {
     setItems(null);
@@ -60,11 +75,13 @@ export default function IncidentsPage() {
     <div className="flex flex-1 flex-col overflow-auto">
       <PageHeader
         title="Incidents"
-        description="Anomalies and SLO burn detected on your agents in production. Every acknowledge and resolve is recorded."
+        description={agent ? `Anomalies and SLO burn on ${agent}. Every acknowledge and resolve is recorded.` : "Anomalies and SLO burn detected on your agents in production. Every acknowledge and resolve is recorded."}
         action={
-          <Button variant="secondary" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} loading={scanning} onClick={scan}>
-            Scan now
-          </Button>
+          canScan ? (
+            <Button variant="secondary" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} loading={scanning} onClick={scan}>
+              Scan now
+            </Button>
+          ) : undefined
         }
       />
       <div className="mx-auto w-full max-w-5xl px-6 py-6 md:px-8">
@@ -76,8 +93,8 @@ export default function IncidentsPage() {
               aria-pressed={filter === f.id}
               onClick={() => setFilter(f.id)}
               className={
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
-                (filter === f.id ? "bg-surface-3 text-zinc-100" : "text-zinc-500 hover:text-zinc-300")
+                "focus-ring rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors " +
+                (filter === f.id ? "bg-raised text-fg" : "text-fg-3 hover:text-fg-2")
               }
             >
               {f.label}
@@ -86,7 +103,7 @@ export default function IncidentsPage() {
         </div>
 
         {error ? (
-          <p role="alert" className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
+          <p role="alert" className="rounded-[12px] border border-bad/40 bg-bad-soft p-4 text-[13px] text-bad">
             {error}
           </p>
         ) : items === null ? (
@@ -102,17 +119,17 @@ export default function IncidentsPage() {
             description="When an agent's cost, latency, error rate, tool use or quality shifts well outside its own baseline, or burns its SLO error budget, it shows up here."
           />
         ) : (
-          <ul className="divide-y divide-zinc-800/60 rounded-xl border border-zinc-800/60 bg-surface-1">
+          <ul className="divide-y divide-line rounded-[12px] border border-line bg-panel">
             {items.map((i) => (
               <li key={i.id}>
-                <Link href={`/incidents/${i.id}`} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-surface-2">
+                <Link href={`/incidents/${i.id}`} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-hover">
                   <div className="flex flex-wrap items-center gap-2">
                     <TonePill tone={incidentTone(i)}>{i.status === "resolved" ? "resolved" : i.severity}</TonePill>
                     {i.status === "acknowledged" && <TonePill tone="muted">acknowledged</TonePill>}
-                    <span className="text-sm font-medium text-zinc-100">{i.title}</span>
+                    <span className="text-sm font-medium text-fg">{i.title}</span>
                   </div>
-                  <p className="line-clamp-2 text-xs text-zinc-400">{i.summary}</p>
-                  <p className="text-[11px] text-zinc-500">
+                  <p className="line-clamp-2 text-xs text-fg-3">{i.summary}</p>
+                  <p className="text-[11px] text-fg-3">
                     <span className="font-mono">{i.agentName}</span> · {kindLabel(i.kind)} · {i.affectedRunIds.length} run
                     {i.affectedRunIds.length === 1 ? "" : "s"} · {new Date(i.openedAt).toLocaleString()}
                   </p>
@@ -120,6 +137,9 @@ export default function IncidentsPage() {
               </li>
             ))}
           </ul>
+        )}
+        {items && items.length >= LIST_CAP && (
+          <p className="mt-2 text-[12px] text-fg-3">Showing the newest {LIST_CAP}. Narrow with a status filter to see older ones.</p>
         )}
       </div>
     </div>

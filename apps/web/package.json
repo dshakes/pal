@@ -26,7 +26,8 @@
     "next": "^15.5.28",
     "qrcode": "^1.5.4",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
