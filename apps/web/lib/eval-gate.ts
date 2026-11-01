@@ -12,12 +12,26 @@ export interface GateVerdict {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
+/**
+ * Did this run regress against the pinned baseline? The run list doesn't keep
+ * the server's regression call (it reports regressed:false for a run whose
+ * /run answered 422), so derive it the way the gate does: same branch, run
+ * after the baseline was pinned, not the baseline itself, lower score.
+ */
+export function isRegressed(run: EvalRun, baseline: EvalBaseline | null): boolean {
+  if (run.regressed) return true;
+  if (!baseline || baseline.evalRunId === run.id) return false;
+  if ((run.branch || "main") !== baseline.branch) return false;
+  if (baseline.setAt && Date.parse(run.createdAt) < Date.parse(baseline.setAt)) return false;
+  return run.score < baseline.score;
+}
+
 export function gateVerdict(runs: EvalRun[], baseline: EvalBaseline | null): GateVerdict {
   const latest = [...runs].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
   if (!latest) return { state: "none", title: "No eval results", detail: "Nothing has scored this agent yet, so there is no quality signal to gate on." };
   const on = latest.agentVersion ? `version ${latest.agentVersion}` : "the working copy";
   const base = baseline && baseline.evalRunId !== latest.id ? ` Baseline: ${pct(baseline.score)}.` : "";
-  if (latest.regressed || (baseline && baseline.evalRunId !== latest.id && latest.score < baseline.score)) {
+  if (isRegressed(latest, baseline)) {
     return { state: "regressed", run: latest, title: "Evals regressed", detail: `Latest run scored ${pct(latest.score)} on ${on}, below the pinned baseline.${base} CI fails this change with 422.` };
   }
   if (!latest.passed) return { state: "fail", run: latest, title: "Evals failing", detail: `Latest run scored ${pct(latest.score)} on ${on} (${latest.casesPassed}/${latest.casesTotal} cases).${base}` };

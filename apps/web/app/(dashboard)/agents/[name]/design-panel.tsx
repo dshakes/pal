@@ -1,6 +1,6 @@
 "use client";
 // Agent · Design (v3). Everything here is read from and saved to the server:
-// the spec (description, instructions, model), the saved workflow graph, the
+// the spec (instructions and model; the description is fixed at create), the saved workflow graph, the
 // MCP servers attached to the agent, the connectors the workflow calls, and
 // what of that the agent's policy will refuse. The visual editor (@xyflow)
 // lives on its own route; this tab summarises it and links there.
@@ -32,15 +32,13 @@ const field = "focus-ring w-full rounded-lg border border-line bg-canvas px-3 py
 export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSaved: () => void; onOpenTab: (tab: "security") => void }) {
   const toast = useToast();
   const name = agent.name;
-  const [description, setDescription] = useState(agent.description ?? "");
   const [prompt, setPrompt] = useState(agent.systemPrompt ?? "");
   const [model, setModel] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    setDescription(agent.description ?? "");
     setPrompt(agent.systemPrompt ?? "");
-  }, [agent.description, agent.systemPrompt]);
-  const dirty = description !== (agent.description ?? "") || prompt !== (agent.systemPrompt ?? "") || model !== "";
+  }, [agent.systemPrompt]);
+  const dirty = prompt !== (agent.systemPrompt ?? "") || model !== "";
 
   const [workflow, setWorkflow] = useState<unknown>(undefined);
   const [policy, setPolicy] = useState<AgentPolicyDocument | null | undefined>(undefined);
@@ -79,7 +77,6 @@ export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSav
     setSaving(true);
     try {
       await api.updateAgent(name, {
-        ...(description !== (agent.description ?? "") ? { description } : {}),
         ...(prompt !== (agent.systemPrompt ?? "") ? { systemPrompt: prompt } : {}),
         ...(model ? { model } : {}),
       });
@@ -142,8 +139,9 @@ export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSav
       <Section title="Spec">
         <div className="space-y-4 rounded-lg border border-line bg-panel p-4">
           <div>
-            <label htmlFor="d-desc" className="mb-1 block text-[12.5px] font-medium text-fg-2">Description</label>
-            <input id="d-desc" value={description} onChange={(e) => setDescription(e.target.value)} className={field} placeholder="What this agent does, in one line" />
+            <p className="mb-1 text-[12.5px] font-medium text-fg-2">Description</p>
+            <p className="text-[13.5px] text-fg">{agent.description || <span className="text-fg-3">None</span>}</p>
+            <p className="mt-1 text-[12px] text-fg-3">Set when the agent is created; the API can’t change it afterwards.</p>
           </div>
           <div>
             <label htmlFor="d-prompt" className="mb-1 block text-[12.5px] font-medium text-fg-2">Instructions <span className="font-normal text-fg-3">(system prompt)</span></label>
@@ -162,7 +160,7 @@ export function DesignPanel({ agent, onSaved, onOpenTab }: { agent: Agent; onSav
             <div className="flex items-center gap-2">
               <Button size="sm" onClick={() => void save()} loading={saving} disabled={!dirty || saving}>Save</Button>
               {dirty && (
-                <Button size="sm" variant="ghost" onClick={() => { setDescription(agent.description ?? ""); setPrompt(agent.systemPrompt ?? ""); setModel(""); }}>
+                <Button size="sm" variant="ghost" onClick={() => { setPrompt(agent.systemPrompt ?? ""); setModel(""); }}>
                   Discard
                 </Button>
               )}

@@ -719,17 +719,16 @@ class PalAPI {
     });
   }
 
+  /**
+   * PATCH /v1/agents/{name}. The server accepts exactly these fields; anything
+   * else (description, timeout, token/cost limits) is not stored — it used to
+   * be sent with PUT, which the server doesn't route (405), so saves failed.
+   */
   async updateAgent(
     name: string,
-    data: { description?: string; systemPrompt?: string; model?: string; isolation?: string; timeout?: string; maxTokens?: number; maxCostUsd?: number; cron?: string; avatarUrl?: string; stylePrompt?: string },
-  ): Promise<Agent> {
-    return this.request<Agent>(
-      `/v1/agents/${encodeURIComponent(name)}`,
-      {
-        method: "PUT",
-        body: JSON.stringify(data),
-      },
-    );
+    data: { systemPrompt?: string; model?: string; avatarUrl?: string; stylePrompt?: string; manifest?: Record<string, unknown> },
+  ): Promise<{ name: string; updated?: boolean }> {
+    return this.request(`/v1/agents/${encodeURIComponent(name)}`, { method: "PATCH", body: JSON.stringify(data) });
   }
 
   async deleteAgent(name: string): Promise<void> {

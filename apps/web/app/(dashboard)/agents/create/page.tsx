@@ -164,7 +164,7 @@ function CreatePage() {
       localStorage.setItem(`pal_agent_settings_${agentName}`, JSON.stringify({
         model, privacy, environment, guardrails, connectors: selectedConnectors,
       }));
-      try { await api.updateAgent(agentName, { systemPrompt, description }); } catch { /* saved locally */ }
+      await api.updateAgent(agentName, { systemPrompt });
       toast.success(`Agent "${agentName}" created`);
       router.push(`/agents/${agentName}`);
     } catch (err) { toast.error(err instanceof Error ? err.message : "Failed to create agent"); } finally { setCreating(false); }

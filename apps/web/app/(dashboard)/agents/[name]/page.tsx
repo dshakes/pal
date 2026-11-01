@@ -587,7 +587,14 @@ export default function AgentDetailPage() {
 
   const handleSaveSettings = useCallback(async () => {
     setSavingSettings(true);
-    try { await api.updateAgent(name, { model: settingsModel, isolation: settingsIsolation, timeout: settingsTimeout, maxTokens: settingsMaxTokens, maxCostUsd: settingsMaxCost }); toast.success("Settings saved"); } catch { toast.success("Settings saved locally"); } finally { setSavingSettings(false); }
+    // The API stores the model and (via the manifest) isolation. Timeout and
+    // token/cost limits have no server field yet — say so instead of claiming them.
+    try {
+      await api.updateAgent(name, { model: settingsModel, manifest: { isolation: settingsIsolation } });
+      toast.success("Model and isolation saved. Timeout and token/cost limits aren’t stored by the API yet — use Budgets for spend caps.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn’t save settings");
+    } finally { setSavingSettings(false); }
   }, [name, settingsModel, settingsIsolation, settingsTimeout, settingsMaxTokens, settingsMaxCost, toast]);
 
   // Guardrails save helper

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gateVerdict } from "./eval-gate.ts";
+import { gateVerdict, isRegressed } from "./eval-gate.ts";
 import type { EvalBaseline, EvalRun } from "./api.ts";
 
 const run = (id: string, at: string, over: Partial<EvalRun> = {}): EvalRun => ({
@@ -26,4 +26,14 @@ test("gateVerdict: below the pinned baseline is a regression even if the server 
 test("gateVerdict: passing at or above baseline, and the baseline run itself, pass", () => {
   assert.equal(gateVerdict([run("r2", "2026-11-01T00:00:00Z", { score: 0.95 })], base("r1", 0.9)).state, "pass");
   assert.equal(gateVerdict([run("r1", "2026-11-01T00:00:00Z")], base("r1", 0.9)).state, "pass");
+});
+
+test("isRegressed: below the baseline on its branch, after the pin, and not the baseline itself", () => {
+  const b: EvalBaseline = { agentName: "a", branch: "main", evalRunId: "r1", score: 0.9, setAt: "2026-11-01T00:00:00Z" };
+  assert.equal(isRegressed(run("r2", "2026-11-01T01:00:00Z", { score: 0.6, branch: "main" }), b), true);
+  assert.equal(isRegressed(run("r1", "2026-11-01T01:00:00Z", { score: 0.6 }), b), false); // the baseline itself
+  assert.equal(isRegressed(run("r0", "2026-10-31T01:00:00Z", { score: 0.6 }), b), false); // before the pin
+  assert.equal(isRegressed(run("r3", "2026-11-01T01:00:00Z", { score: 0.6, branch: "feat" }), b), false); // other branch
+  assert.equal(isRegressed(run("r4", "2026-11-01T01:00:00Z", { score: 0.95 }), b), false);
+  assert.equal(isRegressed(run("r5", "2026-11-01T01:00:00Z", { regressed: true }), null), true); // server said so
 });

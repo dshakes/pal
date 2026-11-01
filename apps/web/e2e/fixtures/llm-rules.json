@@ -14,5 +14,9 @@
   {
     "match": "E2E-QUESTION",
     "reply": "{\"kind\":\"answer\",\"answer\":\"You have no agents yet.\",\"summary\":\"Answered from your workspace\"}"
+  },
+  {
+    "match": "E2E-EVAL-GOAL",
+    "reply": "{\"name\":\"e2e-drafted\",\"description\":\"Drafted by the eval generator in e2e\",\"cases\":[{\"name\":\"core-job\",\"input\":\"Summarise PR 7\",\"source\":\"goal\",\"assert\":{\"judge\":{\"rubric\":\"Summarises the PR in one line.\"}},\"rationale\":\"The core job.\"},{\"name\":\"no-shouting\",\"input\":\"Summarise PR 8\",\"source\":\"goal\",\"assert\":{\"notContains\":\"BREAKING\"},\"rationale\":\"No invented breaking changes.\"}]}"
   }
 ]

@@ -22,7 +22,7 @@ import {
 import { apiErrorText } from "@/lib/observability";
 import { ts } from "@/lib/overview";
 import { formatCost } from "@/lib/format";
-import { gateVerdict } from "@/lib/eval-gate";
+import { gateVerdict, isRegressed } from "@/lib/eval-gate";
 import { Button } from "@/components/button";
 import { DataTable } from "@/components/data-table";
 import { Modal } from "@/components/modal";
@@ -137,9 +137,9 @@ export function EvalsPanel({ agentName }: { agentName: string }) {
                 const r = latestBySuite.get(s.id);
                 if (!r) return <span className="text-fg-3">Not run</span>;
                 return (
-                  <span className={clsx("num", r.regressed ? "text-bad" : r.passed ? "text-ok" : "text-warn")}>
+                  <span className={clsx("num", isRegressed(r, baseline ?? null) ? "text-bad" : r.passed ? "text-ok" : "text-warn")}>
                     {pct(r.score)}
-                    {r.regressed && <span className="ml-1.5 text-[12px]">regressed</span>}
+                    {isRegressed(r, baseline ?? null) && <span className="ml-1.5 text-[12px]">regressed</span>}
                   </span>
                 );
               },
@@ -175,17 +175,20 @@ export function EvalsPanel({ agentName }: { agentName: string }) {
             {
               key: "result",
               header: "Result",
-              render: (r) => (
-                <span className={clsx("inline-flex items-center gap-1.5", r.regressed ? "text-bad" : r.passed ? "text-ok" : "text-warn")}>
-                  {r.passed && !r.regressed ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> : <XCircle className="h-3.5 w-3.5" aria-hidden />}
-                  {r.regressed ? "Regressed" : r.passed ? "Passed" : "Failed"}
+              render: (r) => {
+                const reg = isRegressed(r, baseline ?? null);
+                return (
+                <span className={clsx("inline-flex items-center gap-1.5", reg ? "text-bad" : r.passed ? "text-ok" : "text-warn")}>
+                  {r.passed && !reg ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> : <XCircle className="h-3.5 w-3.5" aria-hidden />}
+                  {reg ? "Regressed" : r.passed ? "Passed" : "Failed"}
                   {baseline?.evalRunId === r.id && (
                     <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-[11px] text-accent">
                       <Pin className="h-2.5 w-2.5" aria-hidden /> baseline
                     </span>
                   )}
                 </span>
-              ),
+                );
+              },
             },
             { key: "score", header: "Score", align: "right", render: (r) => <span className="num">{pct(r.score)} <span className="text-fg-3">({r.casesPassed}/{r.casesTotal})</span></span> },
             { key: "cost", header: "Cost", align: "right", hideOnMobile: true, render: (r) => <span className="num text-fg-2">{formatCost(r.totalCostUsd)}</span> },
@@ -241,7 +244,7 @@ function EvalAnalytics({ agentName, refreshKey }: { agentName: string; refreshKe
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <div className="min-w-0 rounded-lg border border-line bg-panel p-4">
-        <p className="text-[12.5px] text-fg-3">Score over the last {trends.points.length} runs</p>
+        <p className="text-[12.5px] text-fg-3">{trends.points.length === 1 ? "Score of the only run" : `Score over the last ${trends.points.length} runs`}</p>
         <div className="mt-2 flex items-end justify-between gap-3">
           <span className={clsx("num text-[20px] font-semibold", trends.regressing ? "text-bad" : "text-fg")}>{pct(trends.points[trends.points.length - 1].score)}</span>
           <div className="w-32 text-accent"><ScoreTrend values={trends.points.map((p) => p.score)} /></div>
@@ -251,7 +254,7 @@ function EvalAnalytics({ agentName, refreshKey }: { agentName: string; refreshKe
         </p>
       </div>
       <div className="min-w-0 rounded-lg border border-line bg-panel p-4">
-        <p className="text-[12.5px] text-fg-3">Most-failed cases ({failures.runsScanned} runs)</p>
+        <p className="text-[12.5px] text-fg-3">Most-failed cases ({failures.runsScanned} run{failures.runsScanned === 1 ? "" : "s"} scanned)</p>
         {failures.clusters.length === 0 ? (
           <p className="mt-2 text-[13px] text-fg-2">No case has failed.</p>
         ) : (
