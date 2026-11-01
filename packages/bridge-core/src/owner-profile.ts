@@ -229,6 +229,21 @@ export class OwnerProfileStore {
     return uniqueTokenMatch(prof.relationships, keys) ?? undefined;
   }
 
+  /** Inner-circle membership for AUTO-SEND decisions: matches by handle only
+   *  (exact / canonical / digits) or an owner-declared "also:" alias, NEVER by a
+   *  display name and never by token. A contact controls their own WhatsApp
+   *  pushName, so name-based matching is spoofable ("Mom"). */
+  declaredRelationshipFor(handle: string): string | undefined {
+    const prof = this.get();
+    if (!prof) return undefined;
+    for (const k of lookupKeys(handle)) {
+      const hit = prof.relationships.get(k);
+      if (hit) return hit;
+    }
+    const canon = this.canonicalNameFor(handle);
+    return canon ? prof.relationships.get(canon.toLowerCase()) : undefined;
+  }
+
   /** Re-identification: given any handle (including an alias / second
    *  number declared via "also: …" in the Relationships section), return
    *  the PRIMARY contact's display name as written in the profile, or

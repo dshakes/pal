@@ -160,6 +160,18 @@ export function isAutoActPaused(path = lifeEventsAutoActPath()): boolean {
   }
 }
 
+// True when the owner explicitly said "resume automation" (file holds paused:false).
+// Auto-act is opt-in (GA PR-1): PAL_LIFE_EVENT_AUTOACT=on OR this persisted choice.
+export function isAutoActOptedIn(path = lifeEventsAutoActPath()): boolean {
+  try {
+    if (!existsSync(path)) return false;
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return !!parsed && typeof parsed === "object" && parsed.paused === false;
+  } catch {
+    return false;
+  }
+}
+
 // Persist the owner's pause/resume choice.
 export function setAutoActPaused(paused: boolean, path = lifeEventsAutoActPath()): void {
   try {

@@ -31,7 +31,9 @@ export const REQUIRED_BOTH = [
   "proactivePaused",
   "decideContactReply", // PAL_REPLY_MODE (drafts default) — one pure decision, both bridges
   "resolveReplyMode",
-  "shouldSendBudgetFyi", // 402 -> hold + one FYI/day
+  "budgetFyiDue", // 402 -> hold + one FYI/day
+  "allowContactSend", // send-boundary invariant: non-owner sends need a typed allow
+  "ALLOW_OWNER_APPROVED",
 ];
 
 /** Intentionally iMessage-only modules. Must stay absent from WhatsApp; if WA adopts one, drop it here. */

@@ -264,5 +264,11 @@ money/promise and grounding holds still apply on top.
 Life-event auto-act (delivery -> Deliveries note, appointment/travel -> Calendar) is also
 ask-first by default; set `PAL_LIFE_EVENT_AUTOACT=on` to let it act on its own.
 
+The mode is enforced where messages leave the bridge, so overnight replays, history catch-up,
+the spouse agent, voice-note acks, reactions and live-watch follow-ups are held too. The one
+exception is the fixed life-threat reply. On WhatsApp, `inner-circle` recognises contacts by phone
+number (or an `also:` alias) in `## Relationships`, not by name, because a contact controls their own
+display name; list the number to include them. Saying "resume automation" persists the life-event opt-in.
+
 If PAL's spend limit is reached (HTTP 402), contact messages are held, nothing is sent, and you
 get at most one heads-up per day.

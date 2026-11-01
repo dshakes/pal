@@ -53,6 +53,42 @@ export function decideContactReply(i: ContactReplyInput): ContactReplyDecision {
   return { action: "send", reason: "" };
 }
 
+// ── SEND BOUNDARY ─────────────────────────────────────────────────────────
+// A branch flag is not an invariant: the guarantee lives where bytes leave the
+// bridge (send()/sendMessage(), next to the mute check). Any NON-owner
+// destination is refused unless the call carries an explicit, typed allow:
+//   contact-reply    a decideContactReply "send" decision for THAT contact
+//   owner-approved   owner approved a draft / typed an owner command / owner REST send
+//   safety-exception the documented life-threat canned reply (the ONLY auto-send
+//                    that bypasses drafts mode; prompt-injection refusals do NOT)
+export type SendAllow =
+  | { kind: "contact-reply"; decision: ContactReplyDecision }
+  | { kind: "owner-approved" }
+  | { kind: "safety-exception" };
+
+export const ALLOW_OWNER_APPROVED: SendAllow = { kind: "owner-approved" };
+export const ALLOW_SAFETY_EXCEPTION: SendAllow = { kind: "safety-exception" };
+
+export interface SendGateInput {
+  mode: ReplyMode;
+  destination: string;
+  isOwner: boolean;
+  allow?: SendAllow;
+}
+
+export function allowContactSend(i: SendGateInput): { ok: boolean; reason: string } {
+  if (i.isOwner) return { ok: true, reason: "owner destination" };
+  if (i.mode === "everyone") return { ok: true, reason: "reply-mode=everyone" };
+  const a = i.allow;
+  if (a?.kind === "owner-approved") return { ok: true, reason: "owner-approved" };
+  if (a?.kind === "safety-exception") return { ok: true, reason: "safety-exception" };
+  if (a?.kind === "contact-reply" && a.decision.action === "send") return { ok: true, reason: "contact-reply allowed" };
+  return {
+    ok: false,
+    reason: `reply-mode=${i.mode}: unapproved send to ${i.destination} blocked${a?.kind === "contact-reply" ? ` (${a.decision.reason})` : ""}`,
+  };
+}
+
 /** One-line startup log text. */
 export function describeReplyMode(r: ReplyModeResolution): string {
   return `reply mode: ${r.mode} (source: ${r.source === "env" ? "PAL_REPLY_MODE" : r.source === "default" ? "default" : "PAL_REPLY_MODE invalid -> safe default"})`;
@@ -69,12 +105,14 @@ export function dayKey(now: number): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-/** Returns true (and records the day) when an FYI should be sent now. */
-export function shouldSendBudgetFyi(state: BudgetFyiState, now: number): boolean {
-  const k = dayKey(now);
-  if (state.lastDay === k) return false;
-  state.lastDay = k;
-  return true;
+/** True when no FYI has been delivered yet today. Pure; record success with markBudgetFyi. */
+export function budgetFyiDue(state: BudgetFyiState, now: number): boolean {
+  return state.lastDay !== dayKey(now);
+}
+
+/** Call only after the FYI was actually delivered. */
+export function markBudgetFyi(state: BudgetFyiState, now: number): void {
+  state.lastDay = dayKey(now);
 }
 
 export const BUDGET_FYI_TEXT =

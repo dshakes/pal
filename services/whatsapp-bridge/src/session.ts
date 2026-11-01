@@ -50,7 +50,7 @@ import {
 } from "@pal/bridge-core/natural";
 import { judgeCommitment, commitmentHoldPage, extractContactRequests, isConfidentContactShare, promiseIsAboutNumber, type CommitmentVerdict, type ResolvedShare } from "@pal/bridge-core/commitment-gate";
 import { judgeGrounding, groundingHoldPage, type GroundingVerdict } from "@pal/bridge-core/grounding-gate";
-import { resolveReplyMode, decideContactReply, describeReplyMode, shouldSendBudgetFyi, BUDGET_FYI_TEXT, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
+import { resolveReplyMode, decideContactReply, describeReplyMode, budgetFyiDue, markBudgetFyi, BUDGET_FYI_TEXT, allowContactSend, ALLOW_OWNER_APPROVED, ALLOW_SAFETY_EXCEPTION, type SendAllow, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
 import { fitVoiceModel, scoreVoice, voiceDelta, type VoiceModel } from "@pal/bridge-core/voice-score";
 import type { BotTellContext } from "@pal/bridge-core/natural";
 import { strictRegenHint } from "@pal/bridge-core/natural";
@@ -3028,7 +3028,7 @@ export class WhatsAppSession {
             // poll loop.
             const ack = liveLoc ? "got your location, watching 👀" : "got it 📍";
             try {
-              await this.sendMessage(from, ack);
+              await this.sendMessage(from, ack, { allow: this.contactAllow(from) });
               this.logger.info(
                 { jid: from, kind: liveLoc ? "live" : "static" },
                 "location share acknowledged",
@@ -3153,13 +3153,13 @@ export class WhatsAppSession {
             // No transcript text is read/logged here (PII).
             if (annotation.degraded && annotation.kind === "voice" && !(msg.key.remoteJid || "").endsWith("@g.us")) {
               this.logger.info({ jid: from }, "voice note un-transcribable — sending human ack");
-              await this.sendReaction(from, msg.key, "🙏").catch(() => {});
+              await this.sendReaction(from, msg.key, "🙏", this.contactAllow(from)).catch(() => {});
               const ownerChat = this.isOwnerChat(from);
               const ack = degradedVoiceAck({
                 isOwner: ownerChat,
                 contactWritesTelugu: !ownerChat && this.contactWritesTelugu(from),
               });
-              await this.sendMessage(from, ack).catch((err) =>
+              await this.sendMessage(from, ack, { allow: this.contactAllow(from) }).catch((err) =>
                 this.logger.warn({ err, jid: from }, "voice-note ack send failed"),
               );
               this.broadcast({
@@ -3415,7 +3415,11 @@ export class WhatsAppSession {
           // INNER-CIRCLE AGENTIC HANDLING + CONCIERGE CAPTURE.
           if (!isGroup && !this.killSwitch && text) {
             const relForAgent = this.ownerProfileStore.relationshipFor(from, senderName);
-            if (WhatsAppSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent)) {
+            const spouseAllow = this.contactAllow(from);
+            if (WhatsAppSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent) && spouseAllow.kind === "contact-reply" && spouseAllow.decision.action !== "send") {
+              // Reply mode would draft: the spouse agent auto-replies AND executes todos/calendar, so skip it entirely.
+              this.logger.info({ from, reason: spouseAllow.decision.reason }, "spouse agent skipped — reply mode drafts (normal reply path will hold it)");
+            } else if (WhatsAppSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent)) {
               // Spouse-nudge-agent: plan + EXECUTE action items, confirm to her,
               // heads-up the owner — then skip the normal reply for this message.
               if (await this.runSpouseAgent(from, text, senderName)) {
@@ -3499,27 +3503,10 @@ export class WhatsAppSession {
           // So: known contacts (relationship/samples/facts) auto-reply
           // authentically; unknown contacts get held as a draft; nobody
           // gets spam. Owner can still globally mute or pause per-contact.
-          // PAL_REPLY_MODE (GA PR-1): a "draft" decision rides the SAME hold path as
-          // mute (opts.mutedHold -> tier LOW -> owner draft; hand-off failure
-          // suppresses). Mute / killswitch / commitment + grounding holds still win.
-          let modeHold = false;
-          if (this.replyMode.mode !== "everyone") {
-            const inInnerCircle = !isGroup && !!this.ownerProfileStore.relationshipFor(from, this.contactNames.get(from) ?? senderName);
-            let spam = false;
-            if (!inInnerCircle) {
-              const { classifyUnknownInbound } = await import("@pal/bridge-core/inbound-classifier");
-              spam = classifyUnknownInbound(text).kind === "spam";
-            }
-            const modeDecision = decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle, spam });
-            if (modeDecision.action === "draft") {
-              modeHold = true;
-              this.logger.info({ from, reason: modeDecision.reason }, "reply mode: contact reply will be drafted for the owner, not auto-sent");
-            }
-          }
           this.handleAgentReply(from, text, {
             isGroup,
             senderName,
-            mutedHold: mutedHold || modeHold,
+            mutedHold,
             msgKey: msg.key,
             // Full proto message → so we can quote-reply in groups
             // (real-human behavior in noisy threads).
@@ -3540,6 +3527,33 @@ export class WhatsAppSession {
     }
   }
 
+  /** Typed allow for a CONTACT-facing send: the decideContactReply verdict for THAT contact. */
+  private contactAllow(jid: string, isGroup = this.isGroupJid(jid)): SendAllow {
+    return { kind: "contact-reply", decision: decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle: !isGroup && this.isInnerCircleJid(jid), spam: false }) };
+  }
+
+  /** Inner circle by JID / owner-declared alias ONLY. A contact controls their own pushName, so a display name never grants membership. */
+  private isInnerCircleJid(jid: string): boolean {
+    return !!this.ownerProfileStore.declaredRelationshipFor(jid);
+  }
+
+  private blockedHolds = new Map<string, number>();
+  /** A send the boundary refused goes to the owner as a draft — never sent, never silently dropped. */
+  private holdBlockedSend(to: string, text: string): void {
+    const k = `${to}\u0000${text}`;
+    const now = Date.now();
+    if ((this.blockedHolds.get(k) ?? 0) > now - 10 * 60_000) return;
+    if (this.blockedHolds.size > 200) this.blockedHolds.clear();
+    this.blockedHolds.set(k, now);
+    const label = this.contactNames.get(to) ?? to.split("@")[0];
+    void (async () => {
+      const queued = await this.personal.queueDraft(to, label, "", text, { channel: "whatsapp" }).catch(() => null);
+      await this.sendSelf(`🟡 held a reply to ${label} (reply mode blocked the send):\n\nDraft: ${text.slice(0, 300)}\n\n(reply 👍/yes to send as-is, or just type your own version and I'll send THAT)`);
+      const ownerThread = this.ownJid();
+      if (ownerThread) this.pendingDraftEdits.set(ownerThread, { targetJid: to, displayName: label, draftId: queued?.id, draftText: text, inboundText: "", issuedAt: Date.now() });
+    })().catch((err) => this.logger.warn({ err, to }, "reply-mode boundary: blocked send could not be handed to the owner — suppressed (nothing sent)"));
+  }
+
   async sendMessage(
     to: string,
     text: string,
@@ -3549,6 +3563,9 @@ export class WhatsAppSession {
       // "reply" on an old message in a busy thread. Skip when null/
       // undefined to send a normal message.
       quoted?: import("baileys").proto.IWebMessageInfo;
+      // Typed allow for a non-owner destination (see allowContactSend). Without
+      // it, drafts / inner-circle modes block the send into the owner's draft queue.
+      allow?: SendAllow;
     } = {},
   ): Promise<string | undefined> {
     if (!this.socket || !this.connected) {
@@ -3579,6 +3596,15 @@ export class WhatsAppSession {
     if (this.muted && !this.isOwnerChat(to)) {
       this.mutedBoundaryBlocks++;
       this.logger.warn({ to, textPreview: text.slice(0, 80) }, "MUTED — send BLOCKED at boundary (only the owner is reachable while muted)");
+      return undefined;
+    }
+    // REPLY-MODE SEND BOUNDARY (GA PR-1), beside the mute check: in drafts /
+    // inner-circle a non-owner destination needs an EXPLICIT typed allow.
+    // Callers that forget the token fail closed into the owner's draft queue.
+    const gate = allowContactSend({ mode: this.replyMode.mode, destination: to, isOwner: this.isOwnerChat(to), allow: opts.allow });
+    if (!gate.ok) {
+      this.logger.warn({ to, textPreview: text.slice(0, 80), reason: gate.reason }, "REPLY MODE — send BLOCKED at boundary, handed to owner as a draft");
+      this.holdBlockedSend(to, text);
       return undefined;
     }
     if (isBlockedGroupSend(to)) {
@@ -3791,7 +3817,7 @@ export class WhatsAppSession {
   private async surfaceLifeEvent(from: string, text: string): Promise<boolean> {
     const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision, autoActEnabled } =
       await import("@pal/bridge-core/life-events");
-    const { loadLifeEventPrefs, isAutoActPaused } = await import("@pal/bridge-core/life-events-store");
+    const { loadLifeEventPrefs, isAutoActPaused, isAutoActOptedIn } = await import("@pal/bridge-core/life-events-store");
 
     // Unknown-sender inbound only — LLM classifier runs on the transactional
     // tail, not chit-chat. Dedicated `::lifeevent` key, never the live jid.
@@ -3812,9 +3838,9 @@ export class WhatsAppSession {
 
     // ── AUTO-ACT LADDER ── safe+reversible (delivery→note, appointment/travel→
     // calendar) fire automatically; money/fraud/OTP/sending never do. Kill
-    // switch (PAL_LIFE_EVENT_AUTOACT, default on) + persisted pause flag.
+    // switch (PAL_LIFE_EVENT_AUTOACT=on or the owner opt-in; default OFF) + persisted pause flag.
     const autoEnabled =
-      autoActEnabled(process.env.PAL_LIFE_EVENT_AUTOACT) && !isAutoActPaused();
+      (autoActEnabled(process.env.PAL_LIFE_EVENT_AUTOACT) || isAutoActOptedIn()) && !isAutoActPaused();
     const auto = autoActDecision(event, prefs, { enabled: autoEnabled });
     this.logger.info(
       { kind: event.kind, urgency: event.urgency, conf: event.confidence, autoMode: auto.mode, reason: auto.reason },
@@ -6006,7 +6032,7 @@ export class WhatsAppSession {
         );
       } else {
         const body = decision === "replace" ? text : pending.draftText;
-        await this.sendMessage(pending.targetJid, body);
+        await this.sendMessage(pending.targetJid, body, { allow: ALLOW_OWNER_APPROVED });
         this.recordOutboundReply(pending.targetJid, body);
         await this.confirmToSelf(decision === "replace" ? `✅ sent your version to ${label}.` : `✅ sent to ${label}.`);
       }
@@ -6072,7 +6098,7 @@ export class WhatsAppSession {
       ttlSeconds: 3600,
     });
     if (!staged) return { ok: false, reason: "couldn't create a secure link" };
-    await this.sendMessage(targetJid, buildDocLinkMessage(request, staged.url, 60));
+    await this.sendMessage(targetJid, buildDocLinkMessage(request, staged.url, 60), { allow: ALLOW_OWNER_APPROVED });
     return { ok: true, via: "link" };
   }
 
@@ -7458,7 +7484,7 @@ export class WhatsAppSession {
     if (!reply) return false;
     this.logger.info({ to: to ?? "self", why }, "greeting fallback — agent draft unusable, sending deterministic opener");
     try {
-      if (to) await this.sendMessage(to, reply);
+      if (to) await this.sendMessage(to, reply, { allow: this.contactAllow(to) });
       else await this.confirmToSelf(reply);
     } catch (err) {
       this.logger.warn({ err, to: to ?? "self" }, "greeting fallback send failed");
@@ -8552,6 +8578,25 @@ export class WhatsAppSession {
     // non-owner (set below) keeps it pinned to "contact" — never escalates.
     let personaAudience: "owner" | "contact" = isOwnerChan ? "owner" : "contact";
 
+    // PAL_REPLY_MODE (GA PR-1), decided HERE so every entry (live, overnight
+    // replay, history catch-up) agrees. A "draft" outcome rides the mute hold
+    // (opts.mutedHold -> tier LOW -> owner draft; hand-off failure suppresses),
+    // and the send boundary in sendMessage() enforces it regardless.
+    if (!isOwnerChan && this.replyMode.mode !== "everyone") {
+      const isGroup = !!opts.isGroup;
+      const inInnerCircle = !isGroup && this.isInnerCircleJid(from);
+      let spam = false;
+      if (!inInnerCircle) {
+        const { classifyUnknownInbound } = await import("@pal/bridge-core/inbound-classifier");
+        spam = classifyUnknownInbound(text).kind === "spam";
+      }
+      const modeDecision = decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle, spam });
+      if (modeDecision.action === "draft") {
+        opts = { ...opts, mutedHold: true };
+        this.logger.info({ from, reason: modeDecision.reason }, "reply mode: contact reply will be drafted for the owner, not auto-sent");
+      }
+    }
+
     // Soft privacy boundary: a NON-owner asking about the owner's family,
     // relationship, home, schedule, or travel. This is NOT a hard probe —
     // a friendly "you married?" must not page the owner or cold-refuse. We
@@ -8605,7 +8650,7 @@ export class WhatsAppSession {
         });
         try {
           const reply = escalationRefusalReply("life-threat", ownerName);
-          await this.sendMessage(from, reply);
+          await this.sendMessage(from, reply, { allow: ALLOW_SAFETY_EXCEPTION });
         } catch (err) {
           this.logger.error({ err, from }, "life-threat refusal send failed");
         }
@@ -8626,7 +8671,7 @@ export class WhatsAppSession {
           contactText: text,
         });
         try {
-          await this.sendMessage(from, escalationRefusalReply("prompt-injection", ownerName));
+          await this.sendMessage(from, escalationRefusalReply("prompt-injection", ownerName), { allow: this.contactAllow(from) });
         } catch (err) {
           this.logger.error({ err, from }, "prompt-injection refusal send failed");
         }
@@ -8688,7 +8733,7 @@ export class WhatsAppSession {
     const verdict = shouldRespond(text);
     if (!verdict.respond) {
       if (verdict.reaction && opts.msgKey?.id) {
-        await this.sendReaction(from, opts.msgKey, verdict.reaction);
+        await this.sendReaction(from, opts.msgKey, verdict.reaction, this.contactAllow(from, !!opts.isGroup));
       }
       this.broadcast({
         type: "agent_reply",
@@ -8800,7 +8845,7 @@ export class WhatsAppSession {
     ) {
       const disclosure = process.env.PAL_AGENT_HANDOFF_MESSAGE.trim();
       try {
-        await this.sendMessage(from, disclosure);
+        await this.sendMessage(from, disclosure, { allow: this.contactAllow(from) });
         this.broadcast({
           type: "agent_reply",
           data: {
@@ -9299,7 +9344,7 @@ export class WhatsAppSession {
       // 402 = spend limit: hold for the owner (FYI once/day), never send a canned fallback.
       if (this.agent.consumeBudgetBlock(from)) {
         this.logger.warn({ from }, "contact reply HELD — control-plane budget limit (402); nothing sent");
-        if (shouldSendBudgetFyi(this.budgetFyi, Date.now())) void this.confirmToSelf(`⚠️ ${BUDGET_FYI_TEXT}`).catch(() => {});
+        if (budgetFyiDue(this.budgetFyi, Date.now())) void this.confirmToSelf(`⚠️ ${BUDGET_FYI_TEXT}`).then(() => markBudgetFyi(this.budgetFyi, Date.now())).catch(() => {});
         return;
       }
       if (!opts.isGroup) {
@@ -9639,7 +9684,7 @@ export class WhatsAppSession {
           // directly and the owner gets an FYI; otherwise the hold below.
           if (!opts.mutedHold && isConfidentContactShare({ requesterInnerCircle: isInnerCircle(relationship), isGroup: !!opts.isGroup, resolved, askedCount: asked.length, holdReason: commitVerdict.reason, boundToNumber: promiseIsAboutNumber(text, draft) })) {
             const numbers = resolved.map((r) => `${r.name}: ${r.phone}`).join("\n");
-            await this.sendMessage(from, numbers);
+            await this.sendMessage(from, numbers, { allow: this.contactAllow(from) });
             this.logger.info({ from, asked, resolved: resolved.map((r) => r.name) }, "COMMITMENT GATE — contact share AUTO-SENT (confident: known requester, unambiguous known people)");
             void this.confirmToSelf(`📇 shared ${resolved.map((r) => `${r.name}'s`).join(" + ")} number${resolved.length > 1 ? "s" : ""} with ${opts.senderName ?? this.contactNames.get(from) ?? from.split("@")[0]} — they asked, everyone's known to you, no ambiguity.`).catch(() => {});
             return;
@@ -9852,7 +9897,7 @@ export class WhatsAppSession {
       // the reply. Only the FIRST burst message quotes — subsequent
       // ones are part of the same thought.
       const quoteThis = i === 0 && opts.isGroup ? opts.quotedMsg : undefined;
-      const sentId = await this.sendMessage(from, msg.text, { quoted: quoteThis });
+      const sentId = await this.sendMessage(from, msg.text, { quoted: quoteThis, allow: this.contactAllow(from, !!opts.isGroup) });
       // Retry-track the FIRST burst message (1:1 only) so a 👎 / 🔁 on a
       // contact-facing reply can reconstruct the prompt and regenerate.
       // surface: "contact-reply" routes the corrected reply back to the
@@ -9972,9 +10017,16 @@ export class WhatsAppSession {
       fromMe?: boolean | null;
       participant?: string | null;
     },
-    emoji: string
+    emoji: string,
+    allow?: SendAllow,
   ): Promise<void> {
     if (!this.socket || !key.id) return;
+    // Reactions are outbound too: same reply-mode boundary (owner-only unless the mode allows).
+    const gate = allowContactSend({ mode: this.replyMode.mode, destination: jid, isOwner: this.isOwnerChat(jid), allow });
+    if (!gate.ok) {
+      this.logger.info({ jid, emoji, reason: gate.reason }, "REPLY MODE — reaction BLOCKED at boundary");
+      return;
+    }
     const reactKey = {
       remoteJid: key.remoteJid || jid,
       fromMe: !!key.fromMe,
@@ -10326,7 +10378,7 @@ export class WhatsAppSession {
             });
             const tell = followUp ? detectBotTells(followUp, w.topic) : { ok: false as const, reason: "empty follow-up" };
             if (followUp && tell.ok) {
-              await this.sendMessage(w.jid, followUp);
+              await this.sendMessage(w.jid, followUp, { allow: this.contactAllow(w.jid) });
               w.status = "done";
               this.logger.info({ jid: w.jid, topic: w.topic, followUp }, "live watch resolved — follow-up sent");
               try {
@@ -11074,7 +11126,7 @@ export class WhatsAppSession {
         const label = pending.displayName ?? pending.targetJid.split("@")[0];
         if (action.action === "send" || action.action === "act") {
           this.pendingDraftEdits.delete(item.id);
-          await this.sendMessage(pending.targetJid, pending.draftText);
+          await this.sendMessage(pending.targetJid, pending.draftText, { allow: ALLOW_OWNER_APPROVED });
           this.recordOutboundReply(pending.targetJid, pending.draftText);
           await this.confirmToSelf(`✅ sent to ${label}.`);
         } else if (action.action === "edit" || action.action === "custom") {
@@ -11084,7 +11136,7 @@ export class WhatsAppSession {
             return;
           }
           this.pendingDraftEdits.delete(item.id);
-          await this.sendMessage(pending.targetJid, replacement);
+          await this.sendMessage(pending.targetJid, replacement, { allow: ALLOW_OWNER_APPROVED });
           this.recordOutboundReply(pending.targetJid, replacement);
           await this.confirmToSelf(`✅ sent your version to ${label}.`);
         } else if (action.action === "skip") {
@@ -11425,7 +11477,7 @@ export class WhatsAppSession {
 
       // STATUS QUERY — truthful answer from real task state.
       if (resp.type === "status") {
-        await this.sendMessage(from, resp.replyToSpouse).catch(() => {});
+        await this.sendMessage(from, resp.replyToSpouse, { allow: this.contactAllow(from) }).catch(() => {});
         this.logger.info({ from }, "spouse-agent: answered status query");
         return true;
       }
@@ -11433,7 +11485,7 @@ export class WhatsAppSession {
       // DONE REPORT — mark the items she reported handled complete.
       if (resp.type === "done") {
         for (const id of resp.doneIds) await this.commitments.done(id).catch(() => null);
-        await this.sendMessage(from, resp.replyToSpouse).catch(() => {});
+        await this.sendMessage(from, resp.replyToSpouse, { allow: this.contactAllow(from) }).catch(() => {});
         await this.sendSelf(`✅ ${spouseName} — ${resp.ownerSummary}`).catch(() => {});
         this.logger.info({ from, done: resp.doneIds.length }, "spouse-agent: closed items she reported done");
         return true;
@@ -11447,7 +11499,7 @@ export class WhatsAppSession {
           createdBy: spouseName,
           createdMs: Date.now(),
         });
-        await this.sendMessage(from, resp.replyToSpouse).catch(() => {});
+        await this.sendMessage(from, resp.replyToSpouse, { allow: this.contactAllow(from) }).catch(() => {});
         await this.sendSelf(`⏰ ${spouseName} set a recurring reminder — ${resp.ownerSummary}`).catch(() => {});
         this.logger.info({ from, title: resp.reminder.title }, "spouse-agent: created recurring reminder");
         return true;
@@ -11465,7 +11517,7 @@ export class WhatsAppSession {
         } else {
           reply = renderList(loadList(this.stateDir));
         }
-        await this.sendMessage(from, reply).catch(() => {});
+        await this.sendMessage(from, reply, { allow: this.contactAllow(from) }).catch(() => {});
         this.logger.info({ from, op: resp.op }, "spouse-agent: shared list op");
         return true;
       }
@@ -11496,7 +11548,7 @@ export class WhatsAppSession {
         }
       }
 
-      if (resp.replyToSpouse) await this.sendMessage(from, resp.replyToSpouse).catch(() => {});
+      if (resp.replyToSpouse) await this.sendMessage(from, resp.replyToSpouse, { allow: this.contactAllow(from) }).catch(() => {});
       await this.sendSelf(`📋 ${spouseName} — ${resp.ownerSummary}\n${done.join("\n")}`).catch(() => {});
       this.logger.info({ from, items: resp.items.length }, "spouse-agent: handled action items");
       return true;

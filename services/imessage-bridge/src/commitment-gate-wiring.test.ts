@@ -83,7 +83,7 @@ describe("contact sharing goes through the deterministic policy on both bridges"
       const call = src.indexOf("isConfidentContactShare({");
       expect(call).toBeGreaterThan(0);
       // The direct send of the numbers sits inside that decision's block.
-      const sendAfter = src.indexOf(name === "imessage" ? "await this.send(row.handle, numbers)" : "await this.sendMessage(from, numbers)", call);
+      const sendAfter = src.indexOf(name === "imessage" ? "await this.send(row.handle, numbers," : "await this.sendMessage(from, numbers,", call);
       expect(sendAfter).toBeGreaterThan(call);
       expect(sendAfter - call).toBeLessThan(900);
     });

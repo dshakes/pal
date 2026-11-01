@@ -4,7 +4,8 @@ import {
   resolveReplyMode,
   decideContactReply,
   describeReplyMode,
-  shouldSendBudgetFyi,
+  budgetFyiDue,
+  markBudgetFyi,
   dayKey,
   type ReplyMode,
 } from "./reply-mode.ts";
@@ -64,14 +65,39 @@ describe("decideContactReply matrix", () => {
   });
 });
 
-describe("budget (402) FYI is at most once per day", () => {
+describe("budget (402) FYI is at most once per day, recorded on delivery", () => {
   const t0 = new Date(2026, 10, 1, 9, 0).getTime();
-  test("first fires, rest of the day silent, next day fires again", () => {
+  test("due until delivered; then silent for the day; due again next day", () => {
     const st = {};
-    assert.equal(shouldSendBudgetFyi(st, t0), true);
-    assert.equal(shouldSendBudgetFyi(st, t0 + 3_600_000), false);
-    assert.equal(shouldSendBudgetFyi(st, t0 + 5 * 3_600_000), false);
+    assert.equal(budgetFyiDue(st, t0), true);
+    assert.equal(budgetFyiDue(st, t0 + 3_600_000), true); // not yet delivered (send failed) -> still due
+    markBudgetFyi(st, t0);
+    assert.equal(budgetFyiDue(st, t0 + 5 * 3_600_000), false);
     assert.notEqual(dayKey(t0), dayKey(t0 + 24 * 3_600_000));
-    assert.equal(shouldSendBudgetFyi(st, t0 + 24 * 3_600_000), true);
+    assert.equal(budgetFyiDue(st, t0 + 24 * 3_600_000), true);
   });
+});
+
+import { allowContactSend, ALLOW_OWNER_APPROVED, ALLOW_SAFETY_EXCEPTION, type SendAllow } from "./reply-mode.ts";
+
+describe("allowContactSend (the send boundary)", () => {
+  const g = (mode: ReplyMode, isOwner: boolean, allow?: SendAllow) => allowContactSend({ mode, destination: "x", isOwner, allow }).ok;
+  const sendDec: SendAllow = { kind: "contact-reply", decision: { action: "send", reason: "" } };
+  const draftDec: SendAllow = { kind: "contact-reply", decision: { action: "draft", reason: "reply-mode=drafts" } };
+  test("owner destination always passes", () => {
+    for (const m of ["drafts", "inner-circle", "everyone"] as const) assert.equal(g(m, true), true);
+  });
+  test("drafts/inner-circle: no token => blocked (every leak path)", () => {
+    for (const m of ["drafts", "inner-circle"] as const) assert.equal(g(m, false), false);
+  });
+  test("a draft decision never opens the boundary", () => {
+    for (const m of ["drafts", "inner-circle"] as const) assert.equal(g(m, false, draftDec), false);
+  });
+  test("send decision, owner-approved and safety exception open it", () => {
+    assert.equal(g("inner-circle", false, sendDec), true);
+    assert.equal(g("drafts", false, ALLOW_OWNER_APPROVED), true);
+    assert.equal(g("drafts", false, ALLOW_SAFETY_EXCEPTION), true);
+  });
+  test("everyone: legacy, no token needed", () => assert.equal(g("everyone", false), true));
+  test("blocked reason is logged text", () => assert.match(allowContactSend({ mode: "drafts", destination: "+1555", isOwner: false }).reason, /blocked/));
 });

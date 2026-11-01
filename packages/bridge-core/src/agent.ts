@@ -151,6 +151,7 @@ export class AgentClient {
     // "session is not active" and EVERY subsequent message fails until
     // the bridge restarts. We detect that, drop the stale id, and
     // recreate ONCE so the user's next message lands clean.
+    this.budgetBlocked.delete(jid); // per-turn: a stale 402 must not hold a later turn
     for (let attempt = 0; attempt < 2; attempt++) {
       const sessionId = await this.ensureSession(jid);
       if (!sessionId) return null;

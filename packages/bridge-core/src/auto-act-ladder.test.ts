@@ -344,3 +344,17 @@ describe("autoAct default is ask-first (GA PR-1)", () => {
     assert.equal(autoActEnabled("TRUE"), true);
   });
 });
+
+describe("explicit owner opt-in (resume automation) counts", () => {
+  test("opted-in only when the state file says paused:false", async () => {
+    const { isAutoActOptedIn, setAutoActPaused } = await import("./life-events-store.ts");
+    const dir = mkdtempSync(join(tmpdir(), "autoact-"));
+    const f = join(dir, "s.json");
+    assert.equal(isAutoActOptedIn(f), false); // absent => not opted in
+    setAutoActPaused(false, f);
+    assert.equal(isAutoActOptedIn(f), true);
+    setAutoActPaused(true, f);
+    assert.equal(isAutoActOptedIn(f), false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -2114,12 +2114,24 @@ VIPs always go through the dashboard draft queue regardless.
 
 Contact replies are drafted for the owner unless the owner opts in: `drafts` (default) /
 `inner-circle` / `everyone` (see the env table). Decision = `decideContactReply`
-(`bridge-core/src/reply-mode.ts`); a "draft" outcome sets the same `mutedHold` flag the mute path
-uses, so it flows through tier LOW -> `draftToOwnerForApproval` and a failed owner hand-off
-suppresses (never sends); the canned greeting fallback is skipped too. Fixed safety refusals
-(life-threat / prompt-injection) still go out. A control-plane **402** (budget) on a contact reply
-is held, never replaced by a fallback send: logged every time, one owner FYI per local day
-(`shouldSendBudgetFyi`). Life-event auto-act is likewise opt-in (`PAL_LIFE_EVENT_AUTOACT=on`).
+(`bridge-core/src/reply-mode.ts`). **The guarantee lives at the SEND BOUNDARY**, beside the mute
+check in iMessage `send()` and WhatsApp `sendMessage()`/`sendReaction()`: any non-owner destination is
+refused in `drafts`/`inner-circle` unless the call carries a typed `SendAllow` — `contact-reply` (a
+`decideContactReply` "send" for THAT contact), `owner-approved` (approved draft / owner command / owner
+REST send) or `safety-exception`. A refused send is handed to the owner as a draft (never sent, never
+silently dropped); callers that forget the token fail closed. The pipeline also sets the same `mutedHold`
+flag as mute so the reply is drafted up front, and the decision is re-run inside WhatsApp
+`handleAgentReply` so overnight replay and history catch-up agree. Spouse agent, voice-note acks,
+auto-reactions, live-watch follow-ups, handoff disclosure and greeting fallbacks all go through the
+boundary. **Documented exception:** the fixed life-threat canned reply is `safety-exception` and still
+auto-sends in any mode; the prompt-injection refusal is held in drafts mode and for non-members in
+inner-circle. Inner-circle membership is by handle/JID or owner-declared alias only on WhatsApp
+(`declaredRelationshipFor`) — never a contact-controlled pushName — so WhatsApp contacts declared only by
+name in `## Relationships` are drafted until a number/alias is added. A control-plane **402** (budget) on
+a contact reply is held, never replaced by a fallback send: logged every time, one owner FYI per local
+day, recorded on delivery. Life-event auto-act is likewise opt-in (`PAL_LIFE_EVENT_AUTOACT=on` or the
+owner saying "resume automation", which persists). Not routed through the boundary (owner-initiated by
+construction): WhatsApp 🔁 retry and `sendDocument`.
 **Owners who relied on the old defaults must set `PAL_REPLY_MODE=everyone` and
 `PAL_LIFE_EVENT_AUTOACT=on` in `~/.pal/bridge.env`.**
 
