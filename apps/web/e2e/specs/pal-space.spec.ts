@@ -33,10 +33,17 @@ const shot = async (page: Page, name: string) => {
   await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true });
 };
 const draft = (displayName: string, draftText: string, channel: "whatsapp" | "imessage" = "whatsapp") =>
-  post<{ id: string }>("/v1/whatsapp/drafts", { jid: `1555${Math.floor(Math.random() * 1e7)}@s.whatsapp.net`, displayName, inboundText: `${displayName} says hi`, draftText, channel });
+  post<{ id: string }>("/v1/whatsapp/drafts", { jid: `e2e-fixture-${Math.floor(Math.random() * 1e9)}@invalid`, displayName, inboundText: `${displayName} says hi`, draftText, channel });
 const pending = async () => (await api<{ drafts: Array<{ id: string; displayName: string }> }>("/v1/whatsapp/drafts?status=pending")).drafts;
 
 test.beforeAll(async () => {
+  // Approving makes the control-plane POST /send to PAL_BRIDGE_URL. With E2E_REUSE_STACK the
+  // fixture bridge may be absent and a control-plane without that env would hit the OWNER'S
+  // live bridge, so refuse to run unless the fixture is what answers.
+  const health = await fetch(`${BRIDGE_WA_URL}/health`).then((r) => r.json() as Promise<{ version?: string }>).catch(() => null);
+  if (health?.version !== "fixture") {
+    throw new Error(`pal-space e2e aborted: ${BRIDGE_WA_URL}/health is not the fixture bridge. Start it (global-setup does) and point the control-plane at it; see e2e/README.md.`);
+  }
   const r = await fetch(`${API_URL}/auth/signup`, {
     method: "POST",
     headers: { "content-type": "application/json" },

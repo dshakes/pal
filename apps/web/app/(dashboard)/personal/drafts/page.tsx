@@ -8,10 +8,10 @@
 // confirm card (components/personal/hold-card); a delivery failure is shown as
 // "not delivered", never as success (lib/pal-space.holdOutcome).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, Edit3, Inbox, RefreshCw, X } from "lucide-react";
 import { listDrafts, prettyJid, type Draft } from "@/lib/whatsapp-personal-client";
-import { DRAFTS_CAP, capNote, timeAgo } from "@/lib/pal-space";
+import { DRAFTS_CAP, capNote, makeLatest, reconcileResolved, timeAgo } from "@/lib/pal-space";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
@@ -45,18 +45,33 @@ export default function HoldsPage() {
   const [error, setError] = useState<string | null>(null);
   const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
 
+  // Only the latest request may write state (a slow answer for a tab the owner
+  // already left must not overwrite the current one), and drafts acted on this
+  // session stay hidden from polls that were already in flight.
+  const latest = useRef(makeLatest());
+  const resolvedIds = useRef<Set<string>>(new Set());
+
   const refresh = useCallback(
     async (silent = false) => {
+      const req = latest.current.begin();
       if (!silent) setLoading(true);
       try {
         const { drafts: next } = await listDrafts(tab);
-        setDrafts(next ?? []);
+        if (!latest.current.isLatest(req)) return;
+        let rows = next ?? [];
+        if (tab === "pending") {
+          const r = reconcileResolved(rows, resolvedIds.current);
+          resolvedIds.current = r.resolved;
+          rows = r.rows;
+        }
+        setDrafts(rows);
         setError(null);
       } catch (e) {
+        if (!latest.current.isLatest(req)) return;
         // Keep whatever was already on screen; say the refresh failed.
         setError(e instanceof Error ? e.message : "Couldn't load holds");
       } finally {
-        setLoading(false);
+        if (latest.current.isLatest(req)) setLoading(false);
       }
     },
     [tab],
@@ -79,6 +94,7 @@ export default function HoldsPage() {
       toast.error(outcome.message);
       return;
     }
+    resolvedIds.current.add(draft.id);
     setDrafts((prev) => prev.filter((d) => d.id !== draft.id));
     if (outcome.kind === "delivery_failed" && sentText) {
       setFailedSends((prev) => [

@@ -9,7 +9,7 @@
 // thread) come from the bridge's bot state and are shown read-only, and the
 // section degrades to a note when the bridge is down.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { AlertTriangle, Search, UserMinus, Users } from "lucide-react";
@@ -17,7 +17,7 @@ import { api } from "@/lib/api";
 import { useBridge } from "@/components/personal/bridge-context";
 import { prettyJid } from "@/lib/whatsapp-personal-client";
 import {
-  PEOPLE_CAP, capNote, filterPeople, parseMemoryContext, parsePeople, personLabel, timeAgo,
+  PEOPLE_CAP, capNote, filterPeople, makeLatest, parseMemoryContext, parsePeople, personLabel, timeAgo,
   type MemoryContext, type PersonRow,
 } from "@/lib/pal-space";
 import { EmptyState } from "@/components/empty-state";
@@ -137,20 +137,27 @@ function MemoryPane({ personId, name }: { personId: string | null; name?: Person
   const [ctx, setCtx] = useState<MemoryContext | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
 
+  // A slow answer for a previously selected person must never render under the
+  // current one: only the latest request may write state.
+  const latest = useRef(makeLatest());
+
   const load = useCallback(async (id: string) => {
+    const req = latest.current.begin();
     setState("loading");
     setCtx(null);
     try {
       const parsed = parseMemoryContext(await api.getMemoryContext(id, { limit: 30 }));
+      if (!latest.current.isLatest(req) || (parsed && parsed.personId !== id)) return;
       setCtx(parsed);
       setState(parsed ? "idle" : "error");
     } catch {
-      setState("error");
+      if (latest.current.isLatest(req)) setState("error");
     }
   }, []);
 
   useEffect(() => {
     if (personId) void load(personId);
+    else latest.current.begin(); // deselect: invalidate anything in flight
   }, [personId, load]);
 
   if (!personId) {

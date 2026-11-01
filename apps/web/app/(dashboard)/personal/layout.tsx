@@ -21,7 +21,6 @@ import {
   FolderSearch,
   MessageCircle,
   Smartphone,
-  UserMinus,
   Users,
   Zap,
 } from "lucide-react";
@@ -68,7 +67,7 @@ const NAV: SubNavItem[] = [
   { href: "/personal/setup", label: "Pair", icon: Smartphone, scope: "per-channel" },
   { href: "/personal/auto-reply", label: "Auto-reply", icon: Zap, scope: "per-channel" },
   { href: "/personal/groups", label: "Groups", icon: Users, scope: "per-channel" },
-  { href: "/personal/contacts", label: "People", icon: UserMinus, scope: "per-channel" },
+  { href: "/personal/contacts", label: "People", icon: Users, scope: "per-channel" },
   { href: "/personal/activity", label: "Activity", icon: Activity, scope: "per-channel" },
 ];
 

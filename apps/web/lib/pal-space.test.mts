@@ -139,9 +139,9 @@ test("timeAgo", () => {
   assert.equal(timeAgo("garbage", now), "garbage");
 });
 
-import { parseDeadlines } from "./pal-space.ts";
+import { itemSetKey, makeLatest, parseDeadlines, reconcileResolved } from "./pal-space.ts";
 
-test("deadlines: disabled unless the server says enabled; null list tolerated; sorted by date; sourceless rows dropped", () => {
+test("deadlines: disabled unless the server says enabled; null list tolerated; sorted by date; rows without a source dropped", () => {
   assert.deepEqual(parseDeadlines({ enabled: false, deadlines: [] }), { enabled: false });
   assert.deepEqual(parseDeadlines(null), { enabled: false });
   assert.deepEqual(parseDeadlines({ enabled: true, deadlines: null }), { enabled: true, items: [] });
@@ -149,10 +149,35 @@ test("deadlines: disabled unless the server says enabled; null list tolerated; s
     enabled: true,
     deadlines: [
       { id: "b", who: "A", doc_type: "EAD", deadline: "2027-02-01", basis: "x", confidence: 0.8, source_refs: ["mail"] },
-      { id: "a", who: "B", doc_type: "AP", deadline: "2026-12-01", basis: "y", confidence: 0.7, source_refs: [] },
+      { id: "a", who: "B", doc_type: "AP", deadline: "2026-12-01", basis: "y", confidence: 0.7, source_refs: ["pdf"] },
+      { id: "c", who: "C", doc_type: "AP", deadline: "2026-11-01", basis: "z", confidence: 0.9, source_refs: [] },
+      { id: "d", who: "D", doc_type: "AP", deadline: "2026-11-02", basis: "z", confidence: 0.9, source_refs: [" "] },
+      { id: "e", who: "E", doc_type: "AP", deadline: "2026-11-03", basis: "z", confidence: 0.9 },
       { who: "no id" },
     ],
   });
   assert.ok(r.enabled);
   if (r.enabled) assert.deepEqual(r.items.map((i) => i.id), ["a", "b"]);
+});
+
+test("makeLatest: only the most recent request may write (stale tab / person responses are ignored)", () => {
+  const l = makeLatest();
+  const first = l.begin();
+  const second = l.begin();
+  assert.equal(l.isLatest(first), false);
+  assert.equal(l.isLatest(second), true);
+});
+
+test("reconcileResolved hides acted rows a late poll resurrects, and forgets ids the server dropped", () => {
+  const rows = [{ id: "a" }, { id: "b" }];
+  const r1 = reconcileResolved(rows, new Set(["a", "gone"]));
+  assert.deepEqual(r1.rows.map((x) => x.id), ["b"]);
+  assert.deepEqual([...r1.resolved], ["a"]); // "gone" no longer returned -> forgotten
+  const r2 = reconcileResolved([{ id: "b" }], r1.resolved);
+  assert.deepEqual([...r2.resolved], []);
+});
+
+test("itemSetKey ignores order", () => {
+  assert.equal(itemSetKey([{ key: "b" }, { key: "a" }]), itemSetKey([{ key: "a" }, { key: "b" }]));
+  assert.notEqual(itemSetKey([{ key: "a" }]), itemSetKey([{ key: "a" }, { key: "b" }]));
 });

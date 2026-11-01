@@ -127,7 +127,7 @@ export function HoldCard({
                       {mode.plan.willSend}
                     </blockquote>
                     <p className="mt-2 text-xs text-fg-3">
-                      PAL sends this for you right away. It cannot be unsent.
+                      PAL sends this for you right away. It cannot be unsent, and if delivery fails PAL will not retry it.
                     </p>
                   </>
                 ) : (

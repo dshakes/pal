@@ -48,6 +48,32 @@ export const PEOPLE_CAP = 500; // ListPeople: LIMIT 500
 export const BRIEF_SOURCE_LIMIT = 30;
 
 // ---------------------------------------------------------------------------
+// Async races: only the latest request may write state; acted rows stay gone
+// ---------------------------------------------------------------------------
+
+/** Request sequencing: `begin()` before a fetch, `isLatest(id)` before using its answer. */
+export function makeLatest() {
+  let n = 0;
+  return { begin: () => ++n, isLatest: (id: number) => id === n };
+}
+
+/**
+ * A poll that was already in flight when the owner acted can still return the
+ * draft the server has since closed. Hide rows acted on this session, and forget
+ * an id once the server stops returning it (so the set cannot grow forever).
+ */
+export function reconcileResolved<T extends { id: string }>(rows: T[], resolved: ReadonlySet<string>): { rows: T[]; resolved: Set<string> } {
+  const stillReturned = new Set(rows.map((r) => r.id));
+  return {
+    rows: rows.filter((r) => !resolved.has(r.id)),
+    resolved: new Set([...resolved].filter((id) => stillReturned.has(id))),
+  };
+}
+
+/** Order-independent identity of an item set (rank once per set, not per ordering). */
+export const itemSetKey = (items: Array<{ key: string }>): string => items.map((i) => i.key).sort().join("|");
+
+// ---------------------------------------------------------------------------
 // Held replies: approve / edit / discard
 // ---------------------------------------------------------------------------
 
@@ -335,6 +361,8 @@ export function parseDeadlines(raw: unknown): Deadlines {
   for (const r of list) {
     const d = r as Record<string, unknown>;
     if (typeof d?.id !== "string" || typeof d.deadline !== "string") continue;
+    const sources = Array.isArray(d.source_refs) ? d.source_refs.filter((x): x is string => typeof x === "string" && x.trim() !== "") : [];
+    if (sources.length === 0) continue; // ungrounded: never shown
     items.push({
       id: d.id,
       who: typeof d.who === "string" ? d.who : "",
@@ -342,7 +370,7 @@ export function parseDeadlines(raw: unknown): Deadlines {
       deadline: d.deadline,
       basis: typeof d.basis === "string" ? d.basis : "",
       confidence: typeof d.confidence === "number" ? d.confidence : 0,
-      sources: Array.isArray(d.source_refs) ? d.source_refs.filter((s): s is string => typeof s === "string") : [],
+      sources,
     });
   }
   items.sort((a, b) => a.deadline.localeCompare(b.deadline));

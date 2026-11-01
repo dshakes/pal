@@ -24,6 +24,11 @@ Ports: `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_GRPC_PORT`, `E2E_METRICS_PORT`, `E2E
 Logs, binaries and artifacts go to `$E2E_RUN_DIR` (default `$TMPDIR/pal-e2e-run`) -- deliberately outside `apps/web`, because `next dev` watches the project and a growing log there causes endless rebuilds.
 `global-setup.ts` warms each route once; cold `next dev` compiles take tens of seconds.
 
+Reusing a stack (`E2E_REUSE_STACK=1`): global-setup is skipped, so YOU must start the fixture bridge and give the processes these env vars, or approving a held reply would POST to the owner's live bridges on :3100/:3200. `pal-space.spec.ts` aborts unless `GET $BRIDGE_WA_URL/health` reports `version: "fixture"`.
+- control-plane: `PAL_BRIDGE_URL=http://127.0.0.1:3412 PAL_IMESSAGE_BRIDGE_URL=http://127.0.0.1:3413 PAL_BRIDGE_TOKEN= PAL_IMESSAGE_BRIDGE_TOKEN=`
+- next dev: the same four, plus `NEXT_PUBLIC_PAL_BRIDGE_URL=http://127.0.0.1:3412 NEXT_PUBLIC_PAL_IMESSAGE_BRIDGE_URL=http://127.0.0.1:3413`
+- fixture: `startFixtureBridge(3412)` from `e2e/support/fixture-bridge.ts`; nothing may listen on 3413.
+
 Iterating: boot the stack once yourself and run with `E2E_REUSE_STACK=1 npx playwright test <file>` to skip setup/teardown.
 
 ## Specs (`specs/`)

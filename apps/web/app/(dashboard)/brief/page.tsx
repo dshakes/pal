@@ -36,7 +36,7 @@ import {
   RANK_SYSTEM_PROMPT, applyRank, buildBriefItems, buildRankPrompt, greeting, parseRank, rankCacheKey, type BriefItem,
 } from "@/lib/brief";
 import {
-  BRIEF_SOURCE_LIMIT, DRAFTS_CAP, bridgeLinkFromError, capNote, dataOr, failedLabels, needsRank, settle, threadsFromSnapshots,
+  BRIEF_SOURCE_LIMIT, DRAFTS_CAP, bridgeLinkFromError, capNote, dataOr, failedLabels, itemSetKey, makeLatest, needsRank, reconcileResolved, settle, threadsFromSnapshots,
   timeAgo, type BridgeLink, type SnapshotThread,
 } from "@/lib/pal-space";
 
@@ -64,8 +64,12 @@ export default function TodayPage() {
   const [dismissBusy, setDismissBusy] = useState(false);
 
   const tenantId = user?.tenantId;
+  // Late polls must not overwrite newer ones, nor resurrect a draft acted on this session.
+  const latestLoad = useRef(makeLatest());
+  const resolvedIds = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
+    const req = latestLoad.current.begin();
     const [d, e, c] = await Promise.all([
       settle(listDrafts("pending").then((r) => r.drafts ?? [])),
       settle(api.listLifeEvents({ status: "suggested", limit: BRIEF_SOURCE_LIMIT })),
@@ -87,8 +91,11 @@ export default function TodayPage() {
         return fetchAttention(tenantId, ch).catch(() => null);
       }),
     );
+    if (!latestLoad.current.isLatest(req)) return;
     const t = threadsFromSnapshots(snaps, Date.now());
-    setDrafts(dataOr(d, []));
+    const rec = d.ok ? reconcileResolved(d.data, resolvedIds.current) : { rows: [] as Draft[], resolved: resolvedIds.current };
+    resolvedIds.current = rec.resolved;
+    setDrafts(rec.rows);
     setEvents(dataOr(e, []));
     setCommitments(dataOr(c, []));
     setThreads(t.threads);
@@ -114,7 +121,7 @@ export default function TodayPage() {
       }),
     [drafts, events, commitments, threads],
   );
-  const baseSig = base.map((b) => b.key).join("|");
+  const baseSig = itemSetKey(base); // sorted: a reorder is not a new set
   const baseRef = useRef(base);
   baseRef.current = base;
   const rankRef = useRef(rank);
@@ -168,6 +175,7 @@ export default function TodayPage() {
       toast.error(outcome.message);
       return;
     }
+    resolvedIds.current.add(draft.id);
     setDrafts((prev) => prev.filter((x) => x.id !== draft.id));
     if (outcome.kind === "delivery_failed" && sentText) {
       setFailedSends((prev) => [
