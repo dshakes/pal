@@ -113,24 +113,47 @@ func insertSchedule(t *testing.T, pool *pgxpool.Pool, tenantID, agentName, cronE
 // TestConcurrentPoll_ExactlyOnce is the key correctness test.
 //
 // Two scheduler instances share the same pool and call poll() concurrently
-// against a single due schedule row. The total fire count must be exactly 1.
+// against a single due schedule row. That ONE schedule must fire exactly once.
+//
+// The fire count is scoped to this test's own agent name. poll() is a GLOBAL
+// poller: its claim SELECT intentionally has no tenant filter, so it claims
+// every enabled, due schedule in the database (correct — one scheduler fires
+// every tenant's crons). A shared test database routinely contains other due
+// schedules (e.g. the dev-tenant loop agents seeded by SeedLoopAgents with
+// "*/45" / "0 */6 * * *" crons, whose next_fire_at crosses now() during a long
+// full-suite run). Counting GLOBAL fires therefore flaked with "got 2" whenever
+// a co-resident due row existed — a stray row firing once, NOT this schedule
+// firing twice. SKIP LOCKED guarantees a single row is claimed by exactly one
+// of the two transactions, so a given schedule can never double-fire.
+//
+// To pin that guarantee, this test deliberately plants a co-resident due
+// schedule on a SECOND tenant and asserts (a) this schedule still fires exactly
+// once and (b) the stray fires exactly once — concurrent pollers claim disjoint
+// rows, losing none and duplicating none.
 func TestConcurrentPoll_ExactlyOnce(t *testing.T) {
 	pool := openTestPool(t)
 	ensureSchema(t, pool)
 
 	tenantID := seedTenant(t, pool)
 	// Yearly cron: after the claim advances next_fire_at, the next legitimate
-	// fire is months away. With "* * * * *" a poll landing just before a minute
-	// boundary advances next_fire_at <1s into the future, and a delayed second
-	// poller can LEGITIMATELY re-claim it — a clock race in the test, not a
-	// bug in the SKIP LOCKED claim.
+	// fire is months away, so a re-claim of THIS row is impossible regardless
+	// of poll timing.
 	_ = insertSchedule(t, pool, tenantID, "agent-concurrent", "0 0 1 1 *",
 		time.Now().Add(-1*time.Second), true)
 
-	var fired atomic.Int64
+	// Co-resident due schedule on a different tenant — reproduces the real
+	// shared-DB condition that caused the flake.
+	strayTenantID := seedTenant(t, pool)
+	_ = insertSchedule(t, pool, strayTenantID, "agent-stray", "0 0 1 1 *",
+		time.Now().Add(-1*time.Second), true)
+
+	var mu sync.Mutex
+	fires := map[string]int{}
 	makeExecutor := func() ExecutorFunc {
-		return func(_, _, _ string, _ map[string]any) {
-			fired.Add(1)
+		return func(_, _, agentName string, _ map[string]any) {
+			mu.Lock()
+			fires[agentName]++
+			mu.Unlock()
 		}
 	}
 
@@ -145,8 +168,13 @@ func TestConcurrentPoll_ExactlyOnce(t *testing.T) {
 	go func() { defer wg.Done(); s2.poll(ctx) }()
 	wg.Wait()
 
-	if got := fired.Load(); got != 1 {
-		t.Errorf("concurrent poll: want exactly 1 fire, got %d", got)
+	mu.Lock()
+	defer mu.Unlock()
+	if got := fires["agent-concurrent"]; got != 1 {
+		t.Errorf("concurrent poll: this schedule must fire exactly 1, got %d", got)
+	}
+	if got := fires["agent-stray"]; got != 1 {
+		t.Errorf("concurrent poll: co-resident schedule must fire exactly 1, got %d", got)
 	}
 }
 
