@@ -369,7 +369,7 @@ func (h *RESTHandler) resumeMicroVMRun(ctx context.Context, run orphanedRun) err
 		// rls-exempt: inline executor — runs write keyed by authorized run id.
 		_, _ = h.srv.Pool.Exec(ctx, `
 			UPDATE runs SET status = 'failed', finished_at = now(), error = $2::jsonb
-			WHERE id = $1 AND status NOT IN ('succeeded', 'failed')
+			WHERE id = $1 AND status NOT IN ('succeeded', 'failed', 'cancelled')
 		`, run.runID, string(errJSON))
 		return nil
 	}
