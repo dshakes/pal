@@ -13,14 +13,17 @@ export type Capability =
   | "runs:execute"     // start runs, ask the LLM (spends money)
   | "agents:read"
   | "budgets:read"
+  | "runtime:read"     // list / inspect sandboxes, logs, files (server denies viewer + kiosk)
   | "runtime:admin"    // pause / resume / terminate / fork sandboxes
+  | "promotions:propose" // propose a promotion / roll back (server refuses kiosk only)
+  | "promotions:approve" // approve / reject: human owner or admin session only
   | "settings:write"   // providers, keys, team, billing
   | "owner";           // destructive workspace actions, promotion approval
 
 const MATRIX: Record<Role, readonly Capability[]> = {
-  owner: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write", "owner"],
-  admin: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:admin", "settings:write"],
-  member: ["agents:write", "agents:read", "budgets:read", "runs:execute"],
+  owner: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:read", "runtime:admin", "promotions:propose", "promotions:approve", "settings:write", "owner"],
+  admin: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:read", "runtime:admin", "promotions:propose", "promotions:approve", "settings:write"],
+  member: ["agents:write", "agents:read", "budgets:read", "runs:execute", "runtime:read", "promotions:propose"],
   // kioskScopes on the server: read, agents:{read,write}, runs:{read,execute}
   // (no budgets:read).
   kiosk: ["agents:write", "agents:read", "runs:execute"],

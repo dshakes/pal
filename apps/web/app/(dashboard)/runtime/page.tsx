@@ -1,366 +1,215 @@
 "use client";
 
-// Runtime Command Center — the flagship cockpit for headless microVM
-// workloads scheduled by the control-plane.
-//
-// Backed by /v1/runtime/vms (list) + /v1/runtime/cluster (capacity), polled
-// every 5s. When the list is EMPTY or the API is UNREACHABLE we fall back to
-// a clearly-labeled DEMO FLEET (lib/runtime-demo.ts) so the cockpit always
-// reads populated — mirroring the dashboard's "API offline → local mocks"
-// convention. Real VMs are NEVER decorated with simulated metrics; their
-// CPU/mem sparklines render "—" (see fleet-grid.tsx honesty guard).
+// Sandboxes (v3): the tenant's microVMs, on real data only. There is no demo
+// fleet and no simulated metrics; an unreachable API is an error with a retry,
+// never an empty list.
+//   GET /v1/runtime/vms (newest 100)  ·  GET /v1/runtime/cluster  ·  DELETE /v1/runtime/vms/{id}
+// Polled every 5s; a failed poll keeps the last good rows and says they're stale.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Activity, AlertTriangle, DollarSign, Plus, RefreshCw, Server } from "lucide-react";
-import clsx from "clsx";
-import { PageHeader } from "@/components/page-header";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { formatDistanceToNowStrict } from "date-fns";
+import { AlertTriangle, Plus, RefreshCw, Server } from "lucide-react";
+import { PageHeader, CountBadge } from "@/components/page-header";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
-import { PageSkeleton } from "@/components/skeleton";
-import { useToast } from "@/components/toast";
+import { DataTable, type Column } from "@/components/data-table";
+import { useCan } from "@/components/role-gate";
 import { runtimeApi, UnauthorizedError } from "@/lib/runtime-api";
-import type { VmRow, ClusterSummary } from "@/lib/runtime-types";
-import { DEMO_VMS, DEMO_CLUSTER } from "@/lib/runtime-demo";
+import { runtimeFailure, VM_LIST_LIMIT } from "@/lib/sandbox";
+import { cappedNote } from "@/lib/promotion";
+import type { ClusterSummary, VmRow } from "@/lib/runtime-types";
 import { ScheduleModal } from "./schedule-modal";
-import { FleetGrid } from "./fleet-grid";
-import { CapacityMap } from "./capacity-map";
-import { VmDrawer } from "./vm-drawer";
+import { VmState } from "./vm-state";
 
-export default function RuntimePage() {
-  const toast = useToast();
+const ago = (iso?: string | null) => (iso ? `${formatDistanceToNowStrict(new Date(iso))} ago` : "—");
+
+export default function SandboxesPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const canRead = useCan("runtime:read");
+  const canSchedule = useCan("runtime:admin");
   const [vms, setVms] = useState<VmRow[] | null>(null);
-  const [cluster, setCluster] = useState<ClusterSummary | null>(null);
-  const [usingDemo, setUsingDemo] = useState(false);
-  // Default to Live mode so operators see real workloads (or EmptyState) on
-  // first load. Use the Demo toggle to opt INTO the demo fleet for exploration.
-  const [demoMode, setDemoMode] = useState(false);
+  const [cluster, setCluster] = useState<ClusterSummary | null | "unavailable" | "restricted">(null);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showEnded, setShowEnded] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [drawerVm, setDrawerVm] = useState<VmRow | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
-
-  const lastErrorRef = useRef<string>("");
 
   const load = useCallback(async () => {
-    if (demoMode) {
-      setVms(DEMO_VMS);
-      setCluster(DEMO_CLUSTER);
-      setUsingDemo(true);
-      setLastUpdated(Date.now());
-      return;
-    }
     try {
-      const [vmRes, clRes] = await Promise.all([
-        runtimeApi.get<VmRow[] | { items: VmRow[] }>("/v1/runtime/vms"),
-        runtimeApi.get<ClusterSummary>("/v1/runtime/cluster").catch(() => null),
+      // /cluster needs runtime:admin; a member polling it would write a denial audit row every 5s.
+      const [list, cl] = await Promise.all([
+        runtimeApi.get<VmRow[]>(`/v1/runtime/vms?limit=${VM_LIST_LIMIT}`),
+        canSchedule
+          ? runtimeApi.get<ClusterSummary>("/v1/runtime/cluster").catch(() => "unavailable" as const)
+          : Promise.resolve("restricted" as const),
       ]);
-      const items = Array.isArray(vmRes) ? vmRes : (vmRes.items ?? []);
-      // Show real data (even if empty — EmptyState handles the zero-item case).
-      setVms(items);
-      setCluster(clRes ?? null);
-      setUsingDemo(false);
-      lastErrorRef.current = "";
+      setVms(Array.isArray(list) ? list : []);
+      setCluster(cl);
+      setError(null);
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      // API unreachable — render EmptyState rather than fabricating demo data.
-      // The operator needs to know the API is down, not see a fake fleet.
-      setVms([]);
-      setCluster(null);
-      setUsingDemo(false);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg !== lastErrorRef.current) {
-        lastErrorRef.current = msg;
-      }
-    } finally {
-      setLastUpdated(Date.now());
+      setError(runtimeFailure(err).message);
     }
-  }, [demoMode]);
+  }, [canSchedule]);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, 5000);
+    if (!canRead) return;
+    void load();
+    const t = setInterval(() => void load(), 5000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, canRead]);
 
-  // Deep link: the ⌘K palette's "Schedule a workload" action lands here with
-  // ?schedule=1 — pop the schedule modal open on arrival.
+  // Deep link: the ⌘K palette's "Schedule a workload" action lands here with ?schedule=1.
   useEffect(() => {
-    if (searchParams.get("schedule") === "1") setScheduleOpen(true);
-  }, [searchParams]);
+    if (searchParams.get("schedule") === "1" && canSchedule) setScheduleOpen(true);
+  }, [searchParams, canSchedule]);
 
-  // Keep the open drawer's row fresh as the fleet re-polls.
-  useEffect(() => {
-    if (!drawerVm || !vms) return;
-    const fresh = vms.find((v) => v.vmId === drawerVm.vmId);
-    if (fresh && fresh !== drawerVm) setDrawerVm(fresh);
-  }, [vms, drawerVm]);
+  const rows = useMemo(
+    () => (vms ?? []).filter((v) => showEnded || (v.state !== "terminated" && v.state !== "failed")),
+    [vms, showEnded],
+  );
+  const counts = useMemo(() => {
+    const c = { running: 0, paused: 0, failed: 0, ended: 0 };
+    for (const v of vms ?? []) {
+      if (v.state === "running") c.running++;
+      else if (v.state === "paused") c.paused++;
+      else if (v.state === "failed") c.failed++;
+      if (v.state === "terminated" || v.state === "failed") c.ended++;
+    }
+    return c;
+  }, [vms]);
 
-  const stats = useMemo(() => {
-    const list = vms ?? [];
-    const running = list.filter((v) => v.state === "running").length;
-    const warm = list.filter((v) => v.state === "spawning" || v.state === "pending").length;
-    const failed = list.filter((v) => v.state === "failed").length;
-    const draining = list.filter((v) => v.state === "draining").length;
-    const costHr = list
-      .filter((v) => v.state === "running" || v.state === "draining" || v.state === "spawning")
-      .reduce((sum, v) => sum + (v.costHr ?? 0), 0);
-    return {
-      total: list.length,
-      running,
-      warm,
-      failed,
-      draining,
-      costHr,
-      nodes: cluster?.nodes.length ?? 0,
-      warmPool: cluster?.warm_pool?.available ?? 0,
-    };
-  }, [vms, cluster]);
-
-  const terminateMany = useCallback(
-    async (ids: string[]) => {
-      if (usingDemo) {
-        toast.success(`Termination requested for ${ids.length} workload(s) (demo)`);
-        return;
-      }
-      let ok = 0;
-      await Promise.all(
-        ids.map(async (id) => {
-          try {
-            await runtimeApi.del(`/v1/runtime/vms/${id}`);
-            ok++;
-          } catch (err) {
-            if (!(err instanceof UnauthorizedError)) {
-              /* swallow; summarised below */
-            }
-          }
-        }),
-      );
-      if (ok === ids.length) {
-        toast.success(`Termination requested for ${ok}/${ids.length} workload(s)`);
-      } else if (ok > 0) {
-        toast.warning(`Termination requested for ${ok}/${ids.length} workload(s) — some failed`);
-      } else {
-        toast.error(`Termination failed for all ${ids.length} workload(s)`);
-      }
-      load();
+  const columns: Column<VmRow>[] = [
+    {
+      key: "id",
+      header: "Sandbox",
+      sortable: true,
+      sortFn: (a, b) => a.vmId.localeCompare(b.vmId),
+      render: (v) => (
+        <span className="block min-w-0 truncate font-mono text-[12.5px] text-fg" title={v.vmId}>
+          {v.vmId}
+          {v.parentVmId && <span className="ml-2 font-sans text-[11px] text-fg-3">fork</span>}
+        </span>
+      ),
     },
-    [usingDemo, toast, load],
-  );
-
-  if (vms === null) return <PageSkeleton />;
-
-  const hasRealEmpty = !usingDemo && vms.length === 0;
-
-  return (
-    <div className="theme-runtime flex flex-col">
-      <div className="relative shrink-0 overflow-hidden">
-        <div aria-hidden className="mc-aurora" />
-        <PageHeader
-          className="relative z-10 !bg-transparent"
-          title="Runtime"
-          description="Headless agent workloads, their isolation tier, and the nodes they run on."
-          action={
-            <div className="flex items-center gap-2">
-              <div
-                className="flex items-center rounded-lg bg-surface-2 p-0.5 text-xs"
-                role="group"
-                aria-label="Data source"
-              >
-                {(["demo", "live"] as const).map((m) => {
-                  const active = (demoMode ? "demo" : "live") === m;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setDemoMode(m === "demo")}
-                      aria-pressed={active}
-                      className={clsx(
-                        "rounded-md px-2.5 py-1 font-medium capitalize transition-colors",
-                        active ? "bg-surface-0 text-zinc-100 shadow-sm" : "text-zinc-500 hover:text-zinc-300",
-                      )}
-                    >
-                      {m}
-                    </button>
-                  );
-                })}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<RefreshCw className={clsx("h-3.5 w-3.5", refreshing && "animate-spin")} />}
-                onClick={async () => {
-                  setRefreshing(true);
-                  await load();
-                  setRefreshing(false);
-                }}
-              >
-                Refresh
-              </Button>
-              <Button variant="primary" size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setScheduleOpen(true)}>
-                Schedule
-              </Button>
-            </div>
-          }
-        />
-      </div>
-
-      {/* Command strip — dense mission-control tiles for fleet-level stats */}
-      <CommandStrip stats={stats} usingDemo={usingDemo} lastUpdated={lastUpdated} />
-
-      <ScheduleModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onScheduled={load} />
-
-      <div className="space-y-8 p-8 md:p-10">
-        {hasRealEmpty ? (
-          <EmptyState
-            icon={Server}
-            title="No workloads running"
-            description="Schedule a headless agent from here, or use `pal run <agent.yaml>` / POST /v1/runtime/schedule."
-            actionLabel="Schedule a workload"
-            onAction={() => setScheduleOpen(true)}
-          />
-        ) : (
-          <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_360px]">
-            <div className="min-w-0">
-              <FleetGrid
-                vms={vms}
-                isDemo={usingDemo}
-                onOpen={(vm) => setDrawerVm(vm)}
-                onTerminateSelected={terminateMany}
-              />
-            </div>
-            <div className="space-y-6">
-              <CapacityMap cluster={cluster} nodes={stats.nodes} warmPool={stats.warmPool} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {drawerVm && (
-        <VmDrawer
-          vm={drawerVm}
-          isDemo={usingDemo}
-          onClose={() => setDrawerVm(null)}
-          onTerminated={() => {
-            setDrawerVm(null);
-            load();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Command strip — dense mission-control glass tiles for fleet-level stats,
-// matching the Agents page's Stat treatment. Real data only (the same
-// numbers the plain strip rendered before — just given the glass surface).
-// ---------------------------------------------------------------------------
-
-function CommandStrip({
-  stats,
-  usingDemo,
-  lastUpdated,
-}: {
-  stats: {
-    total: number;
-    running: number;
-    failed: number;
-    costHr: number;
-  };
-  usingDemo: boolean;
-  lastUpdated: number;
-}) {
-  const [, force] = useState(0);
-  // Tick the "updated Ns ago" label.
-  useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const agoS = Math.max(0, Math.round((Date.now() - lastUpdated) / 1000));
-
-  return (
-    <div className="border-b border-zinc-800/40 px-8 py-5 md:px-10">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StripTile
-          icon={<Server className="h-3.5 w-3.5 text-zinc-400" />}
-          label="Workloads"
-          value={stats.total}
-          live
-        />
-        <StripTile
-          icon={<Activity className="h-3.5 w-3.5 text-sky-400" />}
-          iconBg="bg-sky-500/10"
-          label="Running"
-          value={stats.running}
-        />
-        <StripTile
-          icon={<AlertTriangle className="h-3.5 w-3.5 text-rose-400" />}
-          iconBg="bg-rose-500/10"
-          label="Failed"
-          value={stats.failed}
-          tone={stats.failed > 0 ? "danger" : undefined}
-        />
-        <StripTile
-          icon={<DollarSign className="h-3.5 w-3.5 text-emerald-400" />}
-          iconBg="bg-emerald-500/10"
-          label="Fleet $/hr"
-          value={`$${stats.costHr.toFixed(2)}`}
-        />
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-[12px] text-zinc-500">
-        {usingDemo && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 font-medium text-zinc-400">
-            <AlertTriangle className="h-3 w-3 text-zinc-500" />
-            Demo fleet — no live workloads
-          </span>
-        )}
-        <span className="ml-auto tabular-nums">updated {agoS}s ago</span>
-      </div>
-    </div>
-  );
-}
-
-function StripTile({
-  icon,
-  iconBg,
-  label,
-  value,
-  tone,
-  live,
-}: {
-  icon: React.ReactNode;
-  iconBg?: string;
-  label: string;
-  value: string | number;
-  tone?: "danger";
-  live?: boolean;
-}) {
-  const isDanger = tone === "danger";
-  return (
-    <div
-      className={clsx(
-        "group relative mc-glass overflow-hidden rounded-xl border p-4 backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5",
-        isDanger ? "border-red-500/25 bg-red-500/[0.03] hover:border-red-500/40" : "border-white/[0.07] bg-white/[0.024] hover:border-white/[0.12]",
-      )}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <div className={clsx("flex h-7 w-7 items-center justify-center rounded-lg", isDanger ? "bg-red-500/10" : (iconBg ?? "bg-white/[0.05]"))}>
-          {icon}
+    {
+      key: "state",
+      header: "State",
+      sortable: true,
+      sortFn: (a, b) => a.state.localeCompare(b.state),
+      render: (v) => (
+        <div className="min-w-0">
+          <VmState state={v.state} />
+          {v.state === "failed" && v.stateReason && (
+            <p className="mt-0.5 truncate text-[11px] text-bad" title={v.stateReason}>
+              {v.stateReason}
+            </p>
+          )}
         </div>
-        {live && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/15 px-1.5 text-[12px] font-medium text-teal-300">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-teal-400" />
-            live
-          </span>
+      ),
+    },
+    { key: "iso", header: "Isolation", hideOnMobile: true, render: (v) => v.isolationClass || "—" },
+    { key: "node", header: "Node", hideOnMobile: true, render: (v) => <span className="block truncate">{v.node ?? "—"}{v.region ? ` · ${v.region}` : ""}</span> },
+    {
+      key: "created",
+      header: "Created",
+      sortable: true,
+      sortFn: (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+      render: (v) => <span className="num text-fg-3">{ago(v.createdAt)}</span>,
+    },
+    { key: "hb", header: "Heartbeat", hideOnMobile: true, render: (v) => <span className="num text-fg-3">{ago(v.lastHeartbeatAt)}</span> },
+  ];
+
+  if (!canRead) {
+    return (
+      <div>
+        <PageHeader title="Sandboxes" description="Isolated microVMs your agents run in." />
+        <div className="p-6 md:p-8">
+          <EmptyState icon={Server} title="Your role can't view sandboxes" description="Sandboxes are visible to owners, admins and members." />
+        </div>
+      </div>
+    );
+  }
+
+  const cap = vms ? cappedNote(vms.length, VM_LIST_LIMIT, "sandboxes") : null;
+
+  return (
+    <div>
+      <PageHeader
+        title="Sandboxes"
+        description="Isolated microVMs your agents run in: state, placement, and lifecycle."
+        badge={vms ? <CountBadge count={rows.length} /> : undefined}
+        action={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RefreshCw className={refreshing ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />}
+              onClick={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="h-3.5 w-3.5" />}
+              disabled={!canSchedule}
+              title={canSchedule ? undefined : "Scheduling needs an owner or admin"}
+              onClick={() => setScheduleOpen(true)}
+            >
+              Schedule
+            </Button>
+          </div>
+        }
+      />
+      <div className="space-y-4 p-6 md:p-8">
+        {error && vms === null ? (
+          <EmptyState icon={AlertTriangle} title="Couldn't load sandboxes" description={error} actionLabel="Retry" onAction={() => void load()} />
+        ) : (
+          <>
+            {error && (
+              <p role="alert" className="rounded-lg border border-line bg-warn-soft px-3 py-2 text-[12.5px] text-warn">
+                Couldn&apos;t refresh ({error}). Showing the last successful load.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-fg-2">
+              <span><span className="num font-semibold text-fg">{counts.running}</span> running</span>
+              <span><span className="num font-semibold text-fg">{counts.paused}</span> paused</span>
+              <span><span className={counts.failed > 0 ? "num font-semibold text-bad" : "num font-semibold text-fg"}>{counts.failed}</span> failed</span>
+              <span className="text-fg-3">
+                {cluster === null ? "Capacity: loading" : cluster === "restricted"
+                  ? "Capacity: owners and admins only"
+                  : cluster === "unavailable"
+                  ? "Capacity: unavailable"
+                  : `${cluster.nodes?.length ?? 0} node${(cluster.nodes?.length ?? 0) === 1 ? "" : "s"}${cluster.warm_pool ? ` · warm pool ${cluster.warm_pool.available}/${cluster.warm_pool.target}` : ""}`}
+              </span>
+              <label className="ml-auto inline-flex items-center gap-2 text-fg-2">
+                <input type="checkbox" className="focus-ring h-3.5 w-3.5 accent-[var(--color-accent)]" checked={showEnded} onChange={(e) => setShowEnded(e.target.checked)} />
+                Show terminated and failed ({counts.ended})
+              </label>
+            </div>
+            <DataTable
+              label="Sandboxes"
+              columns={columns}
+              rows={rows}
+              rowKey={(v) => v.vmId}
+              loading={vms === null}
+              pageSize={25}
+              fixed
+              defaultSort={{ key: "created", dir: "desc" }}
+              onRowClick={(v) => router.push(`/runtime/${encodeURIComponent(v.vmId)}`)}
+              emptyIcon={Server}
+              emptyTitle="No sandboxes"
+              emptyDescription="Schedule a headless agent from here, or use `pal run <agent.yaml>`."
+              emptyAction={canSchedule ? <Button variant="primary" size="sm" onClick={() => setScheduleOpen(true)}>Schedule a workload</Button> : undefined}
+            />
+            {cap && <p className="text-[12px] text-fg-3">{cap}</p>}
+          </>
         )}
       </div>
-      <p className={clsx("text-2xl font-semibold leading-none tabular-nums", isDanger ? "text-red-300" : "text-zinc-100")}>
-        {value}
-      </p>
-      <p className="mc-micro-label mt-1.5">{label}</p>
+      <ScheduleModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} onScheduled={load} />
     </div>
   );
 }
