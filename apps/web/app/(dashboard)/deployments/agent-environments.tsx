@@ -75,13 +75,14 @@ function GateList({ gates }: { gates?: Gate[] | null }) {
 
 function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <h3 className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase tracking-wide text-zinc-400">
+    <h3 className="mb-3 flex items-center gap-2 text-[14px] font-semibold text-fg">
       {icon} {children}
     </h3>
   );
 }
 
-export function AgentEnvironments() {
+/** With `fixedAgent` it shows that one agent (the agent page's Promote tab) and hides the picker. */
+export function AgentEnvironments({ fixedAgent }: { fixedAgent?: string } = {}) {
   const toast = useToast();
   const [agents, setAgents] = useState<string[] | null>(null);
   const [agent, setAgent] = useState("");
@@ -122,6 +123,11 @@ export function AgentEnvironments() {
   }, []);
 
   useEffect(() => {
+    if (fixedAgent) {
+      setAgents([fixedAgent]);
+      setAgent(fixedAgent);
+      return;
+    }
     api
       .listAgents()
       .then((list) => {
@@ -135,7 +141,7 @@ export function AgentEnvironments() {
         setError(parseApiError(err).message);
         setLoading(false);
       });
-  }, []);
+  }, [fixedAgent]);
 
   useEffect(() => {
     if (agent) {
@@ -186,19 +192,19 @@ export function AgentEnvironments() {
   return (
     <section className="min-w-0">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[12px] font-medium uppercase tracking-wide text-zinc-400">
+        <h2 className="flex items-center gap-2 text-[14px] font-semibold text-fg">
           <GitBranch className="h-3.5 w-3.5 text-zinc-500" /> Agent environments
         </h2>
         {agents.length > 0 && (
           <div className="flex w-full items-center gap-2 sm:w-auto">
-            <select
+            {!fixedAgent && <select
               aria-label="Agent"
               value={agent}
               onChange={(e) => setAgent(e.target.value)}
               className={clsx(INPUT, "min-w-0 sm:w-56")}
             >
               {agents.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            </select>}
             <Button
               variant="primary"
               size="md"

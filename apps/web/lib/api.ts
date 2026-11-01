@@ -15,6 +15,7 @@ import type {
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
 import { parseApiErrorBody } from "./eval-format";
+import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
 import type {
   Agent,
@@ -794,57 +795,33 @@ class PalAPI {
   // ---- Streaming ----------------------------------------------------------
 
   streamRunEvents(runId: string): {
-    subscribe: (cb: (event: StreamEvent) => void) => void;
+    subscribe: (cb: (event: StreamEvent) => void, onState?: (s: StreamState) => void) => void;
     close: () => void;
   } {
-    // Real SSE only — no mock event emitter. When the stream fails, the
-    // subscribe callback simply never fires, and consumer pages render
-    // their existing "empty / no events yet" state. We never inject
-    // fabricated step_started → step_completed events to fake activity.
-    let onEvent: ((event: StreamEvent) => void) | null = null;
-    let closed = false;
-    // The server (run_events.go) replays the full journal from seq 0 on
-    // every fresh connection, including a reconnect after a dropped one —
-    // dedupe on seq so a reconnect doesn't re-append events already shown.
-    let lastSeq = -1;
-
-    let es: EventSource | null = null;
-    try {
-      const url = `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`;
-      es = new EventSource(this._token ? `${url}?token=${this._token}` : url);
-      es.onmessage = (msg) => {
-        if (closed) return;
-        try {
-          const event = JSON.parse(msg.data) as StreamEvent;
-          if (typeof event.seq === "number") {
-            if (event.seq <= lastSeq) return;
-            lastSeq = event.seq;
-          }
-          event.ts = new Date(event.ts);
-          onEvent?.(event);
-        } catch {
-          /* drop malformed frames */
-        }
-      };
-      // Do NOT close on error — closing here permanently kills the stream
-      // for the rest of a long-running run on a single transient network
-      // blip. Let EventSource's native reconnect run its course; the seq
-      // dedup above makes a reconnect's full-journal replay a no-op once
-      // we've already seen everything.
-      es.onerror = () => {};
-    } catch {
-      // EventSource construction failed — leave es null; consumer never
-      // receives events, which is the correct empty-stream behavior.
-    }
-
+    // Real SSE only — no mock event emitter. fetch + lib/sse (not EventSource):
+    // the server names every frame after its journal kind, which EventSource's
+    // onmessage never receives, and fetch sends the token as a header.
+    // Events and state that arrive before subscribe are held and replayed.
+    let onEvent: ((e: StreamEvent) => void) | null = null;
+    let onStateCb: ((s: StreamState) => void) | null = null;
+    const buffered: StreamEvent[] = [];
+    let state: StreamState = "connecting";
+    const token = this._token;
+    const close = openRunStream({
+      runId,
+      url: `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      onEvent: (e) => (onEvent ? onEvent(e) : buffered.push(e)),
+      onState: (s) => { state = s; onStateCb?.(s); },
+    });
     return {
-      subscribe: (cb) => {
+      subscribe: (cb, onState) => {
         onEvent = cb;
+        onStateCb = onState ?? null;
+        onStateCb?.(state);
+        for (const e of buffered.splice(0)) cb(e);
       },
-      close: () => {
-        closed = true;
-        if (es) es.close();
-      },
+      close,
     };
   }
 
@@ -2751,9 +2728,11 @@ export interface ForecastResult {
   agentName: string;
   model: string;
   provider: string;
-  estimatedTokensIn: number;
-  estimatedTokensOut: number;
-  estimatedCostUsd: number;
+  /** Absent when the agent has no successful run history (server sends nil). */
+  estimatedTokensIn?: number;
+  estimatedTokensOut?: number;
+  estimatedCostUsd?: number;
+  noHistoricalData?: boolean;
   confidence: number;
   reasoning: Record<string, unknown>;
   budget?: {

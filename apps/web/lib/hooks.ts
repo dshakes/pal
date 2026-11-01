@@ -5,6 +5,7 @@ import { api, type RunFilters, notifySimulated } from "@/lib/api";
 // Types only — every hook below treats the API as the single source of truth.
 // On failure we surface an explicit error / empty state, never mock data.
 import type { Agent, Run, StreamEvent, ApiKey, AgentVersion } from "@/lib/types";
+import type { StreamState } from "@/lib/sse";
 
 // ---------------------------------------------------------------------------
 // useSafeData pattern — every hook returns { data, loading, error, isDemo }
@@ -222,28 +223,17 @@ export function useRun(id: string) {
 
 export function useRunEvents(runId: string) {
   const [events, setEvents] = useState<StreamEvent[]>([]);
-  const [connected, setConnected] = useState(false);
-  const streamRef = useRef<{ close: () => void } | null>(null);
+  const [state, setState] = useState<StreamState>("connecting");
 
   useEffect(() => {
     setEvents([]);
-    setConnected(false);
-
+    setState("connecting");
     const stream = api.streamRunEvents(runId);
-    streamRef.current = stream;
-
-    stream.subscribe((event) => {
-      setConnected(true);
-      setEvents((prev) => [...prev, event]);
-    });
-
-    return () => {
-      stream.close();
-      streamRef.current = null;
-    };
+    stream.subscribe((event) => setEvents((prev) => [...prev, event]), setState);
+    return () => stream.close();
   }, [runId]);
 
-  return { events, connected };
+  return { events, state, connected: state === "live" };
 }
 
 // ---------------------------------------------------------------------------

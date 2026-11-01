@@ -1,352 +1,328 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+// /runs — every run in the workspace, newest first, on real API data.
+// One sortable, keyboard-navigable table; filter by status, agent and session,
+// search by id or agent. While anything is queued or running the list
+// refreshes itself so the page stays live. Open a run for its trace.
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { format } from "date-fns";
-import {
-  Search,
-  Filter,
-  Play,
-  Loader2,
-  ChevronDown,
-  ChevronRight,
-  Layers,
-  Trash2,
-} from "lucide-react";
 import clsx from "clsx";
-import { useRuns, useAgents } from "@/lib/hooks";
-import { useToast } from "@/components/toast";
+import { formatDistanceToNowStrict } from "date-fns";
+import { AlertCircle, Layers, Play, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { useAgents, useRuns } from "@/lib/hooks";
 import { api } from "@/lib/api";
 import { formatCost, formatDuration } from "@/lib/format";
+import { ts } from "@/lib/overview";
 import type { Run, RunStatus } from "@/lib/types";
-import {
-  groupRunsBySession,
-  aggregateSession,
-  type SessionGroup,
-} from "@/lib/session-grouping";
+import { runFilterFromQuery, sessionSizes, type RunStatusFilter } from "@/lib/runs-view";
+import { useToast } from "@/components/toast";
+import { PageHeader, CountBadge } from "@/components/page-header";
+import { Button } from "@/components/button";
+import { ConfirmModal } from "@/components/modal";
+import { DataTable, type Column } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
-import { ExecutionLog, deduplicateSteps } from "@/components/execution-log";
-import { EmptyState } from "@/components/empty-state";
-import { PageSkeleton } from "@/components/skeleton";
-import { PageHeader, CountBadge, DemoBadge } from "@/components/page-header";
-import { AgentAvatar } from "@/components/agent-avatar";
-import { RunsIllustration } from "@/components/illustrations";
+import { useCan } from "@/components/role-gate";
+import { useAgentSurface } from "@/components/agent-surface";
+import { Kbd } from "@/components/ui";
 
-const RUNS_PER_PAGE = 15;
-const statusOptions: Array<{ value: RunStatus | "all"; label: string }> = [
-  { value: "all", label: "All statuses" },
-  { value: "queued", label: "Queued" },
-  { value: "running", label: "Running" },
-  { value: "succeeded", label: "Succeeded" },
-  { value: "failed", label: "Failed" },
-  { value: "cancelled", label: "Cancelled" },
+const STATUS_FILTERS: Array<[RunStatusFilter, string]> = [
+  ["all", "All"],
+  ["running", "Running"],
+  ["queued", "Queued"],
+  ["succeeded", "Succeeded"],
+  ["failed", "Failed"],
+  ["cancelled", "Cancelled"],
 ];
 
-function cleanOutput(raw: string): string {
-  return raw.replace(/\*\*(.*?)\*\*/g, "$1").replace(/^#{1,3}\s+/gm, "").replace(/^- /gm, "  • ");
+function duration(r: Run): number | null {
+  if (!r.startedAt) return null;
+  const end = r.finishedAt ? ts(r.finishedAt) : Date.now();
+  return Math.max(0, end - ts(r.startedAt));
 }
 
 export default function RunsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
-  // Initialize the agent filter from ?agent=... so deep links from the
-  // per-agent workspace tabs land pre-scoped to that agent. Falls back
-  // to "all" when the URL doesn't carry the param.
-  const [agentFilter, setAgentFilter] = useState<string>(
-    () => searchParams.get("agent") ?? "all"
-  );
+  const canDelete = useCan("runs:execute");
+  const initial = runFilterFromQuery(searchParams);
+  const [status, setStatus] = useState<RunStatusFilter>(initial.status);
+  const [agent, setAgent] = useState(initial.agent);
+  const [session, setSession] = useState(initial.session);
+  const [query, setQuery] = useState(initial.q);
+  const [confirm, setConfirm] = useState<Run | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Mirror filters into the URL so a filtered view is linkable.
   useEffect(() => {
-    const next = searchParams.get("agent") ?? "all";
-    setAgentFilter((prev) => (prev === next ? prev : next));
-  }, [searchParams]);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
-  const [expandedGroupKey, setExpandedGroupKey] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+    const q = new URLSearchParams();
+    if (status !== "all") q.set("status", status);
+    if (agent) q.set("agent", agent);
+    if (session) q.set("session", session);
+    if (query) q.set("q", query);
+    const next = q.toString();
+    if (next !== window.location.search.replace(/^\?/, "")) router.replace(next ? `?${next}` : "/runs", { scroll: false });
+  }, [status, agent, session, query, router]);
 
   const { agents } = useAgents();
-  const { runs, loading, error, isDemo, refresh } = useRuns({
-    agentName: agentFilter !== "all" ? agentFilter : undefined,
-    status: statusFilter !== "all" ? (statusFilter as RunStatus) : undefined,
+  const { runs, loading, error, refresh } = useRuns({
+    agentName: agent || undefined,
+    status: status !== "all" ? (status as RunStatus) : undefined,
   });
 
-  const filtered = useMemo(() => {
-    return runs.filter((run) => {
-      if (agentFilter !== "all" && run.agentName !== agentFilter) return false;
-      if (statusFilter !== "all" && run.status !== statusFilter) return false;
-      if (searchQuery && !run.id.includes(searchQuery) && !run.agentName.includes(searchQuery)) return false;
-      return true;
-    });
-  }, [runs, agentFilter, statusFilter, searchQuery]);
+  // Live: refresh every 3s while anything is still in flight.
+  const inFlight = runs.some((r) => r.status === "running" || r.status === "queued");
+  useEffect(() => {
+    if (!inFlight) return;
+    const id = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(id);
+  }, [inFlight, refresh]);
 
-  // Group the FILTERED runs into sessions, then paginate over groups so a
-  // multi-step session reads as one entry. Solo groups render like a single
-  // row (no extra nesting chrome) — see RunGroup below.
-  const groups = useMemo(() => groupRunsBySession(filtered), [filtered]);
-  const totalPages = Math.max(1, Math.ceil(groups.length / RUNS_PER_PAGE));
-  const pageGroups = groups.slice(page * RUNS_PER_PAGE, (page + 1) * RUNS_PER_PAGE);
+  const sizes = useMemo(() => sessionSizes(runs), [runs]);
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return runs.filter((r) =>
+      (!session || r.sessionId === session) &&
+      (!q || r.id.toLowerCase().includes(q) || r.agentName.toLowerCase().includes(q)),
+    );
+  }, [runs, session, query]);
 
-  if (loading && runs.length === 0) return <PageSkeleton />;
+  const failed = visible.filter((r) => r.status === "failed");
+  useAgentSurface({
+    page: "Runs",
+    facts: [
+      `${visible.length} runs shown${status !== "all" ? ` (status ${status})` : ""}${agent ? ` for ${agent}` : ""}`,
+      `${failed.length} failed, ${visible.filter((r) => r.status === "running").length} running`,
+    ],
+    suggestions: failed.length ? ["Why did my last run fail?", "Which agent fails most?"] : ["How many agents do I have?"],
+    explain: failed.slice(0, 5).map((r) => ({ id: r.id, label: `${r.agentName} run ${r.id.slice(0, 8)} failed`, sub: r.error?.message, request: { kind: "run" as const, runId: r.id } })),
+  });
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const doDelete = async () => {
+    if (!confirm) return;
+    setDeleting(true);
+    try {
+      await api.deleteRun(confirm.id);
+      toast.success(`Deleted run ${confirm.id.slice(0, 8)}`);
+      setConfirm(null);
+      void refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn’t delete the run");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const columns: Column<Run>[] = [
+    { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
+    {
+      key: "agent",
+      header: "Agent",
+      sortable: true,
+      sortFn: (a, b) => a.agentName.localeCompare(b.agentName),
+      render: (r) => (
+        <div className="min-w-0">
+          <p className="truncate font-mono text-[13px] text-fg">{r.agentName}</p>
+          <p className="font-mono text-[11.5px] text-fg-3">{r.id.slice(0, 8)}</p>
+        </div>
+      ),
+    },
+    {
+      key: "session",
+      header: "Session",
+      hideOnMobile: true,
+      render: (r) =>
+        r.sessionId && (sizes.get(r.sessionId) ?? 0) > 1 ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setSession(r.sessionId!); }}
+            className="focus-ring inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[12px] text-fg-2 hover:border-line-strong hover:text-fg"
+            title="Show only this session"
+          >
+            <Layers className="h-3 w-3" aria-hidden /> {sizes.get(r.sessionId)} runs
+          </button>
+        ) : (
+          <span className="text-fg-3">—</span>
+        ),
+    },
+    {
+      key: "duration",
+      header: "Duration",
+      align: "right",
+      hideOnMobile: true,
+      sortable: true,
+      sortFn: (a, b) => (duration(a) ?? -1) - (duration(b) ?? -1),
+      render: (r) => {
+        const d = duration(r);
+        return <span className="num text-fg-2">{d === null ? "—" : formatDuration(d)}</span>;
+      },
+    },
+    {
+      key: "cost",
+      header: "Cost",
+      align: "right",
+      sortable: true,
+      sortFn: (a, b) => a.costUsd - b.costUsd,
+      render: (r) => <span className="num text-fg-2">{formatCost(r.costUsd)}</span>,
+    },
+    {
+      key: "when",
+      header: "Started",
+      hideOnMobile: true,
+      sortable: true,
+      sortFn: (a, b) => ts(a.createdAt) - ts(b.createdAt),
+      className: "whitespace-nowrap text-fg-3",
+      render: (r) => formatDistanceToNowStrict(ts(r.createdAt), { addSuffix: true }),
+    },
+  ];
+
+  const hasFilter = status !== "all" || !!agent || !!session || !!query;
+  // Only show the Session column when some session actually spans runs.
+  const anySession = [...sizes.values()].some((n) => n > 1);
+  const shown = anySession ? columns : columns.filter((c) => c.key !== "session");
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
       <PageHeader
         title="Runs"
-        description="Every agent run across your workspace. Expand a row to see steps, output, and cost."
-        badge={
-          <>
-            {filtered.length > 0 && <CountBadge count={filtered.length} />}
-            {isDemo && <DemoBadge />}
-          </>
+        badge={loading && runs.length === 0 ? undefined : <CountBadge count={visible.length} />}
+        description="Every run in this workspace, newest first. Open one for its step-by-step trace, output and cost."
+        secondaryAction={
+          <Button variant="ghost" size="md" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => void refresh()}>
+            Refresh
+          </Button>
         }
       />
 
-      {/* Filters */}
-      <div className="border-b border-zinc-800 bg-surface-1/50 px-4 py-3 sm:px-8">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-            <input type="text" placeholder="Search runs…" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
-              className="h-9 w-full rounded-lg border sm:w-56 border-zinc-800 bg-surface-0 pl-9 pr-3 text-sm text-zinc-300 placeholder:text-zinc-600 focus:border-pal-500/50 outline-none" />
-          </div>
-          <Filter className="hidden h-4 w-4 text-zinc-500 sm:block" />
-          <select value={agentFilter} onChange={(e) => { setAgentFilter(e.target.value); setPage(0); }}
-            className="h-9 rounded-lg border border-zinc-800 bg-surface-0 px-3 text-sm text-zinc-300 outline-none">
-            <option value="all">All agents</option>
-            {agents.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
-          </select>
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
-            className="h-9 rounded-lg border border-zinc-800 bg-surface-0 px-3 text-sm text-zinc-300 outline-none">
-            {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          {loading && <Loader2 className="ml-auto h-3.5 w-3.5 animate-spin text-zinc-500" />}
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 p-4 sm:p-8">
-        {error ? (
-          <div className="text-center py-12">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10 ring-1 ring-red-500/20">
-              <Trash2 className="h-5 w-5 text-red-300" />
-            </div>
-            <h3 className="mt-4 text-sm font-semibold text-zinc-100">Couldn&apos;t load runs</h3>
-            <p className="mt-1 max-w-sm text-center text-xs text-zinc-500">{error.message}. Check that the control-plane API is reachable.</p>
-            <code className="mt-3 rounded-lg border border-zinc-800 bg-surface-0 px-3 py-1.5 font-mono text-[12px] text-zinc-300">pal dev</code>
-          </div>
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            illustration={<RunsIllustration size={120} />}
-            title="No runs yet"
-            description="Run an agent from its page, or call POST /v1/runs. Each run lands here with its steps, output, and cost."
-            actionLabel="Go to agents"
-            onAction={() => router.push("/agents")}
-            secondaryActionLabel="See examples"
-            secondaryActionHref="/marketplace"
-          />
-        ) : (
-          <div className="space-y-1">
-            {/* Pagination header */}
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs text-zinc-500">
-                {filtered.length} run{filtered.length !== 1 ? "s" : ""}
-                {groups.length !== filtered.length && (
-                  <span className="text-zinc-600"> · {groups.length} session{groups.length !== 1 ? "s" : ""}</span>
+      <div className="mx-auto w-full max-w-[1200px] space-y-3 px-4 pb-8 pt-4 md:px-8">
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
+          <div
+            role="radiogroup"
+            aria-label="Filter by status"
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+              e.preventDefault();
+              const i = STATUS_FILTERS.findIndex(([v]) => v === status);
+              const n = (i + (e.key === "ArrowRight" ? 1 : -1) + STATUS_FILTERS.length) % STATUS_FILTERS.length;
+              setStatus(STATUS_FILTERS[n][0]);
+              (e.currentTarget.children[n] as HTMLElement | undefined)?.focus();
+            }}
+            className="flex gap-0.5 overflow-x-auto rounded-lg border border-line bg-panel p-0.5">
+            {STATUS_FILTERS.map(([v, l]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={status === v}
+                tabIndex={status === v ? 0 : -1}
+                onClick={() => setStatus(v)}
+                className={clsx(
+                  "focus-ring flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12.5px] transition-colors",
+                  status === v ? "bg-hover font-medium text-fg" : "text-fg-3 hover:text-fg",
                 )}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-zinc-600">Page {page + 1} of {totalPages}</span>
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="rounded px-2 py-0.5 text-xs text-zinc-500 hover:bg-surface-3 disabled:opacity-30">Prev</button>
-                <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="rounded px-2 py-0.5 text-xs text-zinc-500 hover:bg-surface-3 disabled:opacity-30">Next</button>
-              </div>
-            </div>
-
-            {pageGroups.map((grp) => (
-              <RunGroup
-                key={grp.key}
-                group={grp}
-                groupExpanded={expandedGroupKey === grp.key}
-                onToggleGroup={() =>
-                  setExpandedGroupKey((k) => (k === grp.key ? null : grp.key))
-                }
-                expandedRunId={expandedRunId}
-                onToggleRun={(id) => setExpandedRunId((r) => (r === id ? null : id))}
-                deletingRunId={deletingRunId}
-                onConfirmDelete={(id) => setDeletingRunId(id)}
-                onDelete={async (id) => {
-                  setDeletingRunId(id);
-                  try {
-                    await api.deleteRun(id);
-                    toast.success("Deleted");
-                    refresh();
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
-                  } finally {
-                    setDeletingRunId(null);
-                  }
-                }}
-                onOpenAgent={(name) => router.push(`/agents/${name}`)}
-              />
+              >
+                {v === "running" && inFlight && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent status-running" />}
+                {l}
+              </button>
             ))}
           </div>
+          <div className="flex flex-1 flex-col gap-2.5 sm:flex-row lg:justify-end">
+            <label className="sm:w-52">
+              <span className="sr-only">Agent</span>
+              <select
+                value={agent}
+                onChange={(e) => setAgent(e.target.value)}
+                className="h-8 w-full rounded-lg border border-line bg-panel px-2.5 text-[13px] text-fg"
+              >
+                <option value="">All agents</option>
+                {agents.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+              </select>
+            </label>
+            <label className="relative flex-1 sm:max-w-[300px]">
+              <span className="sr-only">Search runs</span>
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-3" aria-hidden />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by run id or agent"
+                className="h-8 w-full rounded-lg border border-line bg-panel pl-8 pr-8 text-[13px] text-fg placeholder:text-fg-3"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2"><Kbd>/</Kbd></span>
+            </label>
+          </div>
+        </div>
+
+        {session && (
+          <div className="flex items-center gap-2 text-[13px] text-fg-2">
+            <Layers className="h-3.5 w-3.5 text-fg-3" aria-hidden />
+            Showing one session
+            <span className="font-mono text-[12px] text-fg-3">{session.slice(0, 8)}</span>
+            <button type="button" onClick={() => setSession("")} className="focus-ring inline-flex items-center gap-1 rounded px-1 text-accent hover:underline">
+              <X className="h-3 w-3" aria-hidden /> Show all
+            </button>
+          </div>
         )}
-      </div>
-    </div>
-  );
-}
 
-// ---------------------------------------------------------------------------
-// Group — a session of related runs, or a single standalone run.
-// A solo group renders exactly like the old single row (no nesting chrome);
-// a multi-run group renders a collapsible header that rolls up the members.
-// ---------------------------------------------------------------------------
-
-interface RunRowHandlers {
-  expandedRunId: string | null;
-  onToggleRun: (id: string) => void;
-  deletingRunId: string | null;
-  onConfirmDelete: (token: string | null) => void;
-  onDelete: (id: string) => void | Promise<void>;
-  onOpenAgent: (name: string) => void;
-}
-
-function RunGroup({
-  group,
-  groupExpanded,
-  onToggleGroup,
-  ...rowHandlers
-}: {
-  group: SessionGroup;
-  groupExpanded: boolean;
-  onToggleGroup: () => void;
-} & RunRowHandlers) {
-  if (!group.isMulti) {
-    return <RunRow run={group.runs[0]} {...rowHandlers} />;
-  }
-
-  const agg = aggregateSession(group.runs);
-
-  return (
-    <div className="rounded-lg border border-zinc-800 bg-surface-1 transition-colors duration-150 hover:border-zinc-700">
-      <button
-        onClick={onToggleGroup}
-        aria-expanded={groupExpanded}
-        className="flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-surface-2 sm:gap-3 sm:px-4"
-      >
-        {groupExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[12px] border border-bad/40 bg-bad-soft px-4 py-3.5">
+            <AlertCircle className="h-4 w-4 text-bad" aria-hidden />
+            <p className="flex-1 text-[13px] text-fg">Couldn’t load runs: {error.message}</p>
+            <Button size="sm" variant="secondary" onClick={() => void refresh()}>Try again</Button>
+          </div>
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+          <DataTable<Run>
+            label="Runs"
+            loading={loading && runs.length === 0}
+            rows={visible}
+            rowKey={(r) => r.id}
+            pageSize={25}
+            defaultSort={{ key: "when", dir: "desc" }}
+            onRowClick={(r) => router.push(`/runs/${encodeURIComponent(r.id)}`)}
+            columns={shown}
+            rowActions={canDelete ? [{ label: "Delete run", icon: Trash2, variant: "danger", onClick: (r) => setConfirm(r) }] : undefined}
+            emptyIcon={Play}
+            emptyTitle={hasFilter ? "No runs match" : "No runs yet"}
+            emptyDescription={
+              hasFilter
+                ? "Try another status, agent or search."
+                : "Test an agent from its page, or call POST /v1/runs. Each run lands here with its trace, output and cost."
+            }
+            emptyAction={
+              hasFilter ? (
+                <Button variant="secondary" size="sm" onClick={() => { setStatus("all"); setAgent(""); setSession(""); setQuery(""); }}>Clear filters</Button>
+              ) : (
+                <Button variant="primary" size="sm" onClick={() => router.push("/agents")}>Go to agents</Button>
+              )
+            }
+          />
         )}
-        <Layers className="h-3.5 w-3.5 text-pal-400 shrink-0" />
-        <span className="min-w-0 truncate text-xs font-medium text-zinc-200">{agg.agentLabel}</span>
-        <StatusBadge status={agg.status} />
-        <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-zinc-400">
-          {agg.count} runs
-        </span>
-        <span className="ml-auto hidden text-[12px] text-zinc-400 tabular-nums sm:inline">
-          {agg.durationMs !== null ? formatDuration(agg.durationMs) : "--"}
-        </span>
-        <span className="ml-auto shrink-0 font-mono text-[12px] text-zinc-500 tabular-nums sm:ml-0">{formatCost(agg.totalCost)}</span>
-        <span className="hidden text-[12px] tabular-nums text-zinc-600 md:inline">
-          {format(agg.latestAt, "MMM d, HH:mm")}
-        </span>
-      </button>
-
-      {groupExpanded && (
-        <div className="border-t border-zinc-800 p-2 space-y-1">
-          {group.runs.map((run) => (
-            <RunRow key={run.id} run={run} {...rowHandlers} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Single run row — the exact pre-grouping rendering, extracted so the group
-// expand reuses it and delete/expand/cost stay per row.
-function RunRow({
-  run,
-  expandedRunId,
-  onToggleRun,
-  deletingRunId,
-  onConfirmDelete,
-  onDelete,
-  onOpenAgent,
-}: { run: Run } & RunRowHandlers) {
-  const expanded = expandedRunId === run.id;
-  const dur = run.startedAt
-    ? formatDuration(new Date(run.finishedAt ?? new Date()).getTime() - new Date(run.startedAt).getTime())
-    : "--";
-  const confirming = deletingRunId === `confirm_${run.id}`;
-
-  return (
-    <div className="group rounded-lg border border-zinc-800 bg-surface-1 transition-colors duration-150 hover:border-zinc-700">
-      <div className="flex items-center">
-        {/* A div, not a <button>: the agent-name button inside it would be a
-            nested interactive element (invalid HTML, hydration error). */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => onToggleRun(run.id)}
-          onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onToggleRun(run.id); } }}
-          aria-expanded={expanded}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-surface-2 rounded-l-lg outline-none focus-visible:ring-2 focus-visible:ring-pal-500/40 sm:gap-3 sm:px-4"
-        >
-          {expanded ? <ChevronDown className="h-3.5 w-3.5 text-zinc-500 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />}
-          <AgentAvatar name={run.agentName} status={run.status} size="sm" />
-          <button onClick={(e) => { e.stopPropagation(); onOpenAgent(run.agentName); }} className="min-w-0 truncate text-xs font-medium text-zinc-200 hover:text-zinc-50">{run.agentName}</button>
-          <StatusBadge status={run.status} />
-          <span className="font-mono text-[12px] text-zinc-600 hidden sm:inline">{run.id.slice(0, 12)}</span>
-          <span className="ml-auto hidden text-[12px] text-zinc-400 tabular-nums sm:inline">{dur}</span>
-          <span className="ml-auto shrink-0 font-mono text-[12px] text-zinc-500 tabular-nums sm:ml-0">{formatCost(run.costUsd)}</span>
-          <span className="text-[12px] text-zinc-600 hidden md:inline tabular-nums">{run.startedAt ? format(new Date(run.startedAt), "MMM d, HH:mm") : "--"}</span>
-        </div>
-        {/* Delete */}
-        <div className={clsx("flex items-center pr-2", confirming ? "opacity-100" : "opacity-0 group-hover:opacity-100 transition-opacity")}>
-          {confirming ? (
-            <div className="flex items-center gap-1">
-              <button onClick={() => onDelete(run.id)} disabled={deletingRunId === run.id} className="rounded px-2 py-1 text-[11px] font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20">{deletingRunId === run.id ? "..." : "Yes"}</button>
-              <button onClick={() => onConfirmDelete(null)} className="rounded px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300">No</button>
-            </div>
-          ) : (
-            <button onClick={() => onConfirmDelete(`confirm_${run.id}`)} className="rounded p-1 text-zinc-600 hover:text-red-400 hover:bg-red-500/10" title="Delete"><Trash2 className="h-3 w-3" /></button>
-          )}
-        </div>
       </div>
 
-      {expanded && (
-        <div className="border-t border-zinc-800 p-4 space-y-4">
-          {/* Execution Steps */}
-          <ExecutionLog
-            steps={deduplicateSteps(run.triggerMeta)}
-            isRunDone={run.status === "succeeded" || run.status === "failed" || run.status === "cancelled"}
-            isRunning={run.status === "running"}
-          />
-          {/* Output */}
-          {run.output ? (
-            <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Result</p>
-              <div className="max-h-80 overflow-auto rounded-lg border border-emerald-500/10 bg-emerald-500/[0.02] p-4">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200 font-sans">
-                  {cleanOutput(typeof run.output === "string" ? run.output : typeof run.output === "object" && run.output !== null && "result" in (run.output as Record<string, unknown>) ? String((run.output as Record<string, unknown>).result) : JSON.stringify(run.output, null, 2))}
-                </pre>
-              </div>
-            </div>
-          ) : run.error ? (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-              <p className="text-xs font-medium text-red-400">{run.error.code}</p>
-              <p className="mt-1 text-xs text-red-300/70">{run.error.message}</p>
-            </div>
-          ) : run.status === "running" ? (
-            <div className="flex items-center gap-2.5 py-3"><div className="h-4 w-4 rounded-full border-2 border-pal-400 border-t-transparent animate-spin" /><span className="text-sm text-zinc-400">Processing...</span></div>
-          ) : <p className="text-xs text-zinc-600">No output available.</p>}
-        </div>
-      )}
+      <ConfirmModal
+        open={confirm !== null}
+        title={`Delete run ${confirm?.id.slice(0, 8) ?? ""}?`}
+        description="The run and its trace are removed from history. This can’t be undone."
+        confirmLabel="Delete run"
+        tone="danger"
+        confirming={deleting}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => void doDelete()}
+      />
     </div>
   );
 }
