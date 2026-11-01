@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useState, useEffect, useCallback } from "react";
 import {
   FlaskConical,
@@ -41,6 +42,7 @@ function emptyDraft(agentName: string): ExperimentInput {
 
 export default function ExperimentsPage() {
   const toast = useToast();
+  const canWrite = useCan("agents:write"); // UX gating (lib/rbac-matrix.ts)
   const [loading, setLoading] = useState(true);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -108,7 +110,8 @@ export default function ExperimentsPage() {
           experiments.length > 0 ? <CountBadge count={experiments.length} /> : null
         }
         action={
-          <Button
+          canWrite ? (
+<Button
             variant="primary"
             size="md"
             icon={<Plus className="h-3.5 w-3.5" />}
@@ -118,6 +121,7 @@ export default function ExperimentsPage() {
           >
             New experiment
           </Button>
+) : null
         }
       />
 
@@ -137,13 +141,13 @@ export default function ExperimentsPage() {
                 ? "Ship a new version safely behind a traffic split. PAL hashes run_id deterministically, so your retry logic, webhooks, and sessions stay on the same arm."
                 : "Create an agent first. Experiments compare two versions of a deployed agent."
             }
-            actionLabel={canCreate ? "New experiment" : "Create agent"}
+            actionLabel={!canWrite ? undefined : canCreate ? "New experiment" : "Create agent"}
             onAction={
-              canCreate
+              canWrite && canCreate
                 ? () => setCreating(emptyDraft(agents[0]?.name ?? ""))
                 : undefined
             }
-            actionHref={canCreate ? undefined : "/agents/create"}
+            actionHref={canWrite && !canCreate ? "/agents/create" : undefined}
           />
         ) : (
           <div className="space-y-3">
@@ -152,6 +156,7 @@ export default function ExperimentsPage() {
                 key={exp.id}
                 exp={exp}
                 onConclude={conclude}
+                canWrite={canWrite}
                 concluding={concluding === exp.id}
               />
             ))}
@@ -308,7 +313,9 @@ function ExperimentCard({
   exp,
   onConclude,
   concluding,
+  canWrite,
 }: {
+  canWrite: boolean;
   exp: Experiment;
   onConclude: (exp: Experiment, winner: "a" | "b", promote: boolean) => void;
   concluding: boolean;
@@ -424,7 +431,7 @@ function ExperimentCard({
           )}
         </div>
       )}
-      {exp.status === "running" && (
+      {canWrite && exp.status === "running" && (
         <div className="mt-4 flex items-center justify-end gap-2 border-t border-zinc-800 pt-3">
           <Button
             variant="secondary"

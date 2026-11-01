@@ -8,6 +8,7 @@
 // Real audio streaming requires the provider's webhook to point at
 // /v1/voice/webhook/{provider} on this control-plane.
 
+import { useCan } from "@/components/role-gate";
 import { useEffect, useRef, useState } from "react";
 import {
   Phone,
@@ -51,6 +52,7 @@ interface VoiceCall {
 
 export default function VoicePage() {
   const toast = useToast();
+  const canManage = useCan("settings:write"); // number routing is workspace admin (UX gating, lib/rbac-matrix.ts)
   const [numbers, setNumbers] = useState<VoiceNumber[]>([]);
   const [calls, setCalls] = useState<VoiceCall[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,8 @@ export default function VoicePage() {
         title="Voice"
         description="Phone numbers routed to your PAL agents. Pluggable provider (Twilio today; LiveKit + Vapi land via VoiceProvider). Inbound webhook: POST /v1/voice/webhook/{provider}."
         action={
-          <Button
+          canManage ? (
+<Button
             onClick={() => setShowAdd((v) => !v)}
             variant="primary"
             size="sm"
@@ -103,11 +106,12 @@ export default function VoicePage() {
           >
             Link a number
           </Button>
+) : null
         }
       />
 
       <div className="space-y-6 p-8">
-        {showAdd && (
+        {canManage && showAdd && (
           <AddNumberCard
             onCancel={() => setShowAdd(false)}
             saving={saving}
@@ -140,7 +144,7 @@ export default function VoicePage() {
             </div>
           ) : numbers.length === 0 ? (
             <div className="rounded-xl border border-zinc-800 bg-surface-1 p-8 text-center text-[12px] text-zinc-500">
-              No voice numbers linked yet. Click <span className="text-zinc-300">Link a number</span> above.
+              No voice numbers linked yet.{canManage && <> Click <span className="text-zinc-300">Link a number</span> above.</>}
             </div>
           ) : (
             <ul className="divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800 bg-surface-1">
@@ -174,7 +178,8 @@ export default function VoicePage() {
                   >
                     {n.status}
                   </span>
-                  <button
+                  {canManage && (
+<button
                     onClick={() => setUnlinkTarget(n)}
                     disabled={deleting === n.id}
                     className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
@@ -182,6 +187,7 @@ export default function VoicePage() {
                   >
                     {deleting === n.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
+)}
                 </li>
               ))}
             </ul>

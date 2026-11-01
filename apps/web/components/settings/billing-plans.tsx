@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { AlertTriangle, ArrowUpRight, ExternalLink, Info } from "lucide-react";
@@ -39,6 +40,8 @@ function errorMessage(err: unknown): string {
  */
 export function BillingPlans() {
   const { toast } = useToast();
+  // Server: checkout/portal are owner|admin only (billing.go). UX gating, not enforcement.
+  const canManage = useCan("settings:write");
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -119,7 +122,7 @@ export function BillingPlans() {
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="flex-1">{banner.message}</span>
-          {enabled && account.hasCustomer && banner.tone !== "info" && (
+          {canManage && enabled && account.hasCustomer && banner.tone !== "info" && (
             <Button size="sm" variant="secondary" loading={busy === "portal"} onClick={() => redirect("portal", () => api.openBillingPortal())}>
               Update payment
             </Button>
@@ -134,7 +137,7 @@ export function BillingPlans() {
             <span className="text-zinc-500"> · renews {new Date(account.currentPeriodEnd).toLocaleDateString()}</span>
           )}
         </p>
-        {enabled && account.hasCustomer && (
+        {canManage && enabled && account.hasCustomer && (
           <Button
             size="sm"
             variant="ghost"
@@ -154,6 +157,7 @@ export function BillingPlans() {
             plan={plan}
             overview={overview}
             busy={busy}
+            canManage={canManage}
             onCheckout={() => redirect(plan.id, () => api.startCheckout(plan.id))}
             onPortal={() => redirect("portal", () => api.openBillingPortal())}
           />
@@ -167,12 +171,14 @@ function PlanCard({
   plan,
   overview,
   busy,
+  canManage,
   onCheckout,
   onPortal,
 }: {
   plan: BillingPlan;
   overview: BillingOverview;
   busy: string | null;
+  canManage: boolean;
   onCheckout: () => void;
   onPortal: () => void;
 }) {
@@ -194,12 +200,15 @@ function PlanCard({
         ))}
       </ul>
       <div className="mt-4">
-        {action.kind === "checkout" && (
+        {!canManage && (action.kind === "checkout" || action.kind === "portal") && (
+          <p className="text-center text-[12px] text-zinc-600">Only a workspace owner or admin can change the plan.</p>
+        )}
+        {canManage && action.kind === "checkout" && (
           <Button size="md" variant="primary" className="w-full" icon={<ArrowUpRight className="h-3 w-3" />} loading={busy === plan.id} disabled={busy !== null} onClick={onCheckout}>
             Choose {plan.name}
           </Button>
         )}
-        {action.kind === "portal" && (
+        {canManage && action.kind === "portal" && (
           <Button size="md" variant="secondary" className="w-full" loading={busy === "portal"} disabled={busy !== null} onClick={onPortal}>
             Switch in billing portal
           </Button>

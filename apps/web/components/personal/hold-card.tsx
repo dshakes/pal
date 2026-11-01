@@ -30,11 +30,13 @@ export function ChannelTag({ channel }: { channel: Draft["channel"] }) {
 }
 
 export function HoldCard({
-  draft, why, onOutcome,
+  draft, why, onOutcome, canAct = true,
 }: {
   draft: Draft;
   /** The ranker's one-line reason (Today only). */
   why?: string;
+  /** Role gate (runs:execute); false hides the actions. UX only: the server enforces. */
+  canAct?: boolean;
   /** Called once the server has answered; the parent removes the row and reports. */
   onOutcome: (draft: Draft, action: HoldAction, outcome: HoldOutcome, sentText: string | null) => void;
 }) {
@@ -112,7 +114,9 @@ export function HoldCard({
           )}
 
           <div className={clsx("mt-3", mode.kind === "confirm" && "max-w-xl")}>
-            {mode.kind === "confirm" ? (
+            {!canAct ? (
+              <span className="text-[12px] text-fg-3">Only a Member or above can send or discard held replies.</span>
+            ) : mode.kind === "confirm" ? (
               <ConfirmCard
                 title={mode.plan.title}
                 confirmLabel={mode.plan.confirmLabel}

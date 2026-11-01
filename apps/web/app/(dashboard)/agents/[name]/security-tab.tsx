@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -351,6 +352,8 @@ function DiffView({ current, next }: { current: AgentPolicy; next: AgentPolicy }
 type Verify = { state: "ok" } | { state: "mismatch" } | null;
 
 export function SecurityTab({ name }: { name: string }) {
+  // Rotate/revoke/policy writes are ScopeAgentsWrite on the server; UX gating (lib/rbac-matrix.ts).
+  const canWrite = useCan("agents:write");
   const toast = useToast();
 
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);
@@ -565,7 +568,7 @@ export function SecurityTab({ name }: { name: string }) {
       <Card
         title="Identity"
         action={
-          identity && (
+          identity && canWrite && (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => setDialog("rotate")}>
                 Rotate key
@@ -663,6 +666,7 @@ export function SecurityTab({ name }: { name: string }) {
         title="Policy"
         action={
           doc &&
+          canWrite &&
           !editing && (
             <div className="flex flex-wrap gap-2">
               <Button
@@ -697,7 +701,7 @@ export function SecurityTab({ name }: { name: string }) {
                   <b>Legacy permissive.</b> This agent predates per-agent policy and can use every tool/connector
                   installed in the workspace. Every call is still audited.
                 </p>
-                {!editing && (
+                {!editing && canWrite && (
                   <Button size="sm" loading={proposing} onClick={() => void propose()}>
                     Propose least-privilege policy
                   </Button>

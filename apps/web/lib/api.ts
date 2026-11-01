@@ -1140,38 +1140,24 @@ class PalAPI {
     lastUsedAt?: string;
     revokedAt?: string;
   }>> {
-    try {
-      return await this.request("/v1/api-keys");
-    } catch (err) {
-      notifySimulated("listApiKeysReal", err);
-      throw new Error("API unavailable");
-    }
+    // No simulated fallback: callers show the server's reason (403 for a non-admin, etc.).
+    return this.request("/v1/api-keys");
   }
 
   async createApiKeyReal(data: CreateApiKeyInput): Promise<{
     key: { id: string; name: string; prefix: string; scopes: string[]; createdAt: string };
     rawKey: string;
   }> {
-    try {
-      return await this.request("/v1/api-keys", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
-    } catch (err) {
-      notifySimulated("createApiKeyReal", err);
-      throw new Error("API unavailable");
-    }
+    return this.request("/v1/api-keys", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
   }
 
   async revokeApiKeyReal(id: string): Promise<void> {
-    try {
-      await this.request<void>(`/v1/api-keys/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-    } catch (err) {
-      notifySimulated("revokeApiKeyReal", err);
-      throw new Error("API unavailable");
-    }
+    await this.request<void>(`/v1/api-keys/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
   }
 
   // ---- Devices / bridge enrollment (ADR 0047) -------------------------------

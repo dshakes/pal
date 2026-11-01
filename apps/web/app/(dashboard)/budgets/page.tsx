@@ -14,6 +14,7 @@ import {
 import clsx from "clsx";
 import { api, type Budget, type BudgetInput } from "@/lib/api";
 import { useToast } from "@/components/toast";
+import { useCan } from "@/components/role-gate";
 import { Skeleton } from "@/components/skeleton";
 import { PageHeader, CountBadge } from "@/components/page-header";
 import { Button } from "@/components/button";
@@ -69,6 +70,7 @@ function parseToolLimits(text: string): Record<string, number> {
 }
 
 export default function BudgetsPage() {
+  const canWrite = useCan("budgets:write"); // UX gating (lib/rbac-matrix.ts)
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -143,7 +145,7 @@ export default function BudgetsPage() {
         title="Budgets"
         description="Policy-as-code spend limits. Runs that would exceed a hard limit return HTTP 402."
         badge={budgets.length > 0 ? <CountBadge count={budgets.length} /> : null}
-        action={
+        action={canWrite ? (
           <Button
             variant="primary"
             size="md"
@@ -156,7 +158,7 @@ export default function BudgetsPage() {
           >
             New budget
           </Button>
-        }
+        ) : null}
       />
 
       <div className="flex-1 p-8">
@@ -175,13 +177,13 @@ export default function BudgetsPage() {
                 ? "Cap an agent's daily spend and per-run cost before it surprises you. Hard limits return HTTP 402; soft limits alert at the threshold you set."
                 : "Create an agent first, then set a hard-cap on its spend. Budgets apply per-agent."
             }
-            actionLabel={canCreate ? "New budget" : "Create agent"}
+            actionLabel={!canWrite ? undefined : canCreate ? "New budget" : "Create agent"}
             onAction={
-              canCreate
+              canWrite && canCreate
                 ? () => setEditing(emptyDraft(agents[0]?.name ?? ""))
                 : undefined
             }
-            actionHref={canCreate ? undefined : "/agents/create"}
+            actionHref={canWrite && !canCreate ? "/agents/create" : undefined}
           />
         ) : (
           <div className="space-y-3">
@@ -189,6 +191,7 @@ export default function BudgetsPage() {
               <BudgetRow
                 key={b.agentName}
                 budget={b}
+                readOnly={!canWrite}
                 onEdit={() => setEditing(toDraft(b))}
                 onDelete={() => setRemoveTarget(b.agentName)}
               />
@@ -358,10 +361,12 @@ function BudgetRow({
   budget,
   onEdit,
   onDelete,
+  readOnly,
 }: {
   budget: Budget;
   onEdit: () => void;
   onDelete: () => void;
+  readOnly: boolean;
 }) {
   return (
     <div className="group rounded-xl border border-zinc-800 bg-surface-1 p-5 transition-all duration-150 hover:border-zinc-700 hover:shadow-md">
@@ -420,7 +425,7 @@ function BudgetRow({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        {!readOnly && <div className="flex items-center gap-1">
           <Button
             variant="secondary"
             size="sm"
@@ -438,7 +443,7 @@ function BudgetRow({
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
-        </div>
+        </div>}
       </div>
     </div>
   );

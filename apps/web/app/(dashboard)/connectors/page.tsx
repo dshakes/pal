@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, Mail, Github, Calendar, FileText, MessageSquare, Phone, CreditCard, BarChart3, Bug, Trello, Database, Globe, X, Loader2, Plug, Eye, EyeOff, AlertCircle, CheckCircle2, RefreshCw, ExternalLink, Plus, Server, Trash2 } from "lucide-react";
@@ -113,6 +114,9 @@ function SecretInput({ value, onChange, placeholder, isText }: { value: string; 
 
 export default function ConnectorsPage() {
   const toast = useToast();
+  // UX gating only (lib/rbac-matrix.ts): connections need connectors:write, MCP attach needs agents:write.
+  const canConnect = useCan("connectors:write");
+  const canAttach = useCan("agents:write");
   const searchParams = useSearchParams();
   const [states, setStates] = useState<Record<string, ConnectorState>>({});
   const [loading, setLoading] = useState(true);
@@ -252,6 +256,7 @@ export default function ConnectorsPage() {
   const counts = useMemo(() => { const m: Record<string, number> = { All: connectors.length }; for (const c of connectors) m[c.category] = (m[c.category] ?? 0) + 1; return m; }, []);
 
   const openModal = (con: ConnectorDef) => {
+    if (!canConnect) return; // read-only role: cards are informational
     const inst = states[con.id]?.installed;
     setMc(con); setCreds({}); setErrors({}); setMsg(""); setDisconnecting(false); setOauthErr("");
     setView(inst ? "config" : con.oauthProvider ? "choose" : con.fields.length > 0 ? "manual" : "choose");
@@ -436,6 +441,7 @@ export default function ConnectorsPage() {
                 <p className="text-xs text-zinc-500">Attach a server from the curated MCP catalog to one of your agents.</p>
               </div>
             </div>
+            {canAttach && (
             <button
               onClick={() => { setShowMcpModal(true); setMcpForm({ agentName: "", slug: "" }); setMcpErrors({}); }}
               disabled={agents.length === 0}
@@ -445,6 +451,7 @@ export default function ConnectorsPage() {
               <Plus className="h-3 w-3" />
               Add MCP server
             </button>
+            )}
           </div>
         ) : (
           <div className="mb-8 rounded-xl border border-zinc-800 bg-surface-1 p-5">
@@ -458,6 +465,7 @@ export default function ConnectorsPage() {
                   <p className="text-xs text-zinc-500">{attachments.length} attached across {agents.length} agent{agents.length === 1 ? "" : "s"}</p>
                 </div>
               </div>
+              {canAttach && (
               <button
                 onClick={() => { setShowMcpModal(true); setMcpForm({ agentName: "", slug: "" }); setMcpErrors({}); }}
                 disabled={agents.length === 0}
@@ -467,6 +475,7 @@ export default function ConnectorsPage() {
                 <Plus className="h-3.5 w-3.5" />
                 Add server
               </button>
+              )}
             </div>
             <div className="relative mb-3 max-w-sm">
               <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
@@ -480,6 +489,7 @@ export default function ConnectorsPage() {
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-pal-500/10">
                       <Server className="h-4 w-4 text-pal-400" />
                     </div>
+                    {canAttach && (
                     <button
                       onClick={() => handleRemoveMcp(row)}
                       className="rounded p-1 text-zinc-600 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
@@ -487,6 +497,7 @@ export default function ConnectorsPage() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
+                    )}
                   </div>
                   <h3 className="mt-2 text-sm font-medium text-zinc-200 truncate">{row.serverName}</h3>
                   <p className="mt-0.5 text-[12px] text-zinc-500 truncate">{row.category} · {row.transport}</p>
@@ -526,8 +537,10 @@ export default function ConnectorsPage() {
                 key={con.id}
                 type="button"
                 onClick={() => openModal(con)}
-                aria-label={on ? `Configure ${con.name}` : `Connect ${con.name}`}
-                className="connector-card group text-left cursor-pointer"
+                aria-disabled={!canConnect || undefined}
+                title={canConnect ? undefined : "Your role can't change connections"}
+                aria-label={!canConnect ? `${con.name}${on ? " (connected)" : ""}` : on ? `Configure ${con.name}` : `Connect ${con.name}`}
+                className={canConnect ? "connector-card group text-left cursor-pointer" : "connector-card group text-left cursor-default"}
               >
                 <div className="flex items-start justify-between">
                   <div className={clsx("flex h-10 w-10 items-center justify-center rounded-xl", con.iconBg)}><I className={clsx("h-5 w-5", con.iconColor)} /></div>

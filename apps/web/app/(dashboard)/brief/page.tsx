@@ -14,6 +14,7 @@
 // only: chat is their acting surface and the dashboard never mutates a bridge.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCan } from "@/components/role-gate";
 import Link from "next/link";
 import clsx from "clsx";
 import { AlertTriangle, CheckCircle2, Clock, Copy, Inbox, Loader2, MessageCircle, RefreshCw, Smartphone, Sparkles, X, Zap } from "lucide-react";
@@ -45,6 +46,7 @@ type StaleSnap = { channel: string; generatedAt: number };
 const CHANNEL_NAME: Record<BridgeChannel, string> = { whatsapp: "WhatsApp", imessage: "iMessage" };
 
 export default function TodayPage() {
+  const canAct = useCan("runs:execute"); // approve/edit/discard + dismiss (UX gating, lib/rbac-matrix.ts)
   const { user } = useAuth();
   const { isConfigured } = useModels();
   const toast = useToast();
@@ -304,11 +306,11 @@ export default function TodayPage() {
                 {items.map((item) => (
                   <li key={item.key}>
                     {item.kind === "hold" && draftById.get(item.id) ? (
-                      <HoldCard draft={draftById.get(item.id)!} why={item.why} onOutcome={onHoldOutcome} />
+                      <HoldCard draft={draftById.get(item.id)!} why={item.why} onOutcome={onHoldOutcome} canAct={canAct} />
                     ) : item.kind === "life_event" ? (
                       <>
                         <RowCard item={item} icon={Zap}>
-                          <Button size="sm" variant="ghost" icon={<X className="h-3 w-3" />} onClick={() => setDismissing(item.id)}>Dismiss</Button>
+                          {canAct && <Button size="sm" variant="ghost" icon={<X className="h-3 w-3" />} onClick={() => setDismissing(item.id)}>Dismiss</Button>}
                           <Link href="/automations" className="text-[12px] font-medium text-accent hover:underline">Open</Link>
                         </RowCard>
                         {dismissing === item.id && (

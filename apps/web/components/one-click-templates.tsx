@@ -10,6 +10,7 @@
 // in PAL are workspace-wide — install once, every agent can use
 // them — so the tile reflects the user's real install state.
 
+import { useCan } from "@/components/role-gate";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -77,6 +78,10 @@ const TEMPLATE_VISUALS: Record<string, { icon: typeof Inbox; tint: string; bg: s
 };
 
 export function OneClickTemplates() {
+  // A recipe creates the agent AND its hard-cap budget, so it needs both (UX gating, lib/rbac-matrix.ts).
+  const canWriteAgents = useCan("agents:write");
+  const canWriteBudgets = useCan("budgets:write");
+  const canApply = canWriteAgents && canWriteBudgets;
   const router = useRouter();
   const toast = useToast();
   const [templates, setTemplates] = useState<Template[] | null>(null);
@@ -202,6 +207,7 @@ export function OneClickTemplates() {
                 ))}
               </div>
 
+              {canApply ? (
               <button
                 onClick={() => apply(t)}
                 disabled={!!applying}
@@ -216,6 +222,9 @@ export function OneClickTemplates() {
                   </>
                 )}
               </button>
+              ) : (
+                <p className="mt-4 text-[12px] text-zinc-500">Recipes create a budget too. Ask an owner or admin to apply one.</p>
+              )}
               <p className="mt-2 text-[12px] text-zinc-600">
                 creates the agent + ${t.maxCostUsdDay.toFixed(2)}/day hard-cap budget + the cron
               </p>

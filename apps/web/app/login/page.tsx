@@ -15,9 +15,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Eye, EyeOff, Loader2, MailCheck } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, KeyRound, Loader2, MailCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, type AuthProviders } from "@/lib/api";
+import { visibleOAuthProviders } from "@/lib/auth-providers";
 import { Turnstile, TURNSTILE_SITE_KEY } from "@/components/turnstile";
 import { AuthError, AuthFrame, authInputClass } from "@/app/auth/auth-shell";
 import { describeAuthError, safeNextPath, type AuthErrorView } from "./auth-errors";
@@ -44,6 +45,8 @@ function GitHubIcon() {
 const OAUTH_META: Record<string, { label: string; Icon: () => React.ReactElement }> = {
   google: { label: "Continue with Google", Icon: GoogleIcon },
   github: { label: "Continue with GitHub", Icon: GitHubIcon },
+  // Enterprise SSO slot: listed only when /auth/providers reports oauth.sso (lib/auth-providers).
+  sso: { label: "Continue with single sign-on", Icon: () => <KeyRound className="h-4 w-4" aria-hidden /> },
 };
 
 export default function LoginPage() {
@@ -83,10 +86,7 @@ export default function LoginPage() {
 
   const signupMode = providers?.signup ?? "open";
   const signupAllowed = signupMode !== "closed" || Boolean(inviteParam);
-  const oauthProviders = Object.entries(providers?.oauth ?? {})
-    .filter(([id, on]) => on && OAUTH_META[id])
-    .map(([id]) => id)
-    .sort();
+  const oauthProviders = visibleOAuthProviders(providers?.oauth).filter((id) => OAUTH_META[id]);
 
   // Redirect / desync repair once AuthProvider has validated the token.
   const redirecting = useRef(false);

@@ -13,6 +13,7 @@ import { AlertTriangle, Check, Edit3, Inbox, RefreshCw, X } from "lucide-react";
 import { listDrafts, prettyJid, type Draft } from "@/lib/whatsapp-personal-client";
 import { DRAFTS_CAP, capNote, makeLatest, reconcileResolved, timeAgo } from "@/lib/pal-space";
 import { useToast } from "@/components/toast";
+import { useCan } from "@/components/role-gate";
 import { Button } from "@/components/button";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/skeleton";
@@ -38,6 +39,7 @@ const EMPTY: Record<StatusTab, { title: string; hint: string }> = {
 
 export default function HoldsPage() {
   const toast = useToast();
+  const canAct = useCan("runs:execute");
   const [tab, setTab] = useState<StatusTab>("pending");
   const [channel, setChannel] = useState<ChannelFilter>("all");
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -172,7 +174,7 @@ export default function HoldsPage() {
         <ul className="space-y-3" aria-label="Held replies">
           {visible.map((d) => (
             <li key={d.id}>
-              <HoldCard draft={d} onOutcome={onOutcome} />
+              <HoldCard draft={d} onOutcome={onOutcome} canAct={canAct} />
             </li>
           ))}
         </ul>

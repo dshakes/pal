@@ -6,6 +6,7 @@
 // agent continue, optionally posting notes that become the approval
 // reason in the run's journal.
 
+import { useCan } from "@/components/role-gate";
 import { useEffect, useState } from "react";
 import {
   Hand,
@@ -171,6 +172,7 @@ function TakeoverRow({
   onRelease: () => void;
 }) {
   const isActing = acting === t.id;
+  const canAct = useCan("runs:execute"); // grant/release resume a run (UX gating, lib/rbac-matrix.ts)
   return (
     <li className="rounded-lg border border-zinc-800 bg-surface-0 px-3 py-2">
       <div className="flex items-start gap-2">
@@ -209,7 +211,7 @@ function TakeoverRow({
             </p>
           )}
         </div>
-        {t.status === "pending" && (
+        {canAct && t.status === "pending" && (
           <button
             onClick={onGrant}
             disabled={isActing}
@@ -218,7 +220,7 @@ function TakeoverRow({
             {isActing ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Play className="mr-1 inline h-3 w-3" />Grant</>}
           </button>
         )}
-        {t.status === "granted" && (
+        {canAct && t.status === "granted" && (
           <button
             onClick={onRelease}
             disabled={isActing}

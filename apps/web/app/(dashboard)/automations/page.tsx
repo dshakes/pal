@@ -9,6 +9,7 @@
  * Skeleton, useToast.
  */
 
+import { useCan } from "@/components/role-gate";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Package,
@@ -435,6 +436,7 @@ function EventCard({
   onMarkDone: (id: string) => void;
 }) {
   const [busy, setBusy] = useState<"undo" | "mark-done" | null>(null);
+  const canAct = useCan("runs:execute"); // undo/dismiss steer the owner's bridge (UX gating, lib/rbac-matrix.ts)
   const icon = KIND_ICONS[event.kind] ?? <Zap className="h-4 w-4" />;
   const isDone = event.status === "undone" || event.status === "dismissed";
 
@@ -501,7 +503,7 @@ function EventCard({
       {!isDone && <InlineActions event={event} />}
 
       {/* Action buttons — large tap targets for mobile */}
-      {!isDone && (
+      {!isDone && canAct && (
         <div className="mt-3 flex gap-2">
           {event.status === "auto_acted" && (
             <Button
@@ -541,6 +543,7 @@ function PrefRow({
 }) {
   const icon = KIND_ICONS[pref.kind] ?? <Zap className="h-4 w-4" />;
   const modes: LifeEventMode[] = ["auto", "ask", "off"];
+  const canTune = useCan("settings:write"); // trust modes decide what runs unattended
 
   return (
     <div className="flex items-center gap-3 py-2">
@@ -551,6 +554,9 @@ function PrefRow({
         {KIND_LABELS[pref.kind] ?? pref.kind}
       </span>
       {/* Segmented control — three equal buttons */}
+      {!canTune ? (
+        <span className="rounded-lg border border-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-400">{MODE_LABELS[pref.mode]}</span>
+      ) : (
       <div className="flex overflow-hidden rounded-lg border border-zinc-800 bg-surface-0">
         {modes.map((m) => (
           <button
@@ -567,6 +573,7 @@ function PrefRow({
           </button>
         ))}
       </div>
+      )}
     </div>
   );
 }

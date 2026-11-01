@@ -1,5 +1,6 @@
 "use client";
 
+import { useCan } from "@/components/role-gate";
 import { useState, useEffect, useCallback } from "react";
 import {
   Store,
@@ -232,6 +233,7 @@ function AgentCard({
   onFork: () => void;
   onStar: () => void;
 }) {
+  const canWrite = useCan("agents:write"); // star/fork are agents:write server-side (UX gating, lib/rbac-matrix.ts)
   return (
     <div className="group flex flex-col rounded-xl border border-zinc-800 bg-surface-1 p-5 transition-all hover:border-zinc-700 hover:shadow-lg hover:shadow-black/20">
       <div className="mb-3 flex items-start justify-between gap-2">
@@ -278,7 +280,7 @@ function AgentCard({
             {agent.forksCount}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
+        {canWrite && <div className="flex items-center gap-1.5">
           <Button
             variant="ghost"
             size="sm"
@@ -306,7 +308,7 @@ function AgentCard({
           >
             Fork
           </Button>
-        </div>
+        </div>}
       </div>
     </div>
   );
