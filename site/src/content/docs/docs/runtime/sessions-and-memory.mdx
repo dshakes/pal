@@ -80,4 +80,4 @@ An item is persisted only if the LLM returns `confidence >= 0.60` and a non-empt
 | `GET` | `/v1/memory/distillates` | Active (non-superseded) distillates for the tenant. Returns `{ enabled: false }` when the flag is off |
 | `POST` | `/v1/memory/distill` | Run a pass now. Returns `{ found: N }`, the number of items persisted |
 
-The `memory_distillates` table is row-level-security enforced, and the pass reads and writes through tenant-scoped connections. Full shapes: [REST API](/docs/reference/api/). For how PAL uses one memory across iMessage and WhatsApp, see [Knowledge and handoff](/docs/pal/knowledge/).
+The `memory_distillates` table is row-level-security enforced, and the pass reads and writes through tenant-scoped connections. Full shapes: [REST API](/docs/reference/api/). For how PAL uses one memory across iMessage and WhatsApp, see [Your documents and memory](/docs/pal/knowledge/).

@@ -1,9 +1,9 @@
 ---
 title: Daily use
-description: "The Brief, nudges, the world model, skills and the recap: what PAL does for you in your own chat."
+description: "The Brief, nudges, the world model and the recap: what PAL does for you in your own chat, every day."
 ---
 
-import { BriefAttention, ProactiveNudges, WorldModel, SkillForge, Recap } from '../../../../components/diagrams';
+import { BriefAttention, ProactiveNudges, WorldModel, Recap } from '../../../../components/diagrams';
 
 PAL's daily work happens in your own chat. It turns a pile of threads into one short message you can act on, usually with one word or one tap. Type **`today`** to get the **Brief**, a ranked list of what needs you. Everything else on this page is either automatic (**nudges**, the **world model**) or one short command (**skills**, the **recap**). All of it respects the kill switch, mute and quiet hours; see [Privacy and control](/docs/pal/privacy/).
 
@@ -50,17 +50,7 @@ Every derived fact must quote a mail subject or event title word for word and ca
 
 ## Skills
 
-Teach a recurring task in one message:
-
-<SkillForge client:visible />
-
-```text
-new skill: every weekday at 8am, check the weather and tell me if I need an umbrella
-```
-
-PAL drafts a skill (name, schedule, prompt) and shows it to you. Nothing runs until you reply `approve skill` within 10 minutes. `skills` lists them; `drop skill 2` removes one.
-
-A skill is a prompt, not code. It can search the web and message you, and nothing else: no shell, no files.
+Teach PAL a recurring task with one message, `new skill: …`, and approve it before it runs. How skills work, and how to build a full agent of your own: [Build your own personal agents](/docs/pal/your-agents/).
 
 ## What did I miss
 

@@ -14,7 +14,7 @@ PAL is two products on one platform. **PAL** is a personal agent that answers yo
 | Who it is for | You, on your Mac | Developers and platform teams |
 | What it does | Drafts, checks and sends replies in your voice; holds the risky ones | Runs agents durably, within budget, with untrusted code in a microVM |
 | Where it runs | Two channel bridges on your Mac, next to a control plane | Your laptop, your cluster, or a managed control plane with the data plane in your VPC |
-| Start with | [How PAL works](/docs/pal/) | [How PAL Runtime works](/docs/architecture/overview/) |
+| Start with | [How PAL works](/docs/pal/) | [What PAL Runtime is](/docs/runtime/) |
 
 ## What PAL does
 
@@ -28,7 +28,7 @@ Replies in your voice, holds what commits you, briefs you on what needs you, and
 
 - **Not a chat client.** PAL acts through the iMessage and WhatsApp accounts on your Mac. It does not replace either app.
 - **Not fully unattended.** PAL sends ordinary replies on its own. It holds anything that commits you, and it does not verify a held claim; it holds it.
-- **Not a hosted service you sign up for.** A fully managed PAL cloud is the intended offering, not a shipped one. Today you run the control plane yourself ([Deploy to the cloud](/docs/start/deploy/)).
+- **Not a hosted service you sign up for.** A fully managed PAL cloud is the intended offering, not a shipped one. Today you run the control plane yourself ([Deploy to your cloud](/docs/start/deploy/)).
 - **Not a model.** You bring provider keys. Agents ask for a capability, and PAL maps it to a model from your providers.
 
-Next: [Install](/docs/start/installation/) the CLI, then try it with no keys in [Try it: the demo](/docs/start/demo/).
+Next: for your own messages, [How PAL works](/docs/pal/). To build and run agents, [What PAL Runtime is](/docs/runtime/). To look first with no keys, [Try it: the demo](/docs/start/demo/).
