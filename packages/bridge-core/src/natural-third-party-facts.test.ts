@@ -31,7 +31,7 @@ test("contact prompt carries the no-leak + no-fake-send rules (Chikka)", () => {
   const p = agentPersonaPrompt("Shekhar", style, false, { audience: "contact" });
   assert.ok(p.includes("CONTEXT BLOCKS ARE PRIVATE"), "private-context rule missing");
   assert.ok(p.includes("NEVER FAKE A SEND"), "no-fake-send rule missing");
-  assert.ok(/PAN, Aadhaar/.test(p), "sensitive-doc examples missing");
+  assert.ok(/passport, license/.test(p), "sensitive-doc examples missing");
 });
 
 test("owner-audience prompt does NOT dump the people-graph or contact-only rules", () => {

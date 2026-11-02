@@ -391,7 +391,7 @@ export default function TodayPage() {
             </section>
 
             <SuggestedSteps
-              page="pal Today (personal home)"
+              page="PAL Today (personal home)"
               facts={[
                 `${holdCount} held replies`,
                 `${events.length} suggested automations`,

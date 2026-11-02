@@ -21,6 +21,8 @@
 // owner's is_from_me rows from chat.db) and passes them in.
 
 import { isBotSelfMessage } from "./bot-self.js";
+import { ownerPronouns, type OwnerVoice } from "./owner-profile.js";
+import { isTeluguTelangana, teluguTelanganaRegisterNote } from "./dialect-te.js";
 
 // Romanized-Telugu giveaway tokens — the same lexicon the per-contact
 // fingerprint uses, kept local so this module stays dependency-light and
@@ -38,6 +40,7 @@ const TELUGU_SCRIPT_RE = /[ఀ-౿]/;
  *  tokens OR native Telugu script). Romanized detection requires a real
  *  token hit so a stray "ra" inside an English word can't false-positive
  *  — we tokenize on non-letter boundaries first. */
+
 export function isTeluguSample(msg: string): boolean {
   if (TELUGU_SCRIPT_RE.test(msg)) return true;
   const tokens = msg
@@ -191,21 +194,23 @@ export function formatOwnerVoiceBlock(
   ownerName: string,
   generalExemplars: string[],
   teluguExemplars: string[] = [],
+  voice?: OwnerVoice,
 ): string {
+  const pr = ownerPronouns(voice);
   const general = generalExemplars.filter((s) => s.trim().length > 0);
   const telugu = teluguExemplars.filter((s) => s.trim().length > 0);
   if (general.length === 0 && telugu.length === 0) return "";
 
   const lines: string[] = [
     `## HOW ${ownerName.toUpperCase()} ACTUALLY WRITES — mimic this exact voice (verbatim examples from real messages)`,
-    `These are ${ownerName}'s OWN messages across all his chats. Match this voice — length, casing, vocabulary, rhythm, punctuation. These real examples OVERRIDE any generic style rule.`,
+    `These are ${ownerName}'s OWN messages across all ${pr.poss} chats. Match this voice — length, casing, vocabulary, rhythm, punctuation. These real examples OVERRIDE any generic style rule.`,
   ];
   for (const s of general) lines.push(`> ${s}`);
 
   if (telugu.length > 0) {
     lines.push("");
     lines.push(
-      `When replying in Telugu, write EXACTLY like these real Telugu messages from ${ownerName} (his natural Telangana register — short verbs, casual, NOT textbook/coastal). Mimic the SHAPE, never invent forms he doesn't use:`,
+      `When replying in Telugu, write EXACTLY like these real Telugu messages from ${ownerName} (${isTeluguTelangana(voice) ? teluguTelanganaRegisterNote(pr.poss) : `${pr.poss} natural register`}). Mimic the SHAPE, never invent forms ${pr.subj} ${pr.plural ? "don't" : "doesn't"} use:`,
     );
     for (const s of telugu) lines.push(`> ${s}`);
   }

@@ -4,12 +4,12 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/public/brand/logo-animated-on-dark.svg">
-  <img src="site/public/brand/logo-animated.svg" alt="pal" width="168">
+  <img src="site/public/brand/logo-animated.svg" alt="PAL" width="168">
 </picture>
 
 <h3>Your pal for every moment.</h3>
 
-<p><b>pal</b> lives in your iMessage and WhatsApp: it tells you what needs you, replies in your voice and holds anything risky for your yes.<br>
+<p><b>PAL</b> lives in your iMessage and WhatsApp: it tells you what needs you, replies in your voice and holds anything risky for your yes.<br>
 <b>PAL Runtime</b> is the open-source layer it runs on, for the agents you build: they finish, stay contained, and stay yours.</p>
 
 <p>
@@ -25,9 +25,9 @@
 
 </div>
 
-<img src="site/public/media/pal-brief.svg" alt="Brief: you type a question mark in your self-chat. pal ranks a thread waiting on you, a draft and a promise, and replies with three numbered items. A thumbs-up on the message drafts the reply to the top item; you say send, and it goes." width="100%">
+<img src="site/public/media/pal-brief.svg" alt="Brief: you type a question mark in your self-chat. PAL ranks a thread waiting on you, a draft and a promise, and replies with three numbered items. A thumbs-up on the message drafts the reply to the top item; you say send, and it goes." width="100%">
 
-## pal
+## PAL
 
 A personal agent on your own Mac, in the chats you already use. It knows your people, your calendar and your mail, and it never says yes on your behalf.
 
@@ -39,7 +39,7 @@ A personal agent on your own Mac, in the chats you already use. It knows your pe
 
 <table>
 <tr>
-<td width="50%"><img src="site/public/media/pal-holds.svg" alt="Holds: a contact asks for money. pal's draft promises it, the commitment gate holds it, you get a HELD message in your self-chat, and your own words go out instead." width="100%"></td>
+<td width="50%"><img src="site/public/media/pal-holds.svg" alt="Holds: a contact asks for money. PAL's draft promises it, the commitment gate holds it, you get a HELD message in your self-chat, and your own words go out instead." width="100%"></td>
 <td width="50%"><img src="site/public/media/pal-voice.svg" alt="Sounds like you: a stock-phrase draft scores 0.71, past your own p95 floor of 0.44, and is rewritten from your five closest real messages to 0.19 before it's sent." width="100%"></td>
 </tr>
 <tr>
@@ -50,7 +50,7 @@ A personal agent on your own Mac, in the chats you already use. It knows your pe
 
 ## PAL Runtime
 
-The layer pal runs on, open source, for your own agents. Durable runs, microVM sandboxes, hard budgets and signed receipts, with the data plane in your cloud.
+The layer PAL runs on, open source, for your own agents. Durable runs, microVM sandboxes, hard budgets and signed receipts, with the data plane in your cloud.
 
 <img src="site/public/media/runtime-architecture.svg" alt="Architecture: SDK, CLI and console talk to the control plane. The data plane runs in your VPC with the data-plane agent, workflow engine, runtime manager, microVMs and your data. The data plane dials out, runs come back over that connection, and inbound connections are refused." width="100%">
 
@@ -87,10 +87,12 @@ Needs Docker, Go 1.26+ (CI and the control plane pin go1.26.10; the CLI module n
 
 ```bash
 make dev                                         # Postgres, Redis, MinIO, control plane, console
-( cd packages/cli && go install ./cmd/pal )  # the CLI
+( cd packages/cli && go install ./cmd/pal )  # the CLI (or: brew install dshakes/tap/pal, see below)
 pal doctor                                   # health, auth, model provider, a live run
 pal onboard                                  # describe an agent in one line, get a running agent
 ```
+
+Just the CLI, without a checkout: `brew install dshakes/tap/pal` (builds `pal` from the latest tagged release with Go; the release workflow publishes `Formula/pal.rb` to the `dshakes/homebrew-tap` tap). If the tap has no `pal` formula yet, use the `go install` line above.
 
 Console: http://localhost:3001, sign in as `admin@pal.local` / `pal` (local dev only). Sandboxes, the egress broker and real Firecracker on a Mac: [Runtime quickstart](https://dshakes.github.io/pal/docs/runtime/quickstart/).
 
@@ -118,7 +120,7 @@ Pass `baseUrl` (or set `PAL_API_URL`): the client's default is not your self-hos
 | Model router, runtime manager, in-VM harness, gateways | Rust |
 | Console, website, TypeScript SDK | TypeScript |
 | SDKs | TypeScript, Python, Go |
-| pal's bridges (iMessage, WhatsApp) | TypeScript, on your own Mac |
+| PAL's bridges (iMessage, WhatsApp) | TypeScript, on your own Mac |
 
 ## Learn more
 
@@ -130,4 +132,4 @@ Pass `baseUrl` (or set `PAL_API_URL`): the client's default is not your self-hos
 
 ---
 
-<sub>We started as PAL: a flame you could carry because glass kept it contained. As the product became a companion, we kept the light and dropped the lamp. The flame became a dot, a single moment of attention. पल means "a moment." A pal is someone who shows up in it.</sub>
+<sub>We started as Lantern: a flame you could carry because glass kept it contained. As the product became a companion, we kept the light and dropped the lamp. The flame became a dot, a single moment of attention. पल means "a moment." A PAL is someone who shows up in it.</sub>

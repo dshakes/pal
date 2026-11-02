@@ -45,6 +45,8 @@ Each tenant may hold up to `PAL_DP_MAX_STREAMS_PER_TENANT` concurrent `RunStream
 
 ## Helm
 
+**First login.** A fresh production install has sign-up closed and no users. Set `controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL` on the first `helm install`, then read the one-time password link from the control-plane log. See [Accounts and teams](/docs/build/accounts/#first-owner-on-a-self-host).
+
 The repo ships three charts under `infra/helm/`.
 
 | Chart | Installs |

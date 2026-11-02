@@ -1,24 +1,24 @@
 ---
 title: Knowledge and handoff
-description: "pal answers from your own documents, acts on your Mac when you say yes, and keeps one memory of a person across iMessage and WhatsApp."
+description: "PAL answers from your own documents, acts on your Mac when you say yes, and keeps one memory of a person across iMessage and WhatsApp."
 ---
 
 import { CrossChannelMemory } from '../../../../components/diagrams';
 
 
-pal knows three things beyond the message in front of it. It can answer from **your own documents** on your Mac, it can **act on your Mac** (Calendar, Notes, Mail) when you confirm, and it keeps **one memory** of each person across iMessage and WhatsApp. Documents are read in place and never uploaded. Handing something to you rather than answering is the default whenever pal is unsure: [Holds and trust](/docs/pal/human-in-the-loop/) covers that.
+PAL knows three things beyond the message in front of it. It can answer from **your own documents** on your Mac, it can **act on your Mac** (Calendar, Notes, Mail) when you confirm, and it keeps **one memory** of each person across iMessage and WhatsApp. Documents are read in place and never uploaded. Handing something to you rather than answering is the default whenever PAL is unsure: [Holds and trust](/docs/pal/human-in-the-loop/) covers that.
 
 ## Your documents
 
-Ask in your own chat: "when does my passport expire?" or "find my lease". pal searches and reads files only inside `PAL_PERSONAL_DOCS_ROOTS` (default: Documents, Desktop, Downloads and iCloud Drive), answers from what it finds, and uses `PAL_OWNER_NAME` to rank files when you say "my". Scanned PDFs are read with OCR, up to `PAL_PERSONAL_DOCS_OCR_MAX_PAGES` pages (default 3), and the extracted text is cached owner-only because it often holds passport and licence numbers.
+Ask in your own chat: "when does my passport expire?" or "find my lease". PAL searches and reads files only inside `PAL_PERSONAL_DOCS_ROOTS` (default: Documents, Desktop, Downloads and iCloud Drive), answers from what it finds, and uses `PAL_OWNER_NAME` to rank files when you say "my". Scanned PDFs are read with OCR, up to `PAL_PERSONAL_DOCS_OCR_MAX_PAGES` pages (default 3), and the extracted text is cached owner-only because it often holds passport and licence numbers.
 
-Document questions work only from you. When a contact asks you for a document, pal finds the file and pings your own chat to confirm before anything is sent.
+Document questions work only from you. When a contact asks you for a document, PAL finds the file and pings your own chat to confirm before anything is sent.
 
 ## Actions on your Mac
 
-When an answer contains a deadline, an expiry, an ID or a file, pal offers a follow-up: add a calendar reminder, save a note, or draft an email. Dates are written in friendly form ("Sept 14, 2031").
+When an answer contains a deadline, an expiry, an ID or a file, PAL offers a follow-up: add a calendar reminder, save a note, or draft an email. Dates are written in friendly form ("Sept 14, 2031").
 
-Reply `yes`, `sure` or `do it` within 10 minutes and pal runs the action itself, with no model call in between. That matters: a model would sometimes claim the reminder was set without ever setting it. Actions use Calendar.app, Notes.app and Mail.app, and run only from your own chat.
+Reply `yes`, `sure` or `do it` within 10 minutes and PAL runs the action itself, with no model call in between. That matters: a model would sometimes claim the reminder was set without ever setting it. Actions use Calendar.app, Notes.app and Mail.app, and run only from your own chat.
 
 ## One memory across channels
 
@@ -33,6 +33,6 @@ A person who writes to you on iMessage and on WhatsApp is one person to pal. Fac
 | Episodes | A `(date, topic, outcome)` entry for each substantive exchange; the 5 most recent per contact join the reply prompt, for 14 days | Your Mac, encrypted |
 | Topic index | Topic-tagged messages from the last 7 days, so a thread can recall what other contacts said about the same topic | Your Mac, encrypted |
 
-pal never volunteers a detail from another thread unless you ask. Cross-thread recall is for context, not for repeating one person's words to another. Your owner profile and your own corrections win over the address book when pal decides who someone is.
+PAL never volunteers a detail from another thread unless you ask. Cross-thread recall is for context, not for repeating one person's words to another. Your owner profile and your own corrections win over the address book when PAL decides who someone is.
 
 Agents you build can use uploaded documents and human handoff: see [Knowledge and handoff for agents](/docs/build/knowledge/).

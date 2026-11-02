@@ -21,17 +21,17 @@ const MORE = [
   { h: 'Learns new routines.', b: 'Teach it a recurring job in a sentence. It proposes the schedule and nothing runs until you approve.', v: '🛠 “every Monday 8am: this week’s school events”' },
 ];
 ---
-<Page path="pal/" title="pal — a friend that gets things done, and asks first" description="pal lives in iMessage and WhatsApp on your own Mac. It sends you a Brief of what needs you, replies in your voice, remembers your people and holds money and promises for your yes.">
+<Page path="pal/" title="PAL — a friend that gets things done, and asks first" description="PAL lives in iMessage and WhatsApp on your own Mac. It sends you a Brief of what needs you, replies in your voice, remembers your people and holds money and promises for your yes.">
   <section class="hero page-hero pal" aria-labelledby="hero-h">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="wrap hero-grid">
       <div>
         <div data-reveal><Logo size={28} /></div>
-        <p class="eyebrow" style="margin-top:28px" data-reveal>pal · your personal agent</p>
+        <p class="eyebrow" style="margin-top:28px" data-reveal>PAL · your personal agent</p>
         <h1 id="hero-h" class="display" data-reveal>A friend that gets things done, <span class="grad-pal">and asks first.</span></h1>
-        <p class="lede" data-reveal>pal lives in your iMessage and WhatsApp, on your own Mac. It replies the way you would, remembers the people in your life, and only brings you the moments that need you.</p>
+        <p class="lede" data-reveal>PAL lives in your iMessage and WhatsApp, on your own Mac. It replies the way you would, remembers the people in your life, and only brings you the moments that need you.</p>
         <div class="actions" data-reveal>
-          <a class="btn btn-pal" href={u('docs/pal/')}>Set up pal</a>
+          <a class="btn btn-pal" href={u('docs/pal/')}>Set up PAL</a>
           <a class="btn btn-ghost" href="#holds">How Holds work</a>
         </div>
         <nav class="toc" aria-label="On this page" data-reveal>{FEATURES.map((f) => <a href={`#${f.id}`}>{f.k}</a>)}<a href="#control">Control</a><a href="#private">Privacy</a></nav>
@@ -69,10 +69,10 @@ const MORE = [
     <div class="wrap">
       <div class="section-head" data-reveal><h2 id="control-h" class="h2">You stay in charge.</h2></div>
       <div class="grid-4">
-        <div class="card" data-reveal><p class="more-v">🔇 mute</p><h3 class="h3">Mute</h3><p>pal keeps thinking but stops sending. Every reply becomes a draft for you to approve.</p></div>
-        <div class="card" data-reveal><p class="more-v">⛔ kill switch on</p><h3 class="h3">Kill switch</h3><p>One message and pal ignores everything until you turn it back on.</p></div>
+        <div class="card" data-reveal><p class="more-v">🔇 mute</p><h3 class="h3">Mute</h3><p>PAL keeps thinking but stops sending. Every reply becomes a draft for you to approve.</p></div>
+        <div class="card" data-reveal><p class="more-v">⛔ kill switch on</p><h3 class="h3">Kill switch</h3><p>One message and PAL ignores everything until you turn it back on.</p></div>
         <div class="card" data-reveal><p class="more-v">🌙 1:00 – 6:00</p><h3 class="h3">Quiet hours</h3><p>Messages that arrive overnight wait for morning, then get answered at a natural pace.</p></div>
-        <div class="card" data-reveal><p class="more-v">🔑 owner only</p><h3 class="h3">Owner only</h3><p>Only you can ask about your documents or tell pal to act. Contacts just get replies.</p></div>
+        <div class="card" data-reveal><p class="more-v">🔑 owner only</p><h3 class="h3">Owner only</h3><p>Only you can ask about your documents or tell PAL to act. Contacts just get replies.</p></div>
       </div>
     </div>
   </section>
@@ -82,7 +82,7 @@ const MORE = [
       <div data-reveal>
         <p class="eyebrow">Private by design</p>
         <h2 id="private-h" class="h2" style="margin-top:12px">Your life stays on your Mac.</h2>
-        <p class="lede" style="margin-top:16px">pal runs on a Mac you own, reads only what you allow, and keeps its most personal memory encrypted on disk.</p>
+        <p class="lede" style="margin-top:16px">PAL runs on a Mac you own, reads only what you allow, and keeps its most personal memory encrypted on disk.</p>
       </div>
       <ul class="checklist" style="margin-top:0" data-reveal>
         <li><span><b>Your machine.</b> The bridges to iMessage and WhatsApp run on your Mac, not on someone else’s server.</span></li>
@@ -104,9 +104,9 @@ const MORE = [
 
   <section class="section closer closer-grad" aria-labelledby="start-h">
     <div class="wrap" data-reveal>
-      <h2 id="start-h" class="h2">Bring pal home.</h2>
-      <p class="lede" style="margin:20px auto 0">pal is open source and runs on your own Mac today. Setup takes some comfort with a terminal; the guide walks you through each step.</p>
-      <div class="actions"><a class="btn btn-pal" href={u('docs/pal/')}>Read the setup guide</a><a class="btn btn-ghost" href={u('runtime/')}>What pal runs on</a></div>
+      <h2 id="start-h" class="h2">Bring PAL home.</h2>
+      <p class="lede" style="margin:20px auto 0">PAL is open source and runs on your own Mac today. Setup takes some comfort with a terminal; the guide walks you through each step.</p>
+      <div class="actions"><a class="btn btn-pal" href={u('docs/pal/')}>Read the setup guide</a><a class="btn btn-ghost" href={u('runtime/')}>What PAL runs on</a></div>
     </div>
   </section>
 </Page>

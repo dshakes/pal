@@ -15,8 +15,8 @@ export type WorkspaceMode = "pal" | "runtime";
 export const MODE_STORAGE_KEY = "pal-mode";
 
 export const MODE_LABEL: Record<WorkspaceMode, string> = {
-  pal: "pal",
-  runtime: "Runtime",
+  pal: "PAL",
+  runtime: "PAL Runtime",
 };
 
 export const MODE_HOME: Record<WorkspaceMode, string> = {

@@ -4,7 +4,7 @@
 // signals and surfaces the right nudge at the right moment: "your
 // anniversary is tomorrow", "you haven't replied to your sister in 4
 // days", "your 3pm starts in 10 min — here's the thread", "you told
-// Raju you'd send the doc — still open?".
+// Alex you'd send the doc — still open?".
 //
 // This module is the BRAIN, not the plumbing. It is a PURE function:
 // the bridge gathers the signals (profile facts, awaiting-reply list,
@@ -124,7 +124,7 @@ export interface UpcomingEventSignal {
 export interface OpenCommitmentSignal {
   /** Stable id for dedupe. */
   id: string;
-  /** The verbatim-ish commitment line ("send Raju the deck"). */
+  /** The verbatim-ish commitment line ("send Alex the deck"). */
   line: string;
   /** Optional contact the commitment is owed to. */
   contact?: string;
@@ -505,7 +505,7 @@ function phraseDormantVip(dc: DormantContactSignal, days: number): string {
 function phraseCommitment(c: OpenCommitmentSignal): string {
   const line = c.line.trim().replace(/^i'?ll\s+/i, "").replace(/[.!]+$/, "");
   const who = c.contact ? ` ${c.contact.trim()}` : "";
-  // "still need to send Raju the deck — want me to handle it?"
+  // "still need to send Alex the deck — want me to handle it?"
   return `still on your plate: ${line}${who ? ` (for${who})` : ""} — want me to handle it?`;
 }
 

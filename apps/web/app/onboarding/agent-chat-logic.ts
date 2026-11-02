@@ -141,11 +141,11 @@ export const RAIL: Record<ChatProduct, ReadonlyArray<RailStep>> = {
   ],
   pal: [
     { id: "provider", label: "Model key", hint: "Your own provider, tested" },
-    { id: "welcome", label: "Meet pal", hint: "What it touches + your consent" },
+    { id: "welcome", label: "Meet PAL", hint: "What it touches + your consent" },
     { id: "channels", label: "Connect channels", hint: "Checked live on your Mac" },
     { id: "voice", label: "Learn your voice", hint: "Only with your opt-in" },
-    { id: "trust", label: "Set trust", hint: "What pal may do alone" },
-    { id: "profile", label: "Your people", hint: "Facts pal must never get wrong" },
+    { id: "trust", label: "Set trust", hint: "What PAL may do alone" },
+    { id: "profile", label: "Your people", hint: "Facts PAL must never get wrong" },
     { id: "done", label: "First Brief", hint: "What needs you" },
   ],
 };

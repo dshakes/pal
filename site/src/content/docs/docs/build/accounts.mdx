@@ -25,6 +25,20 @@ The same mode applies to a **new** user who signs in with Google or GitHub. A fi
 - `invite` needs an invite code bound to the email the provider verified. The dashboard sends it with `GET /auth/oauth/{provider}/start?invite=<code>`. The server stores it in the OAuth state and never sends it to the provider.
 - `open` and `invite` apply the per-IP sign-up rate limit, which fails closed in prod. There is no captcha on the OAuth path: completing the provider's sign-in is the human check, and a Turnstile token can't survive the provider redirect.
 
+## First owner on a self-host
+
+Production starts with sign-up closed and an empty database, so nobody could log in. To create the first owner, set `PAL_BOOTSTRAP_OWNER_EMAIL=you@example.com` (Helm: `controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL`) and start the control plane once. If, and only if, the instance has **zero users**, startup creates the workspace (with the usual free-tier defaults) and an owner whose password is unusable, in one transaction. It writes a one-time password link to the server's **stderr** (`kubectl logs deploy/<release>-control-plane`):
+
+```
+PAL first-owner bootstrap for you@example.com
+Set the owner password (single use, expires in 1 hour):
+  https://<dashboard>/auth/reset?token=...
+```
+
+Open the link, set a password, then log in. The link is an ordinary password-reset token (SHA-256 at rest, single use, 1 hour, rate limited), so there is no extra endpoint to attack. The raw token is never sent to the structured logger or traces. Once any user has existed, the variable is ignored for good: a durable `instance_bootstrap` marker is written, so erasing every workspace later does not re-arm it. **Unset `PAL_BOOTSTRAP_OWNER_EMAIL` after your first login** anyway.
+
+If the hour passes before you redeem the link and you have a real mailer configured, use "Forgot password". Otherwise take the `tenant_id` from the control-plane's `bootstrap: first owner created` log line, run `DELETE FROM tenants WHERE id = '<tenant_id>'; DELETE FROM instance_bootstrap;` (**only when the instance has zero real users**: clearing the marker re-arms bootstrap) (both are needed, the second clears the marker) and restart. With sign-up closed, zero users and no bootstrap variable, the control plane logs a warning naming this variable at every start.
+
 ## Sign up, verify, log in
 
 <Steps>

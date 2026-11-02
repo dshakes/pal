@@ -194,11 +194,11 @@ test("contact persona forbids revealing the owner's location (presence = availab
   const style = inferStyle([]);
   const contact = agentPersonaPrompt("Ada", style, false, { audience: "contact" });
   assert.match(contact, /AVAILABILITY ONLY, NEVER LOCATION/i);
-  assert.match(contact, /never reveal his specific WHEREABOUTS/i);
+  assert.match(contact, /never reveal their specific WHEREABOUTS/i);
   // Owner self-chat keeps full presence (no whereabouts restriction).
   const owner = agentPersonaPrompt("Ada", style, false, { audience: "owner" });
   assert.ok(
-    !/never reveal his specific WHEREABOUTS/i.test(owner),
+    !/never reveal their specific WHEREABOUTS/i.test(owner),
     "owner persona should NOT restrict whereabouts",
   );
 });

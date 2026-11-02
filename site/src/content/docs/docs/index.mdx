@@ -1,12 +1,12 @@
 ---
 title: Start here
-description: "pal answers your iMessage and WhatsApp as you and holds anything that commits you. PAL Runtime runs your own agents: durable, budgeted and sandboxed."
+description: "PAL answers your iMessage and WhatsApp as you and holds anything that commits you. PAL Runtime runs your own agents: durable, budgeted and sandboxed."
 template: splash
 hero:
   title: 'An agent for your life. <span class="grad">A runtime for yours.</span>'
-  tagline: "<strong>pal</strong> answers your iMessage and WhatsApp as you, and holds anything that commits you until you say yes. <strong>PAL Runtime</strong> runs your own agents: durable, budgeted and sandboxed, on your laptop or in your cloud."
+  tagline: "<strong>PAL</strong> answers your iMessage and WhatsApp as you, and holds anything that commits you until you say yes. <strong>PAL Runtime</strong> runs your own agents: durable, budgeted and sandboxed, on your laptop or in your cloud."
   actions:
-    - text: Use pal
+    - text: Use PAL
       link: /pal/docs/pal/
       icon: right-arrow
     - text: Build on PAL Runtime
@@ -37,21 +37,21 @@ import { HoldsGates, SystemContext } from '../../../components/diagrams';
   </Card>
 </CardGrid>
 
-<p class="kicker">pal · for you</p>
+<p class="kicker">PAL · for you</p>
 
 ## It brings you what matters. It waits on what is risky.
 
-pal runs on your Mac next to iMessage and WhatsApp. Ordinary replies go out in your voice, paced like you. A reply that **promises money**, **states a date it cannot verify** or **claims something only you could confirm** is held and sent to your self-chat. Step through what happens to one held reply:
+PAL runs on your Mac next to iMessage and WhatsApp. Ordinary replies go out in your voice, paced like you. A reply that **promises money**, **states a date it cannot verify** or **claims something only you could confirm** is held and sent to your self-chat. Step through what happens to one held reply:
 
 <HoldsGates client:visible />
 
-[How pal works](/docs/pal/) · [Holds and trust](/docs/pal/human-in-the-loop/) · [Privacy and control](/docs/pal/privacy/)
+[How PAL works](/docs/pal/) · [Holds and trust](/docs/pal/human-in-the-loop/) · [Privacy and control](/docs/pal/privacy/)
 
 <p class="kicker">PAL Runtime · for builders</p>
 
 ## The parts every production agent needs.
 
-pal is built on PAL Runtime, and your agents get the same platform. Every step is **journaled**, so a crash resumes instead of restarting. Budgets are checked **before** the model is called, so a hard cap costs nothing. Untrusted code runs in a **microVM** with an egress allowlist, and models are addressed by capability, not by vendor name.
+PAL is built on PAL Runtime, and your agents get the same platform. Every step is **journaled**, so a crash resumes instead of restarting. Budgets are checked **before** the model is called, so a hard cap costs nothing. Untrusted code runs in a **microVM** with an egress allowlist, and models are addressed by capability, not by vendor name.
 
 <SystemContext client:visible />
 
@@ -107,7 +107,7 @@ pal setup
    [i] start iMessage + check permissions  [w] link WhatsApp  [Enter] re-check  [q] quit >
 ```
 
-With a bridge running, its line reads `✓ iMessage: connected` (or `✓ WhatsApp: connected`) and setup moves on to your voice, trust, your people and facts, and a first Brief. `pal setup` resumes where you left off and never gives consent for you. Next: [How pal works](/docs/pal/), then [Connect your channels](/docs/pal/surfaces/).
+With a bridge running, its line reads `✓ iMessage: connected` (or `✓ WhatsApp: connected`) and setup moves on to your voice, trust, your people and facts, and a first Brief. `pal setup` resumes where you left off and never gives consent for you. Next: [How PAL works](/docs/pal/), then [Connect your channels](/docs/pal/surfaces/).
 
 </TabItem>
 <TabItem label="Build on PAL Runtime">
@@ -203,7 +203,7 @@ Each boundary and what it demands: [Security model](/docs/security/) and [Securi
 | You want to | Read, in order |
 | --- | --- |
 | Know what this is | [What PAL is](/docs/capabilities/) |
-| Use pal on your own messages | [How pal works](/docs/pal/) → [Connect your channels](/docs/pal/surfaces/) → [Teach it your voice](/docs/pal/voice/) → [Holds and trust](/docs/pal/human-in-the-loop/) → [Daily use](/docs/pal/daily/) |
+| Use PAL on your own messages | [How PAL works](/docs/pal/) → [Connect your channels](/docs/pal/surfaces/) → [Teach it your voice](/docs/pal/voice/) → [Holds and trust](/docs/pal/human-in-the-loop/) → [Daily use](/docs/pal/daily/) |
 | Build an agent | [Quickstart in 60 seconds](/docs/start/sixty-seconds/) → [Your first agent](/docs/start/quickstart/) → [How PAL Runtime works](/docs/architecture/overview/) → [Agents](/docs/build/agents/) |
 | Run it in production | [Security model](/docs/security/) → [Production deployment](/docs/operate/deployment/) → [Observability](/docs/observability/) → [Operations](/docs/operate/operations/) |
 | Look something up | [REST API](/docs/reference/api/) · [CLI](/docs/reference/cli/) · [SDKs](/docs/sdks/) · [Environment variables](/docs/reference/env-vars/) |

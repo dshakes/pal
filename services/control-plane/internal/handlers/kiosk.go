@@ -202,6 +202,9 @@ func (h *KioskHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 			tenantID, slug+"@demo.invalid", slug).Scan(&userID); err != nil {
 			return err
 		}
+		if _, err = tx.Exec(ctx, markBootstrappedSQL); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}()
 	if err != nil {

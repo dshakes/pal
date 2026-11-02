@@ -624,6 +624,7 @@ func main() {
 
 	// API key endpoints.
 	httpMux.HandleFunc("POST /v1/api-keys", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.CreateApiKey))
+	httpMux.HandleFunc("POST /v1/api-keys/{id}/rotate", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.RotateApiKey))
 	httpMux.HandleFunc("GET /v1/api-keys", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.ListApiKeys))
 	httpMux.HandleFunc("DELETE /v1/api-keys/{id}", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.RevokeApiKey))
 
@@ -935,6 +936,9 @@ func main() {
 	httpMux.HandleFunc("DELETE /v1/tenants/{id}", authHandler.WithScope(handlers.ScopeAdmin, gdprHandler.DeleteTenant))
 	if err := handlers.RegisterAccountLifecycleRoutes(httpMux, authHandler, gdprHandler, handlers.IsProd()); err != nil {
 		logger.Fatal("account lifecycle (ADR 0027)", zap.Error(err))
+	}
+	if err := authHandler.BootstrapOwner(context.Background(), os.Stderr); err != nil {
+		logger.Fatal("first-owner bootstrap (E11)", zap.Error(err))
 	}
 
 	// Kiosk demo mode (ADR 0029): route + expiry sweep exist only when PAL_KIOSK=1.

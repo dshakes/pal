@@ -30,7 +30,7 @@ export const EgressSequence = () => <Sequence name="egress" />;
 export const SandboxLifecycleSequence = () => <Sequence name="lifecycle" />;
 export const CheckpointSequence = () => <Sequence name="checkpoint" />;
 
-// pal
+// PAL
 export const BriefAttention = () => <FlowDiagram def={P.BRIEF_ATTENTION} />;
 export const HoldsGates = () => <FlowDiagram def={P.HOLDS_GATES} />;
 export const TwoProducts = () => <FlowDiagram def={P.TWO_PRODUCTS} compact />;

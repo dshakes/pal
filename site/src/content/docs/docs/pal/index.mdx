@@ -1,6 +1,6 @@
 ---
-title: How pal works
-description: "pal answers your iMessage and WhatsApp threads as you, from your Mac. Ordinary replies go out on their own; anything that commits you is held for your yes."
+title: How PAL works
+description: "PAL answers your iMessage and WhatsApp threads as you, from your Mac. Ordinary replies go out on their own; anything that commits you is held for your yes."
 prev:
   link: /pal/docs/
   label: Start here
@@ -9,24 +9,24 @@ prev:
 import CapabilityGrid from '../../../../components/CapabilityGrid.astro';
 
 
-pal is a **personal agent** for your own iMessage and WhatsApp. Two small programs on your Mac, the **channel bridges**, read new messages and ask a PAL control plane for a reply through the **same sessions API your own agents use**. Every reply a contact would receive passes a **check stack** first. Most messages need a quick, ordinary answer, and those go out after a human-paced delay. A reply that **commits you** to money or an action, or states something pal can't verify, is **held** and shown to you instead.
+PAL is a **personal agent** for your own iMessage and WhatsApp. Two small programs on your Mac, the **channel bridges**, read new messages and ask a PAL control plane for a reply through the **same sessions API your own agents use**. Every reply a contact would receive passes a **check stack** first. Most messages need a quick, ordinary answer, and those go out after a human-paced delay. A reply that **commits you** to money or an action, or states something PAL can't verify, is **held** and shown to you instead.
 
 <CapabilityGrid product="pal" />
 
 ## Who does what
 
-| | You | pal | The platform |
+| | You | PAL | The platform |
 | --- | --- | --- | --- |
 | Owns | Your Mac, your accounts, the owner profile | Nothing; it acts as you, on your Mac | Sessions, memory, model routing |
 | Does | Teach it, approve held replies, mute or stop it | Drafts, checks, paces and sends ordinary replies | One session per contact, the `web_search` tool, the person graph |
 | Sees | Every held reply, plus FYIs in your self-chat | Your threads, your profile, your calendar and mail on the Mac | What the bridge sends it |
 
-You talk to pal in your **self-chat** (a message to yourself, or a dedicated bot account you DM). Both bridges accept commands only from you; a contact's message never reaches the document or action pipeline.
+You talk to PAL in your **self-chat** (a message to yourself, or a dedicated bot account you DM). Both bridges accept commands only from you; a contact's message never reaches the document or action pipeline.
 
 ## What happens to one message
 
 1. **It arrives.** The iMessage bridge reads `chat.db` (including RCS and newer messages whose text lives in `attributedBody`); the WhatsApp bridge holds the WhatsApp session.
-2. **The bridge decides whether to act.** The killswitch stops everything. Mute means "don't send": pal still drafts and hands you each reply instead. Quiet hours (01:00 to 06:00 by default) queue messages and replay them in the morning.
+2. **The bridge decides whether to act.** The killswitch stops everything. Mute means "don't send": PAL still drafts and hands you each reply instead. Quiet hours (01:00 to 06:00 by default) queue messages and replay them in the morning.
 3. **The control plane drafts.** Each contact has its own session. Side calls (gate judges, voice refinement, ranking) use a **purpose-keyed session** such as `<contact>::refine`, so they can't leak into the contact's live thread. The bridge asks for `model: "auto"`, and the control plane maps it to a concrete model on your provider chain.
 4. **The check stack runs.** It catches stock phrases and replies that don't sound like you, holds money, promises and unverifiable claims, and rewrites "I sent it" into "I'll send it" unless the bridge really did. [Holds and trust](/docs/pal/human-in-the-loop/) covers each check.
 5. **It is sent, or held.** Sent replies wait a delay drawn from your real reply times to that contact and are logged, encrypted, on the Mac. Held replies are paged to your self-chat.
@@ -34,7 +34,7 @@ You talk to pal in your **self-chat** (a message to yourself, or a dedicated bot
 ## Limits
 
 - The bridges run on one Mac. If it is off, nothing is processed.
-- The grounding gate holds claims it cannot verify; it does not verify them. A scheduled refresh updates what pal knows about you from your mail and calendar, so there is a lag.
+- The grounding gate holds claims it cannot verify; it does not verify them. A scheduled refresh updates what PAL knows about you from your mail and calendar, so there is a lag.
 - The voice score is a stylometric signal, not a judgment of tone or meaning.
 - Voice cloning (`PAL_VOICE_CLONE`) is off by default and treated as deepfake-class.
 
@@ -55,4 +55,4 @@ Installing and pairing the bridges: [BOT-SETUP.md](repo:/blob/master/docs/person
 
 ## Where it lives
 
-The shared logic is in `packages/bridge-core/src/` (`natural.ts`, `voice-score.ts`, `voice-refine.ts`, `commitment-gate.ts`, `grounding-gate.ts`, `verifiable-claims.ts`, `sent-log.ts`, `secure-store.ts`); the iMessage wiring is `services/imessage-bridge/src/session.ts`. `bridge-parity.test.ts` fails the build when a module is wired into one bridge but not the other. Deeper: [pal internals](/docs/architecture/pal/).
+The shared logic is in `packages/bridge-core/src/` (`natural.ts`, `voice-score.ts`, `voice-refine.ts`, `commitment-gate.ts`, `grounding-gate.ts`, `verifiable-claims.ts`, `sent-log.ts`, `secure-store.ts`); the iMessage wiring is `services/imessage-bridge/src/session.ts`. `bridge-parity.test.ts` fails the build when a module is wired into one bridge but not the other. Deeper: [PAL internals](/docs/architecture/pal/).
