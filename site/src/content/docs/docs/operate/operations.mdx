@@ -126,3 +126,6 @@ On-call runbooks live in the repository, each as symptom, what fired it, triage,
 - The logical backup has no point-in-time recovery: you lose every write since the last dump. It is a floor, not a recovery objective.
 - The scheduler's readiness probe defaults to `/healthz` because `/readyz` stays unready until a runtime manager registers.
 - HPAs are CPU-based and need metrics-server.
+- Connector calls ignore `HTTPS_PROXY` / `HTTP_PROXY`. The control plane dials vendor APIs directly, so its SSRF guard can check the real destination IP. If your deployment sends all egress through a proxy, connector calls won't use it. Allow the control plane direct egress to the vendor hosts, for example with `networkPolicy.extraEgress`, or connectors will fail.
+- Jira must be Atlassian Cloud (`*.atlassian.net`). Jira Data Center, Jira Server and custom domains are refused for now. The same allowlist applies to Salesforce: the instance URL must be under `salesforce.com` or `force.com`.
+- Sign-up that is `open` or `invite` in production needs a reachable Redis. The control plane refuses to start without one, because a missing sign-up rate limiter fails closed. Behind an ingress, set `PAL_TRUSTED_PROXIES` to its CIDRs. Without it, every client shares one rate-limit bucket.
