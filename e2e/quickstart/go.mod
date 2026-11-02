@@ -2,7 +2,7 @@ module github.com/dshakes/pal/e2e/quickstart
 
 go 1.23
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require github.com/dshakes/pal/e2e/internal/e2ekit v0.0.0
 
