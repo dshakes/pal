@@ -272,3 +272,20 @@ display name; list the number to include them. Saying "resume automation" persis
 
 If PAL's spend limit is reached (HTTP 402), contact messages are held, nothing is sent, and you
 get at most one heads-up per day.
+
+### Trust gates need number-keyed relationships (WhatsApp)
+
+On WhatsApp the contact's display name (pushName) is chosen by the contact, so it can be spoofed.
+Every trust gate therefore matches `## Relationships` by phone number / JID or an `also:` alias only:
+the spouse agent (todos + calendar), automatic contact-sharing, `## Now`, location sharing, and
+task capture. A relationship keyed only by name still shapes tone but opens none of those gates, so
+those features quietly stop recognising that person (they hold for you instead). List the number:
+
+```markdown
+## Relationships
+- Sam: wife | also: +15125551234
+- +15125559876: manager
+```
+
+A contact that WhatsApp delivers as an `@lid` id (no phone number) cannot match by number. iMessage
+names come from your own address book / corrections, so name-keyed entries still work there.

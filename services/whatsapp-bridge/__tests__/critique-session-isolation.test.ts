@@ -33,7 +33,10 @@ afterEach(() => {
 
 describe("handleBadFeedbackRetry session isolation", () => {
   it("uses `${jid}::critique` as the session key, never the bare contact jid", async () => {
+    process.env.PAL_REPLY_MODE = "everyone"; // this test is about session isolation, not the reply-mode boundary
     const s = new WhatsAppSession("test-tenant", logger);
+    delete process.env.PAL_REPLY_MODE;
+    (s as unknown as { connected: boolean }).connected = true;
     const contactJid = "15551234567@s.whatsapp.net";
     const msgId = "MSG1";
 
@@ -79,5 +82,24 @@ describe("handleBadFeedbackRetry session isolation", () => {
     // The corrected reply still goes to the real contact thread.
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0][0]).toBe(contactJid);
+  });
+
+  it("drafts mode (default): the regenerated, unapproved text is NOT sent to the contact", async () => {
+    delete process.env.PAL_REPLY_MODE;
+    const s = new WhatsAppSession("test-tenant", logger);
+    const contactJid = "15551234567@s.whatsapp.net";
+    const sendMessage = vi.fn().mockResolvedValue({ key: { id: "SENT1" } });
+    const priv = s as unknown as Record<string, unknown> & { handleBadFeedbackRetry: (j: string, m?: string) => Promise<void> };
+    priv.connected = true;
+    priv.bridgeReplyMeta = new Map([["M", { jid: contactJid, inboundText: "hi", replyText: "x", systemHint: "h", surface: "contact-reply" }]]);
+    priv.dislikeMemory = { record: vi.fn().mockResolvedValue(undefined), patchLastWithGood: vi.fn() };
+    priv.agent = { respondTo: vi.fn().mockResolvedValue("a better reply") };
+    priv.socket = { sendMessage };
+    priv.confirmToSelf = vi.fn().mockResolvedValue(undefined);
+    priv.sendSelf = vi.fn().mockResolvedValue("id");
+    priv.personal = { queueDraft: vi.fn().mockResolvedValue(null) };
+    priv.logActivity = vi.fn();
+    await priv.handleBadFeedbackRetry(contactJid, "M");
+    expect(sendMessage.mock.calls.filter((c) => c[0] === contactJid)).toHaveLength(0);
   });
 });

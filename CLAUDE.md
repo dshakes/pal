@@ -2130,8 +2130,12 @@ inner-circle. Inner-circle membership is by handle/JID or owner-declared alias o
 name in `## Relationships` are drafted until a number/alias is added. A control-plane **402** (budget) on
 a contact reply is held, never replaced by a fallback send: logged every time, one owner FYI per local
 day, recorded on delivery. Life-event auto-act is likewise opt-in (`PAL_LIFE_EVENT_AUTOACT=on` or the
-owner saying "resume automation", which persists). Not routed through the boundary (owner-initiated by
-construction): WhatsApp 🔁 retry and `sendDocument`.
+owner saying "resume automation", which persists). The bearer-guarded `/send` REST routes (dashboard Approve/Edit, cross-bridge
+relay) carry `owner-approved` via `ownerApprovedSend`; a refusal there is HTTP 409, never "sent". The
+owner 👎/🔁 retry regenerates text and goes through the guarded path like any reply. Trust gates
+(WhatsApp spouse agent, contact-share, `## Now`, location, task capture) use `declaredRelationshipFor`
+(handle / `also:` alias only); the name-matched relationship is persona tone only. Not routed through
+the boundary (owner-initiated by construction): `sendDocument`, owner reaction acks.
 **Owners who relied on the old defaults must set `PAL_REPLY_MODE=everyone` and
 `PAL_LIFE_EVENT_AUTOACT=on` in `~/.pal/bridge.env`.**
 

@@ -31,6 +31,7 @@
 // or launchd — without baking PII into the repo. Node 20.12+/21.7+
 // native loader; no dependency. Looks next to the service dir first,
 // then ~/.pal/imessage.env as a fallback.
+import { ownerApprovedSend } from "@pal/bridge-core/reply-mode";
 import { existsSync as _existsSync } from "node:fs";
 import { join as _join, dirname as _dirname } from "node:path";
 import { fileURLToPath as _fileURLToPath } from "node:url";
@@ -248,9 +249,10 @@ app.post("/session/:tenantId/send", async (req, res) => {
     res.status(400).json({ error: "'message' required, ≤4096 chars" });
     return;
   }
-  const result = await s.send(to, message);
-  if (!result.ok) { res.status(500).json({ error: result.reason }); return; }
-  res.json({ status: "sent" });
+  // Owner-approved by construction (bearer-guarded; dashboard Approve/Edit and the
+  // WhatsApp owner-confirmed relay land here). A boundary refusal is a 409, never "sent".
+  const out = await ownerApprovedSend((allow) => s.send(to, message, allow));
+  res.status(out.status).json(out.body);
 });
 
 // Cross-bridge document relay: the WhatsApp bridge POSTs here when the owner

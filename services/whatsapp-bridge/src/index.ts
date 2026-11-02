@@ -21,6 +21,7 @@
 // JIDs are validated at the boundary — see validateJid. The rest of the
 // service trusts the validated JID shape.
 
+import { ownerApprovedSend, ReplyModeBlockedError } from "@pal/bridge-core/reply-mode";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -488,12 +489,18 @@ app.post("/session/:tenantId/send", async (req, res) => {
     return;
   }
 
-  try {
-    await session.sendMessage(to, message);
-    res.json({ status: "sent" });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
+  // Owner-approved by construction (bearer-guarded; dashboard Approve/Edit and the
+  // iMessage owner-confirmed relay land here). A boundary refusal is a 409, never "sent".
+  const out = await ownerApprovedSend(async (allow) => {
+    try {
+      await session.sendMessage(to, message, { allow, throwOnBlock: true });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ReplyModeBlockedError) return { ok: false, reason: "reply-mode" };
+      return { ok: false, reason: String(err) };
+    }
+  });
+  res.status(out.status).json(out.body);
 });
 
 // Cross-bridge document relay: the iMessage bridge POSTs here when the owner

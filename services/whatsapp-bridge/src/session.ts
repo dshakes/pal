@@ -50,7 +50,7 @@ import {
 } from "@pal/bridge-core/natural";
 import { judgeCommitment, commitmentHoldPage, extractContactRequests, isConfidentContactShare, promiseIsAboutNumber, type CommitmentVerdict, type ResolvedShare } from "@pal/bridge-core/commitment-gate";
 import { judgeGrounding, groundingHoldPage, type GroundingVerdict } from "@pal/bridge-core/grounding-gate";
-import { resolveReplyMode, decideContactReply, describeReplyMode, budgetFyiDue, markBudgetFyi, BUDGET_FYI_TEXT, allowContactSend, ALLOW_OWNER_APPROVED, ALLOW_SAFETY_EXCEPTION, type SendAllow, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
+import { resolveReplyMode, decideContactReply, describeReplyMode, budgetFyiDue, markBudgetFyi, BUDGET_FYI_TEXT, allowContactSend, ReplyModeBlockedError, ALLOW_OWNER_APPROVED, ALLOW_SAFETY_EXCEPTION, type SendAllow, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
 import { fitVoiceModel, scoreVoice, voiceDelta, type VoiceModel } from "@pal/bridge-core/voice-score";
 import type { BotTellContext } from "@pal/bridge-core/natural";
 import { strictRegenHint } from "@pal/bridge-core/natural";
@@ -3414,7 +3414,8 @@ export class WhatsAppSession {
 
           // INNER-CIRCLE AGENTIC HANDLING + CONCIERGE CAPTURE.
           if (!isGroup && !this.killSwitch && text) {
-            const relForAgent = this.ownerProfileStore.relationshipFor(from, senderName);
+            // TRUST GATE: handle / owner-declared alias only. senderName is the contact's own pushName (spoofable).
+            const relForAgent = this.ownerProfileStore.declaredRelationshipFor(from);
             const spouseAllow = this.contactAllow(from);
             if (WhatsAppSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent) && spouseAllow.kind === "contact-reply" && spouseAllow.decision.action !== "send") {
               // Reply mode would draft: the spouse agent auto-replies AND executes todos/calendar, so skip it entirely.
@@ -3550,7 +3551,7 @@ export class WhatsAppSession {
       const queued = await this.personal.queueDraft(to, label, "", text, { channel: "whatsapp" }).catch(() => null);
       await this.sendSelf(`🟡 held a reply to ${label} (reply mode blocked the send):\n\nDraft: ${text.slice(0, 300)}\n\n(reply 👍/yes to send as-is, or just type your own version and I'll send THAT)`);
       const ownerThread = this.ownJid();
-      if (ownerThread) this.pendingDraftEdits.set(ownerThread, { targetJid: to, displayName: label, draftId: queued?.id, draftText: text, inboundText: "", issuedAt: Date.now() });
+      if (ownerThread) this.pendingDraftEdits.set(`${ownerThread}::${to}`, { targetJid: to, displayName: label, draftId: queued?.id, draftText: text, inboundText: "", issuedAt: Date.now() });
     })().catch((err) => this.logger.warn({ err, to }, "reply-mode boundary: blocked send could not be handed to the owner — suppressed (nothing sent)"));
   }
 
@@ -3566,6 +3567,9 @@ export class WhatsAppSession {
       // Typed allow for a non-owner destination (see allowContactSend). Without
       // it, drafts / inner-circle modes block the send into the owner's draft queue.
       allow?: SendAllow;
+      // REST callers: throw ReplyModeBlockedError instead of returning undefined, so a
+      // refused send is never reported as "sent" (and does not queue a second draft).
+      throwOnBlock?: boolean;
     } = {},
   ): Promise<string | undefined> {
     if (!this.socket || !this.connected) {
@@ -3604,6 +3608,7 @@ export class WhatsAppSession {
     const gate = allowContactSend({ mode: this.replyMode.mode, destination: to, isOwner: this.isOwnerChat(to), allow: opts.allow });
     if (!gate.ok) {
       this.logger.warn({ to, textPreview: text.slice(0, 80), reason: gate.reason }, "REPLY MODE — send BLOCKED at boundary, handed to owner as a draft");
+      if (opts.throwOnBlock) throw new ReplyModeBlockedError(to);
       this.holdBlockedSend(to, text);
       return undefined;
     }
@@ -8238,13 +8243,13 @@ export class WhatsAppSession {
       // Send the retried version. For owner-self-chat we send to
       // self; for contact-reply we send back to the contact thread.
       const sendJid = meta.surface === "contact-reply" ? meta.jid : jid;
-      const sent = await this.socket?.sendMessage(sendJid, { text: retried.trim() });
-      if (sent?.key?.id) {
-        this.bridgeSentIds.set(sent.key.id, Date.now());
+      // Regenerated text is NOT owner-approved: go through the guarded path (mute + reply mode).
+      const sentId = await this.sendMessage(sendJid, retried.trim(), { allow: this.contactAllow(sendJid) });
+      if (sentId) {
         // Also retry-track THIS reply so the owner can 🔁 again if
         // V2 is also bad (3 strikes and they probably need to give
         // up + rephrase the original ask).
-        this.recordReplyMeta(sent.key.id, {
+        this.recordReplyMeta(sentId, {
           jid: meta.jid,
           inboundText: meta.inboundText,
           replyText: retried.trim(),
@@ -8886,6 +8891,9 @@ export class WhatsAppSession {
     const relationship = opts.isGroup
       ? undefined
       : this.ownerProfileStore.relationshipFor(from, effectiveName);
+    // TRUST-GATE relationship (## Now, location, contact-share): handle / owner-declared alias ONLY.
+    // `relationship` above may match a contact-controlled pushName, so it is for persona tone only.
+    const trustedRelationship = opts.isGroup ? undefined : this.ownerProfileStore.declaredRelationshipFor(from);
     // W1.4 (ADR 0024): no declared relationship → a reasoned, cached, UNCONFIRMED
     // inference from the real thread, for the persona only. Security gates keep
     // using `relationship` (owner-declared) — an inference never widens one.
@@ -9086,7 +9094,7 @@ export class WhatsAppSession {
         // Present-tense self-model: the owner always; contacts only when INNER
         // CIRCLE — the same gate as location, since "## Now" carries trips,
         // visitors and illness (review on #239).
-        ownerNow: isOwnerChan || isInnerCircle(relationship) ? this.ownerProfileStore.nowBlock() : "",
+        ownerNow: isOwnerChan || isInnerCircle(trustedRelationship) ? this.ownerProfileStore.nowBlock() : "",
         knownPeople: this.ownerProfileStore.relationshipsBlock(),
         addressRule,
         relationship: relationship ?? inferredRelationshipLabel(inferredRelationship),
@@ -9219,7 +9227,7 @@ export class WhatsAppSession {
     let truthfulLocationKnown = false;
     if (!opts.isGroup && (process.env.PAL_IPHONE_SIGNALS || "on").toLowerCase() !== "off") {
       try {
-        const canShare = isInnerCircle(relationship) && !denyLoc;
+        const canShare = isInnerCircle(trustedRelationship) && !denyLoc;
         const f = join(palStateDir(), "device-signals.jsonl");
         const known = canShare && existsSync(f)
           ? latestKnownLocation(parseSignals(readFileSync(f, "utf8").split("\n").filter(Boolean).slice(-500)))
@@ -9682,7 +9690,7 @@ export class WhatsAppSession {
           // bridge-core — known requester, every name resolved to exactly one
           // KNOWN person, no alternates, not a group. Then the numbers go out
           // directly and the owner gets an FYI; otherwise the hold below.
-          if (!opts.mutedHold && isConfidentContactShare({ requesterInnerCircle: isInnerCircle(relationship), isGroup: !!opts.isGroup, resolved, askedCount: asked.length, holdReason: commitVerdict.reason, boundToNumber: promiseIsAboutNumber(text, draft) })) {
+          if (!opts.mutedHold && isConfidentContactShare({ requesterInnerCircle: isInnerCircle(trustedRelationship), isGroup: !!opts.isGroup, resolved, askedCount: asked.length, holdReason: commitVerdict.reason, boundToNumber: promiseIsAboutNumber(text, draft) })) {
             const numbers = resolved.map((r) => `${r.name}: ${r.phone}`).join("\n");
             await this.sendMessage(from, numbers, { allow: this.contactAllow(from) });
             this.logger.info({ from, asked, resolved: resolved.map((r) => r.name) }, "COMMITMENT GATE — contact share AUTO-SENT (confident: known requester, unambiguous known people)");
@@ -9735,7 +9743,8 @@ export class WhatsAppSession {
         // directly and doesn't depend on the queue.
         const ownerThread = this.ownJid();
         if (ownerThread) {
-          this.pendingDraftEdits.set(ownerThread, {
+          // Composite key: two held contacts must not collapse onto one slot, or a bare "yes" could approve the wrong one.
+          this.pendingDraftEdits.set(`${ownerThread}::${from}`, {
             targetJid: from,
             displayName: opts.senderName ?? this.contactNames.get(from) ?? undefined,
             draftId: queued?.id,
@@ -11572,7 +11581,7 @@ export class WhatsAppSession {
     try {
       // Determine the relationship label for this contact.
       const displayName = this.contactNames.get(jid) || senderName;
-      const rel = this.ownerProfileStore.relationshipFor(jid, displayName);
+      const rel = this.ownerProfileStore.declaredRelationshipFor(jid); // trust gate: never the contact-controlled displayName
       if (!rel) return; // not a known relationship — skip to avoid noise
 
       // Regex fast-path; LLM recovers tasks phrased outside the templates.

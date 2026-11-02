@@ -99,3 +99,45 @@ describe("WhatsApp: auto-act is opt-in", () => {
     expect(SRC).toMatch(/autoActEnabled\(process\.env\.PAL_LIFE_EVENT_AUTOACT\) \|\| isAutoActOptedIn\(\)/);
   });
 });
+
+const INDEX = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+
+describe("WhatsApp: pushName spoof cannot open a trust gate", () => {
+  it("spouse agent decides on handle/alias only", () => {
+    expect(SRC).toContain("const relForAgent = this.ownerProfileStore.declaredRelationshipFor(from);");
+  });
+  it("## Now, location sharing and contact-share use the trusted (declared) relationship", () => {
+    expect(SRC).toContain("const trustedRelationship = opts.isGroup ? undefined : this.ownerProfileStore.declaredRelationshipFor(from);");
+    expect(SRC).toContain("isInnerCircle(trustedRelationship) ? this.ownerProfileStore.nowBlock()");
+    expect(SRC).toContain("const canShare = isInnerCircle(trustedRelationship) && !denyLoc;");
+    expect(SRC).toContain("requesterInnerCircle: isInnerCircle(trustedRelationship)");
+    // the name-matched `relationship` must not feed those gates
+    expect(SRC).not.toContain("isInnerCircle(relationship)");
+  });
+  it("task capture from a 'VIP/spouse' needs a declared relationship", () => {
+    const i = SRC.indexOf("private async maybeCaptureCommitment(");
+    expect(SRC.slice(i, i + 1600)).toContain("declaredRelationshipFor(jid)");
+  });
+});
+
+describe("WhatsApp: owner-approved REST send + retry + hold keys", () => {
+  it("/send carries owner-approved via ownerApprovedSend and reports a block as 409 (never 'sent')", () => {
+    expect(INDEX).toContain("ownerApprovedSend(");
+    expect(INDEX).toMatch(/sendMessage\(to, message, \{ allow, throwOnBlock: true \}\)/);
+    expect(INDEX).toContain("ReplyModeBlockedError");
+    expect(INDEX).not.toMatch(/session\.sendMessage\(to, message\);/);
+  });
+  it("sendMessage throws (and queues no second draft) when throwOnBlock is set", () => {
+    const fn = SRC.slice(SRC.indexOf("  async sendMessage("));
+    const gate = fn.indexOf("if (!gate.ok)");
+    expect(fn.slice(gate, gate + 700)).toMatch(/if \(opts\.throwOnBlock\) throw new ReplyModeBlockedError\(to\);[\s\S]*holdBlockedSend/);
+  });
+  it("critique-retry text goes through the guarded path, not the raw socket", () => {
+    expect(SRC).not.toContain("this.socket?.sendMessage(sendJid");
+    expect(SRC).toContain("this.sendMessage(sendJid, retried.trim(), { allow: this.contactAllow(sendJid) })");
+  });
+  it("held drafts use composite owner::contact keys", () => {
+    expect(SRC).toContain("this.pendingDraftEdits.set(`${ownerThread}::${to}`");
+    expect(SRC).toContain("this.pendingDraftEdits.set(`${ownerThread}::${from}`");
+  });
+});

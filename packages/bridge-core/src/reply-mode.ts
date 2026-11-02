@@ -117,3 +117,31 @@ export function markBudgetFyi(state: BudgetFyiState, now: number): void {
 
 export const BUDGET_FYI_TEXT =
   "your PAL spend limit was reached, so I couldn't draft replies — contacts are waiting on you. Nothing was sent. Raise the limit in Budgets or reply to them yourself.";
+
+// ── Owner-approved REST send (dashboard Approve/Edit, cross-bridge relay) ──
+/** Thrown by a bridge send that the reply-mode boundary refused when the caller asked to be told. */
+export class ReplyModeBlockedError extends Error {
+  constructor(public readonly destination: string) {
+    super(`reply mode blocked the send to ${destination}`);
+    this.name = "ReplyModeBlockedError";
+  }
+}
+
+/**
+ * Run an owner-approved send and map it to an HTTP result. The allow is ALWAYS
+ * owner-approved (these routes are bearer-guarded and only the owner's approve /
+ * edit / relay hits them). A boundary refusal is a 409, never a false "sent".
+ */
+export async function ownerApprovedSend(
+  send: (allow: SendAllow) => Promise<{ ok: boolean; reason?: string }>,
+): Promise<{ status: 200 | 409 | 500; body: Record<string, unknown> }> {
+  try {
+    const r = await send(ALLOW_OWNER_APPROVED);
+    if (r.ok) return { status: 200, body: { status: "sent" } };
+    if (r.reason === "reply-mode") return { status: 409, body: { error: "blocked by reply mode", code: "reply_mode_blocked" } };
+    return { status: 500, body: { error: r.reason ?? "send failed" } };
+  } catch (err) {
+    if (err instanceof ReplyModeBlockedError) return { status: 409, body: { error: "blocked by reply mode", code: "reply_mode_blocked" } };
+    return { status: 500, body: { error: String(err) } };
+  }
+}

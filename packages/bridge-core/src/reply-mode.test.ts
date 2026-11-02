@@ -101,3 +101,30 @@ describe("allowContactSend (the send boundary)", () => {
   test("everyone: legacy, no token needed", () => assert.equal(g("everyone", false), true));
   test("blocked reason is logged text", () => assert.match(allowContactSend({ mode: "drafts", destination: "+1555", isOwner: false }).reason, /blocked/));
 });
+
+import { ownerApprovedSend, ReplyModeBlockedError } from "./reply-mode.ts";
+
+describe("ownerApprovedSend (dashboard Approve/Edit REST routes)", () => {
+  // A fake bridge send that models the real boundary contract.
+  const boundary = (mode: ReplyMode) => async (allow: SendAllow) => {
+    const g = allowContactSend({ mode, destination: "+1555", isOwner: false, allow });
+    return g.ok ? { ok: true } : { ok: false, reason: "reply-mode" };
+  };
+  test("drafts mode: the approve delivers (200 sent) because the route carries owner-approved", async () => {
+    for (const m of ["drafts", "inner-circle", "everyone"] as const) {
+      const r = await ownerApprovedSend(boundary(m));
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.body, { status: "sent" });
+    }
+  });
+  test("a route that dropped the token would be blocked -> 409, never 'sent'", async () => {
+    const r = await ownerApprovedSend(async () => boundary("drafts")(undefined as unknown as SendAllow));
+    assert.equal(r.status, 409);
+    assert.equal(r.body.code, "reply_mode_blocked");
+  });
+  test("WhatsApp-style throw on block -> 409; other errors -> 500", async () => {
+    assert.equal((await ownerApprovedSend(async () => { throw new ReplyModeBlockedError("x"); })).status, 409);
+    assert.equal((await ownerApprovedSend(async () => { throw new Error("boom"); })).status, 500);
+    assert.equal((await ownerApprovedSend(async () => ({ ok: false, reason: "bridge not ready" }))).status, 500);
+  });
+});

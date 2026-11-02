@@ -5898,7 +5898,8 @@ export class IMessageSession {
       ttlSeconds: 3600,
     });
     if (!staged) return { ok: false, reason: "couldn't create a secure link" };
-    const sent = await this.send(target, buildDocLinkMessage(request, staged.url, 60));
+    // Only reached from owner-approved doc delivery (deliverFileToContact / its re-delivery watch).
+    const sent = await this.send(target, buildDocLinkMessage(request, staged.url, 60), ALLOW_OWNER_APPROVED);
     return sent.ok ? { ok: true, via: "link" } : { ok: false, reason: sent.reason };
   }
 

@@ -84,3 +84,15 @@ describe("iMessage: auto-act is opt-in", () => {
     expect(SRC).not.toMatch(/PAL_LIFE_EVENT_AUTOACT \|\| "on"/);
   });
 });
+
+const INDEX = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+
+describe("iMessage: owner-approved REST send + doc link", () => {
+  it("/send carries owner-approved via ownerApprovedSend (dashboard Approve/Edit delivers; a block is 409)", () => {
+    expect(INDEX).toMatch(/ownerApprovedSend\(\(allow\) => s\.send\(to, message, allow\)\)/);
+    expect(INDEX).not.toMatch(/await s\.send\(to, message\);/);
+  });
+  it("doc-link delivery (owner-approved relay + re-delivery watch) carries owner-approved", () => {
+    expect(call("this.send(target, buildDocLinkMessage")).toContain("ALLOW_OWNER_APPROVED");
+  });
+});
