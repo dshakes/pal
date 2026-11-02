@@ -5,10 +5,11 @@
 
 import { api } from "@/lib/api";
 import { PersonalApiError } from "@/lib/pal-space";
+import { runtimeApiUrl } from "@/lib/runtime-config";
 
 const API_BASE =
   (typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080")
+    ? (runtimeApiUrl() ?? "http://localhost:8080")
     : (process.env.PAL_API_URL ?? "http://localhost:8080"));
 
 function authHeaders(): HeadersInit {

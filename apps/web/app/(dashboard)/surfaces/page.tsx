@@ -26,7 +26,8 @@ import { HeaderSkeleton, Skeleton } from "@/components/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { WebChatWidget } from "@/components/web-chat-widget";
 import Link from "next/link";
-import { QRCode, buildQRLink, generatePairingToken } from "@/components/qr-code";
+import { QRCode } from "@/components/qr-code";
+import { buildQRLink } from "@/lib/qr-link";
 import { WhatsAppPairing } from "@/components/whatsapp-pairing";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -67,7 +68,7 @@ interface SurfaceDefinition {
   configFields: ConfigField[];
   hasEmbedCode?: boolean;
   hasQRCode?: boolean;
-  qrType?: "whatsapp" | "telegram" | "pair";
+  qrType?: "whatsapp" | "telegram";
   qrLabel?: string;
   // Live liveness probe — when set, the card hits this URL's /health
   // endpoint and renders Connected/Offline instead of relying on the
@@ -125,6 +126,7 @@ const surfaces: SurfaceDefinition[] = [
     icon: Send, iconColor: "text-sky-400", iconBg: "bg-sky-500/10",
     configFields: [
       { key: "botToken", label: "Bot Token", type: "password", placeholder: "123456:ABC-DEF1234ghIkl...", required: true, minLength: 30, helpUrl: "https://t.me/BotFather", helpText: "Get from @BotFather on Telegram" },
+      { key: "botUsername", label: "Bot username (optional)", type: "text", placeholder: "my_support_bot", helpText: "Shows a t.me QR code that opens your bot" },
     ],
     hasQRCode: true, qrType: "telegram", qrLabel: "Scan to open the bot in Telegram",
   },
@@ -717,22 +719,20 @@ export default function SurfacesPage() {
                 </div>
               )}
 
-              {/* QR Code */}
-              {configModal.hasQRCode && (
-                <div className="rounded-xl border border-zinc-800 bg-surface-0 p-5">
-                  <h3 className="text-sm font-medium text-zinc-200 mb-1">Quick Connect via QR Code</h3>
-                  <p className="text-xs text-zinc-500 mb-4">{configModal.qrLabel}</p>
-                  <div className="flex justify-center">
-                    <QRCode
-                      value={buildQRLink({ type: configModal.qrType ?? "pair", token: generatePairingToken(), botUsername: formFields.botToken ? "PalBot" : undefined, phoneNumber: formFields.phoneNumberId || undefined })}
-                      size={180}
-                      label={configModal.qrLabel}
-                      expiresIn={300}
-                      onRefresh={() => buildQRLink({ type: configModal.qrType ?? "pair", token: generatePairingToken(), botUsername: formFields.botToken ? "PalBot" : undefined, phoneNumber: formFields.phoneNumberId || undefined })}
-                    />
+              {/* QR Code: a real vendor deep link only (no fabricated pairing token). */}
+              {configModal.hasQRCode && configModal.qrType && (() => {
+                // WhatsApp: no QR from config — `phoneNumberId` is a Meta ID, not a dialable number.
+                const link = buildQRLink({ type: configModal.qrType, botUsername: formFields.botUsername });
+                return link ? (
+                  <div className="rounded-xl border border-zinc-800 bg-surface-0 p-5">
+                    <h3 className="text-sm font-medium text-zinc-200 mb-1">Quick Connect via QR Code</h3>
+                    <p className="text-xs text-zinc-500 mb-4">{configModal.qrLabel}</p>
+                    <div className="flex justify-center">
+                      <QRCode key={link} value={link} size={180} label={configModal.qrLabel} />
+                    </div>
                   </div>
-                </div>
-              )}
+                ) : null;
+              })()}
 
               {/* Test result */}
               {testStatus !== "idle" && (

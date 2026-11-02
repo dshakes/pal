@@ -1,0 +1,8 @@
+# Documented, dated exceptions for scripts/dep-audit.sh. One per line:
+#   <advisory-id> <expires YYYY-MM-DD> <reason / why unfixable / tracking link>
+# Ids: GO-YYYY-NNNN (govulncheck), RUSTSEC-YYYY-NNNN (cargo audit), GHSA-xxxx-xxxx-xxxx (npm).
+# An entry past its expiry date stops suppressing and the audit fails again, so every
+# exception must be re-justified. Leave empty when there are none.
+# Found by the first full-repo audit (2026-11-01): reachable advisories in x/net, grpc, x/text
+# and pgx across the non-control-plane Go modules. Fixes are minor bumps (x/net v0.60.0,
+# grpc v1.83.1, x/text v0.41.0, pgx v5.9.2) that need their own PR + test run.

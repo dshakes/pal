@@ -1,7 +1,7 @@
 {
   "name": "@pal-runtime/sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for PAL Runtime, the Personal Agentic Layer platform for production AI agents",
+  "description": "TypeScript SDK for PAL Runtime, the Personalized Agentic Layer platform for production AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -41,7 +41,7 @@
     "eslint": "^9.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.65.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.8"
   },
   "license": "MIT"

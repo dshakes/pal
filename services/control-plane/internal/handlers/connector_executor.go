@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/dshakes/pal/packages/agentpolicy"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -98,8 +100,15 @@ func (h *ConnectorExecutor) logger() *zap.Logger {
 	return h.srv.Logger.Named("connector-executor")
 }
 
-// httpClient is a shared client with a reasonable timeout for outbound API calls.
-var httpClient = &http.Client{Timeout: 30 * time.Second, Transport: baseURLTransport{next: http.DefaultTransport}}
+// httpClient is a shared client with a reasonable timeout for outbound API
+// calls, behind the SSRF dial guard (connectorDialPolicy).
+var httpClient = &http.Client{Timeout: 30 * time.Second, Transport: newConnectorTransport()}
+
+// outboundHTTPClient is for fixed first-party endpoints (OAuth token exchange
+// and profile, captcha, Gmail). The default client has no timeout, so a hung
+// provider would pin the request goroutine forever. Transport stays nil (=
+// http.DefaultTransport) so the dev LLM/fixture base-URL wrapper still applies.
+var outboundHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 // Execute handles GET/POST /v1/connectors/{connectorId}/execute?action={action}.
 // It loads credentials from connector_installs, then dispatches to the
@@ -520,10 +529,13 @@ func refreshGoogleToken(refreshToken string) (string, error) {
 		return "", fmt.Errorf("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set")
 	}
 
-	data := fmt.Sprintf("client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token",
-		clientID, clientSecret, refreshToken)
-
-	resp, err := http.Post("https://oauth2.googleapis.com/token", "application/x-www-form-urlencoded", strings.NewReader(data))
+	data := url.Values{
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"refresh_token": {refreshToken},
+		"grant_type":    {"refresh_token"},
+	}
+	resp, err := outboundHTTPClient.PostForm("https://oauth2.googleapis.com/token", data)
 	if err != nil {
 		return "", err
 	}
@@ -640,15 +652,11 @@ func executeGmail(config map[string]any, action string, params map[string]any) (
 }
 
 func sendGmailViaAPI(accessToken, to, subject, body, label string, skipInbox bool) (any, error) {
-	// Build RFC 2822 message. Subjects with non-ASCII bytes MUST be
-	// encoded as RFC 2047 encoded-words or Gmail's web view shows
-	// mojibake (the raw UTF-8 bytes get re-interpreted as Latin-1).
-	encodedSubject := encodeMimeHeader(subject)
-	msg := fmt.Sprintf(
-		"To: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s",
-		to, encodedSubject, body,
-	)
-	raw := base64.URLEncoding.EncodeToString([]byte(msg))
+	msg, err := buildPlainTextMail(to, subject, body)
+	if err != nil {
+		return nil, fmt.Errorf("Gmail send: %w", err)
+	}
+	raw := base64.URLEncoding.EncodeToString(msg)
 
 	payload, _ := json.Marshal(map[string]string{"raw": raw})
 	headers := map[string]string{
@@ -675,6 +683,29 @@ func sendGmailViaAPI(accessToken, to, subject, body, label string, skipInbox boo
 		}
 	}
 	return result, nil
+}
+
+// buildPlainTextMail renders an RFC 5322 text/plain message. `to` and
+// `subject` can come from LLM tool params, so a CR or LF in either is refused
+// (header injection: "a@b.test\r\nBcc: x@evil.test"), the address list is
+// parsed and re-serialized, and a non-ASCII subject is RFC 2047-encoded (raw
+// UTF-8 shows as mojibake in Gmail's web view).
+func buildPlainTextMail(to, subject, body string) ([]byte, error) {
+	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
+		return nil, errors.New("mail header values must not contain CR or LF")
+	}
+	addrs, err := mail.ParseAddressList(to)
+	if err != nil {
+		return nil, fmt.Errorf("invalid 'to' address list: %w", err)
+	}
+	list := make([]string, len(addrs))
+	for i, a := range addrs {
+		list[i] = a.String()
+	}
+	return []byte("To: " + strings.Join(list, ", ") +
+		"\r\nSubject: " + encodeMimeHeader(subject) +
+		"\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" +
+		body), nil
 }
 
 // encodeMimeHeader returns the value as an RFC 2047 encoded-word if it
@@ -1487,7 +1518,11 @@ func executeJira(config map[string]any, action string, params map[string]any) (a
 		})
 	}
 
-	baseURL := fmt.Sprintf("https://%s/rest/api/3", domain)
+	origin, err := vendorURL(domain, "atlassian.net")
+	if err != nil {
+		return nil, fmt.Errorf("jira: invalid 'Domain' setting: %w", err)
+	}
+	baseURL := origin + "/rest/api/3"
 
 	switch action {
 	case "list_issues":
@@ -1876,8 +1911,10 @@ func executeSalesforce(config map[string]any, action string, params map[string]a
 		})
 	}
 
-	// Strip trailing slash from instance URL.
-	instanceURL = strings.TrimRight(instanceURL, "/")
+	instanceURL, err := vendorURL(instanceURL, "salesforce.com", "force.com")
+	if err != nil {
+		return nil, fmt.Errorf("salesforce: invalid instance URL: %w", err)
+	}
 
 	headers := map[string]string{
 		"Authorization": "Bearer " + accessToken,

@@ -59,7 +59,7 @@ export default defineConfig({
       title: 'PAL',
       // Fails the build on any broken internal link or anchor in the docs.
       plugins: [starlightLinksValidator({ errorOnLocalLinks: false })],
-      description: 'PAL, the Personal Agentic Layer: a personal agent that acts for you, and the runtime builders run their own agents on.',
+      description: 'PAL, the Personalized Agentic Layer: a personal agent that acts for you, and the runtime builders run their own agents on.',
       favicon: '/favicon.svg',
       head: [
         { tag: 'meta', attrs: { property: 'og:image', content: og } },

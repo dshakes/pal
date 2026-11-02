@@ -2,11 +2,11 @@ module github.com/dshakes/pal/e2e/examples
 
 go 1.25.0
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require (
 	github.com/dshakes/pal/e2e/internal/e2ekit v0.0.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

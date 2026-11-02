@@ -168,12 +168,12 @@ func CheckSchedulerAddr(isProdEnv bool, addr string) (fatal bool, message string
 // Public endpoints (receipt verify, /.well-known/*, /proof) keep "Access-Control-Allow-Origin: *"
 // and are NOT filtered through this function.
 //
-// Default dev value: http://localhost:3001 (Next.js dashboard dev server).
+// Default dev value: http://localhost:3001 and http://127.0.0.1:3001 (Next.js dashboard dev server).
 // Override in any environment via PAL_CORS_ORIGINS (comma-separated list).
 func corsAllowedOrigins() map[string]struct{} {
 	raw := strings.TrimSpace(os.Getenv("PAL_CORS_ORIGINS"))
 	if raw == "" {
-		raw = "http://localhost:3001"
+		raw = "http://localhost:3001,http://127.0.0.1:3001"
 	}
 	result := make(map[string]struct{})
 	for _, o := range strings.Split(raw, ",") {

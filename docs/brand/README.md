@@ -7,7 +7,7 @@
 
 # PAL brand guide
 
-PAL is the Personal Agentic Layer. Two products share one name and one mark:
+PAL is the Personalized Agentic Layer. Two products share one name and one mark:
 
 - **pal**: the personal agent that lives in your iMessage and WhatsApp. Warm.
 - **PAL Runtime**: the runtime pal runs on, for the agents you build. Electric.
@@ -42,7 +42,7 @@ mirrored by `site/src/components/Logo.astro`.
 | File | Use |
 |---|---|
 | `lockup.svg`, `lockup-on-dark.svg` | primary logo: the wordmark |
-| `lockup-horizontal*.svg`, `lockup-stacked*.svg` | wordmark with "Personal Agentic Layer" |
+| `lockup-horizontal*.svg`, `lockup-stacked*.svg` | wordmark with "Personalized Agentic Layer" |
 | `mark*.svg` | the p alone, when the name is already on screen |
 | `runtime-lockup*.svg`, `runtime-mark*.svg` | PAL Runtime |
 | `*-mono-black.svg`, `*-mono-white.svg` | one-colour print, embossing, partner pages |

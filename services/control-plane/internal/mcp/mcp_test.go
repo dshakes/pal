@@ -236,6 +236,25 @@ func TestDialPolicy(t *testing.T) {
 	if !strict.Allowed(net.ParseIP("93.184.216.34")) {
 		t.Error("public IP refused")
 	}
+	// Always refused, even with private/loopback allowed: benchmarking, IETF
+	// protocol assignments, reserved/broadcast, Azure wireserver, and 6to4
+	// addresses embedding one of those or a private/loopback IPv4.
+	open := DialPolicy{AllowPrivate: true, AllowLoopback: true}
+	for _, ip := range []string{"198.18.0.1", "198.19.255.254", "192.0.0.8", "240.0.0.1", "255.255.255.255", "168.63.129.16", "2002:a9fe:a9fe::1", "2002:a83f:8110::", "2002:c612:1::"} {
+		if open.Allowed(net.ParseIP(ip)) || strict.Allowed(net.ParseIP(ip)) {
+			t.Errorf("%s must always be refused", ip)
+		}
+	}
+	for _, ip := range []string{"2002:7f00:1::", "2002:a00:1::", "2002:c0a8:101::"} { // 6to4 → 127.0.0.1, 10.0.0.1, 192.168.1.1
+		if strict.Allowed(net.ParseIP(ip)) {
+			t.Errorf("strict policy allowed 6to4 %s embedding a private/loopback IPv4", ip)
+		}
+	}
+	for _, ip := range []string{"198.17.255.255", "198.20.0.1", "192.0.1.1", "168.63.129.17", "2002:5db8:d822::"} { // neighbours stay public
+		if !strict.Allowed(net.ParseIP(ip)) {
+			t.Errorf("public %s refused", ip)
+		}
+	}
 	if devPolicy.Allowed(net.ParseIP("169.254.169.254")) || devPolicy.Allowed(net.ParseIP("::ffff:169.254.169.254")) {
 		t.Error("metadata address must be refused even in dev")
 	}

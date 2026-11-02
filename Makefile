@@ -300,12 +300,8 @@ lint-ts: ## Lint TypeScript code
 
 # ---------- Security ----------
 
-audit: ## Run security audits on all dependencies
-	cd services/control-plane && govulncheck ./...
-	cd services/gateway && cargo audit
-	cd services/model-router && cargo audit
-	cd services/runtime-manager && cargo audit
-	cd packages/sdk-ts && npm audit --omit=dev  # production deps only — dev-tool advisories (vitest/esbuild) aren't shipped
+audit: ## Dependency audit of every Go module, Cargo crate and npm package (see scripts/dep-audit.sh, .security/audit-ignore.txt)
+	@bash scripts/dep-audit.sh
 
 # ---------- Firecracker on a Mac (Lima, M3+ / macOS 15+) ----------
 

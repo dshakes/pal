@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"mime"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"os"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -124,8 +128,11 @@ func (e *EmailDeliverer) deliverViaSMTP(_ context.Context, n *Notification) (*De
 		subject = "PAL Notification"
 	}
 
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/html; charset=utf-8\r\n\r\n%s",
-		e.fromAddr, n.Recipient, subject, n.Body)
+	rcpt, msg, err := smtpMessage(e.fromAddr, n.Recipient, subject, n.Body)
+	if err != nil {
+		e.logger.Warn("SMTP delivery refused: invalid header value", zap.Error(err))
+		return &DeliveryResult{Success: false, ErrorMessage: err.Error(), AttemptedAt: time.Now()}, nil
+	}
 
 	addr := fmt.Sprintf("%s:%s", e.smtpHost, e.smtpPort)
 
@@ -134,7 +141,7 @@ func (e *EmailDeliverer) deliverViaSMTP(_ context.Context, n *Notification) (*De
 		auth = smtp.PlainAuth("", e.smtpUser, e.smtpPass, e.smtpHost)
 	}
 
-	err := smtp.SendMail(addr, auth, e.fromAddr, []string{n.Recipient}, []byte(msg))
+	err = smtp.SendMail(addr, auth, e.fromAddr, []string{rcpt}, msg)
 	if err != nil {
 		e.logger.Error("SMTP delivery failed",
 			zap.String("recipient", n.Recipient),
@@ -151,4 +158,23 @@ func (e *EmailDeliverer) deliverViaSMTP(_ context.Context, n *Notification) (*De
 		Success:     true,
 		AttemptedAt: time.Now(),
 	}, nil
+}
+
+// smtpMessage renders the SMTP message. Recipient and subject come from the
+// notification request, so a CR or LF in either is refused (header injection:
+// "a@b.test\r\nBcc: x@evil.test"), the recipient must parse as exactly ONE
+// address (it is also the envelope RCPT), and the subject is RFC 2047-encoded.
+// Mirrors buildPlainTextMail in the control-plane (separate module, so copied).
+func smtpMessage(from, recipient, subject, body string) (rcpt string, msg []byte, err error) {
+	if strings.ContainsAny(recipient, "\r\n") || strings.ContainsAny(subject, "\r\n") {
+		return "", nil, errors.New("email header values must not contain CR or LF")
+	}
+	a, err := mail.ParseAddress(recipient)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid recipient address: %w", err)
+	}
+	msg = []byte("From: " + from + "\r\nTo: " + a.String() +
+		"\r\nSubject: " + mime.BEncoding.Encode("utf-8", subject) +
+		"\r\nContent-Type: text/html; charset=utf-8\r\n\r\n" + body)
+	return a.Address, msg, nil
 }

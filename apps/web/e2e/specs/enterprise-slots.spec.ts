@@ -89,7 +89,7 @@ test.describe("owner", () => {
     await page.getByLabel("Rule name").fill("block-cards");
     await page.getByLabel("Mode").selectOption("block");
     await page.getByRole("button", { name: "Save rule" }).click();
-    await expect(page.getByText("block-cards")).toBeVisible();
+    await expect(page.getByText("block-cards", { exact: true })).toBeVisible();
     // adding the same name again is refused (the server would silently overwrite)
     await page.getByRole("button", { name: "Add rule" }).first().click();
     await page.getByLabel("Rule name").fill("block-cards");

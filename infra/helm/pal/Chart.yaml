@@ -13,8 +13,10 @@ description: >-
   See docs/architecture/17-deployment-model.md for the full deployment
   architecture.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+# Must equal the release tag minus the leading v (scripts/check-chart-release.sh,
+# enforced by build-images.yml on a v* tag push). global.image.tag defaults to appVersion.
+version: 0.3.0
+appVersion: "0.3.0"
 keywords:
   - ai-agents
   - serverless

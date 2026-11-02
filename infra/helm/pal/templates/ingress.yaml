@@ -39,6 +39,10 @@ spec:
                   number: {{ $.Values.gateway.service.port }}
                   {{- else if eq .service "dashboard" }}
                   number: {{ $.Values.dashboard.service.port }}
+                  {{- else if eq .service "control-plane" }}
+                  number: {{ $.Values.controlPlane.service.httpPort }}
+                  {{- else }}
+                  {{- fail (printf "ingress: unknown service %q (gateway|dashboard|control-plane)" .service) }}
                   {{- end }}
           {{- end }}
     {{- end }}

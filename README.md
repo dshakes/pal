@@ -83,7 +83,7 @@ make demo-down    # stop and delete all demo data
 
 ## Run your own agent
 
-Needs Docker, Go 1.25+ for the CLI, and an OpenAI or Anthropic key.
+Needs Docker, Go 1.26+ (CI and the control plane pin go1.26.10; the CLI module needs at least 1.25), and an OpenAI or Anthropic key.
 
 ```bash
 make dev                                         # Postgres, Redis, MinIO, control plane, console

@@ -72,13 +72,17 @@ func NewSignalHandler(srv *server.Server, auth *AuthHandler) *SignalHandler {
 const legacyOwnerDefaultTenant = "00000000-0000-0000-0000-000000000001"
 
 // legacyOwnerTenant returns the tenant the legacy shared-token path writes for,
-// or "" when the operator disabled the legacy path (multi-tenant deployments
-// set PAL_SIGNALS_LEGACY_OWNER_TENANT=off so a shared secret can never write
-// into some tenant's data).
+// or "" when the legacy path is disabled. Unset defaults to the dev tenant in
+// dev (the single-owner local install, PAL_ENV unset) and to OFF in prod: a
+// production deployment must name the tenant explicitly, so one shared secret
+// can never write into some tenant's data by default.
 func legacyOwnerTenant() string {
 	v := strings.TrimSpace(os.Getenv("PAL_SIGNALS_LEGACY_OWNER_TENANT"))
 	switch strings.ToLower(v) {
 	case "":
+		if isProd() {
+			return ""
+		}
 		return legacyOwnerDefaultTenant
 	case "off", "none", "disabled", "0", "false":
 		return ""

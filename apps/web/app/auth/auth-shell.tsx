@@ -59,7 +59,7 @@ export function AuthFrame({ children }: { children: ReactNode }) {
             </li>
           </ul>
         </div>
-        <p className="text-xs text-white/70">Personal Agentic Layer</p>
+        <p className="text-xs text-white/70">Personalized Agentic Layer</p>
       </aside>
       <main className="flex flex-1 items-center justify-center px-4 py-10">
         <div className="w-full max-w-[400px]">
