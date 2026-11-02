@@ -251,6 +251,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
+	if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
+		h.logger().Error("mark bootstrapped failed", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
 
 	if err := applyFreeTierDefaults(ctx, tx, tenantID); err != nil {
 		h.logger().Error("apply free tier failed", zap.Error(err))
@@ -736,6 +741,12 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		`, tenantID, email, displayName, providerName, email).Scan(&userID) // provider-verified email
 		if txErr != nil {
 			h.logger().Error("insert user failed", zap.Error(txErr))
+			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+			return
+		}
+
+		if _, txErr = tx.Exec(ctx, markBootstrappedSQL); txErr != nil {
+			h.logger().Error("mark bootstrapped failed", zap.Error(txErr))
 			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
 			return
 		}

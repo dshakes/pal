@@ -5,12 +5,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
@@ -280,9 +283,7 @@ func TestBootstrapOwner_StaysInertAfterAllWorkspacesErased(t *testing.T) {
 		t.Fatal(err)
 	}
 	// GDPR-style erasure of the only workspace: users go, instance is empty again.
-	if _, err := pool.Exec(ctx, `DELETE FROM tenants`); err != nil {
-		t.Fatal(err)
-	}
+	eraseAllWorkspaces(t, pool)
 	if n := countRows(t, pool, `SELECT count(*) FROM users`); n != 0 {
 		t.Fatalf("users=%d after erase", n)
 	}
@@ -311,12 +312,163 @@ func TestBootstrapOwner_MarksInstancesThatAlreadyHadUsers(t *testing.T) {
 	if err := h.BootstrapOwner(ctx, &bytes.Buffer{}); err != nil { // env unset, still marks
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM tenants`); err != nil {
-		t.Fatal(err)
-	}
+	eraseAllWorkspaces(t, pool)
 	t.Setenv("PAL_BOOTSTRAP_OWNER_EMAIL", "root@selfhost.test")
 	var out bytes.Buffer
 	if err := h.BootstrapOwner(ctx, &out); err != nil || out.Len() != 0 {
 		t.Fatalf("err=%v out=%q: re-armed after erase", err, out.String())
+	}
+}
+
+// eraseAllWorkspaces is the real GDPR purge applied to every tenant.
+func eraseAllWorkspaces(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT id FROM tenants`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := purgeTenantRows(context.Background(), pool, zap.NewNop(), id); err != nil {
+			t.Fatalf("purge %s: %v", id, err)
+		}
+	}
+}
+
+// assertMarkedAndInertAfterErase: the marker exists right after the user-creating
+// path ran (no BootstrapOwner restart in between), and erasing everything then
+// restarting with the env var set stays inert.
+func assertMarkedAndInertAfterErase(t *testing.T, h *AuthHandler, pool *pgxpool.Pool) {
+	t.Helper()
+	if n := countRows(t, pool, `SELECT count(*) FROM users`); n != 1 {
+		t.Fatalf("users=%d, want the one just created", n)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM instance_bootstrap`); n != 1 {
+		t.Fatalf("marker rows=%d, want 1 immediately after user creation", n)
+	}
+	eraseAllWorkspaces(t, pool)
+	if n := countRows(t, pool, `SELECT count(*) FROM users`); n != 0 {
+		t.Fatalf("users=%d after purge", n)
+	}
+	t.Setenv("PAL_BOOTSTRAP_OWNER_EMAIL", "root@selfhost.test")
+	var out bytes.Buffer
+	if err := h.BootstrapOwner(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 || countRows(t, pool, `SELECT count(*) FROM users`) != 0 {
+		t.Fatalf("bootstrap re-fired after erase: %q", out.String())
+	}
+}
+
+func TestBootstrapMarker_SetBySignup(t *testing.T) {
+	setSignupEnv(t, "", "open", "")
+	pool := emptyDBPool(t)
+	h, _ := bootstrapHandler(pool)
+	rr := callJSON(h.Signup, "/auth/signup", map[string]string{"email": "s@x.test", "password": "longenough-pass"})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("signup: %d %s", rr.Code, rr.Body)
+	}
+	assertMarkedAndInertAfterErase(t, h, pool)
+}
+
+func TestBootstrapMarker_SetByKioskSession(t *testing.T) {
+	setSignupEnv(t, "", "open", "")
+	t.Setenv("PAL_KIOSK", "1")
+	pool := emptyDBPool(t)
+	h, _ := bootstrapHandler(pool)
+	k := NewKioskHandler(h.srv, h)
+	k.perIPPerHour = 1000
+	req := httptest.NewRequest(http.MethodPost, "/v1/kiosk/session", nil)
+	req.RemoteAddr = "203.0.113.9:4000"
+	rr := httptest.NewRecorder()
+	k.CreateSession(rr, req)
+	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
+		t.Fatalf("kiosk session: %d %s", rr.Code, rr.Body)
+	}
+	assertMarkedAndInertAfterErase(t, h, pool)
+}
+
+func TestBootstrapMarker_SetByOAuthNewUser(t *testing.T) {
+	url := os.Getenv("REDIS_URL")
+	if url == "" {
+		t.Skip("REDIS_URL not set (OAuth state needs Redis)")
+	}
+	opt, err := redis.ParseURL(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := redis.NewClient(opt)
+	t.Cleanup(func() { _ = rc.Close() })
+	setSignupEnv(t, "", "open", "")
+	pool := emptyDBPool(t)
+	h, _ := bootstrapHandler(pool)
+	h.srv.Redis = rc
+	h.rl = newFakeRedis()
+
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			_, _ = w.Write([]byte(`{"access_token":"tok"}`))
+		case "/userinfo":
+			_, _ = w.Write([]byte(`{"email":"o@x.test","name":"O"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer idp.Close()
+	orig := oauthLoginProviders["google"]
+	p := orig
+	p.TokenURL, p.UserInfoURL = idp.URL+"/token", idp.URL+"/userinfo"
+	oauthLoginProviders["google"] = p
+	t.Cleanup(func() { oauthLoginProviders["google"] = orig })
+	t.Setenv("GOOGLE_CLIENT_ID", "cid")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "csecret")
+
+	state, _ := randomHex(12)
+	if err := rc.Set(context.Background(), "oauth_login_state:"+state,
+		`{"provider":"google","pkce_verifier":"v"}`, time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=c&state="+state, nil)
+	req.SetPathValue("provider", "google")
+	rr := httptest.NewRecorder()
+	h.OAuthCallback(rr, req)
+	if loc := rr.Header().Get("Location"); !strings.Contains(loc, "/auth/callback?code=") {
+		t.Fatalf("oauth sign-up failed: %q", loc)
+	}
+	assertMarkedAndInertAfterErase(t, h, pool)
+}
+
+// The 0045 migration marks instances that already have users (upgrade path).
+func TestBootstrapMarker_MigrationBackfillsExistingUsers(t *testing.T) {
+	pool := emptyDBPool(t)
+	ctx := context.Background()
+	var tid string
+	if err := pool.QueryRow(ctx, `INSERT INTO tenants (slug,name,tier,k8s_namespace) VALUES ('z','z','personal','pal-t-z') RETURNING id`).Scan(&tid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users (tenant_id,email,display_name,auth_provider,auth_subject,role) VALUES ($1,'u@z.test','u','local','u@z.test','owner')`, tid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM instance_bootstrap`); err != nil {
+		t.Fatal(err)
+	}
+	sql, err := os.ReadFile("../db/migrations/0045_instance_bootstrap.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM instance_bootstrap`); n != 1 {
+		t.Fatalf("marker rows=%d after backfill, want 1", n)
 	}
 }

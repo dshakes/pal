@@ -6,3 +6,6 @@ CREATE TABLE IF NOT EXISTS instance_bootstrap (
 	id BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Instances that already have users are bootstrapped by definition.
+INSERT INTO instance_bootstrap SELECT WHERE EXISTS (SELECT 1 FROM users) ON CONFLICT DO NOTHING;

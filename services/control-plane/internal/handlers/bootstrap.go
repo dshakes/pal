@@ -26,6 +26,11 @@ const bootstrapLockKey int64 = 0x50414c424f4f54
 // unusablePasswordHash can never match a bcrypt comparison.
 const unusablePasswordHash = "!"
 
+// markBootstrappedSQL sets the durable marker. Run it in the SAME tx as every
+// users INSERT (Signup, OAuth new user, kiosk, bootstrap) so the marker can
+// never lag behind a user that ever existed.
+const markBootstrappedSQL = `INSERT INTO instance_bootstrap DEFAULT VALUES ON CONFLICT DO NOTHING`
+
 // BootstrapOwner runs the one-time first-owner bootstrap. Idempotent: returns
 // nil without side effects when the env is unset or any user already exists.
 func (h *AuthHandler) BootstrapOwner(ctx context.Context, out io.Writer) error {
@@ -58,7 +63,7 @@ func (h *AuthHandler) BootstrapOwner(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("bootstrap: count users: %w", err)
 	}
 	if users > 0 {
-		if _, err := tx.Exec(ctx, `INSERT INTO instance_bootstrap DEFAULT VALUES ON CONFLICT DO NOTHING`); err != nil {
+		if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
 			return fmt.Errorf("bootstrap: write marker: %w", err)
 		}
 		return tx.Commit(ctx) // inert forever once any user exists
@@ -94,7 +99,7 @@ func (h *AuthHandler) BootstrapOwner(ctx context.Context, out io.Writer) error {
 	if err := applyFreeTierDefaults(ctx, tx, tenantID); err != nil {
 		return fmt.Errorf("bootstrap: free-tier defaults: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO instance_bootstrap DEFAULT VALUES ON CONFLICT DO NOTHING`); err != nil {
+	if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
 		return fmt.Errorf("bootstrap: write marker: %w", err)
 	}
 	token, err := insertAuthToken(ctx, tx, tenantID, userID, purposeResetPassword, resetTokenTTL)
