@@ -46,7 +46,7 @@ rustls-pemfile = "2"
 rustls-pki-types = "1"
 # Used by tls::verify_client_cert_vm_id to extract CN/SAN from peer cert DER.
 # Pure-Rust, no native deps.
-x509-parser = "0.16"
+x509-parser = "0.18"
 # Per-VM client-cert issuance at spawn (tls::generate_vm_client_cert). Pinned to
 # the `ring` crypto provider to match rustls above (no aws-lc-rs). `x509-parser`
 # feature enables CertificateParams::from_ca_cert_pem for signing leaves off the
