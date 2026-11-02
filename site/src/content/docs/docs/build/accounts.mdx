@@ -25,6 +25,14 @@ The same mode applies to a **new** user who signs in with Google or GitHub. A fi
 - `invite` needs an invite code bound to the email the provider verified. The dashboard sends it with `GET /auth/oauth/{provider}/start?invite=<code>`. The server stores it in the OAuth state and never sends it to the provider.
 - `open` and `invite` apply the per-IP sign-up rate limit, which fails closed in prod. There is no captcha on the OAuth path: completing the provider's sign-in is the human check, and a Turnstile token can't survive the provider redirect.
 
+### OAuth sign-in rules
+
+- **Only a provider-verified email counts.** Google must report `verified_email` (or OIDC `email_verified`) as true. For GitHub the address always comes from `/user/emails` and must be the **primary** address and verified; the public profile email is ignored. Otherwise the redirect is `/login?error=Your <Provider> email address is not verified…` and no account is created or touched.
+- **Linking to an existing account.** Accounts are matched by email, case-insensitively, across workspaces (oldest first). A provider sign-in may enter an existing account only if that account's email is verified (`email_verified_at` set). Every provider email is verified by the rule above, so a verified password account, or an account first created with the other provider, can also sign in with Google or GitHub. An unverified password sign-up is refused with `An account with this email already exists. Sign in with your password, then connect <Provider> in settings.` Nothing is stored for a link: the provider sign-in just signs in as that user.
+- **The sign-in is bound to the browser that started it.** `GET /auth/oauth/{provider}/start` sets an HttpOnly, `SameSite=Lax` cookie `pal_oauth_state` (path `/auth/oauth/`, 10 minutes, `Secure` in prod) holding a hash of the state. The callback refuses a state this cookie does not match (`This sign-in was not started in this browser`). That stops login CSRF, where an attacker's own code and state are delivered to your browser. The state is redeemed atomically (Redis `GETDEL`), so a replay or a second concurrent callback fails. PKCE (S256) is kept.
+- The dashboard **navigates** to `/auth/oauth/{provider}/start?redirect=1` (a top-level load, not a `fetch`) so the browser accepts the cookie. That answers `302` to the provider, and errors `302` back to `/login?error=…`. Without `redirect=1` the endpoint still returns `{"redirect_url"}`, but the cookie only sticks if the caller is a same-site browser. The start URL and `OAUTH_REDIRECT_BASE` (the callback) must be on the same host, or the cookie is not sent back.
+- First sign-ins for one email are serialized (a Postgres advisory lock on the lowercased email), so two concurrent callbacks create one workspace, not two.
+
 ## Sign up, verify, log in
 
 <Steps>
