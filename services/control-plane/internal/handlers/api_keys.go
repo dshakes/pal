@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -82,6 +84,43 @@ func validateGrantableScopes(c *PalClaims, requested []string) error {
 	return nil
 }
 
+// maxKeyLifetime bounds an explicit expiresAt (E6).
+const maxKeyLifetime = 366 * 24 * time.Hour
+
+// validateKeyExpiry accepts nil (no expiry) or a time in (now, now+1y].
+func validateKeyExpiry(t *time.Time, now time.Time) error {
+	if t == nil {
+		return nil
+	}
+	if !t.After(now) {
+		return fmt.Errorf("expiresAt must be in the future")
+	}
+	if t.After(now.Add(maxKeyLifetime)) {
+		return fmt.Errorf("expiresAt must be within one year")
+	}
+	return nil
+}
+
+// apiKeyCreator is the principal recorded in api_keys.created_by: the user id
+// for a session, "apikey:<id>" when another key minted this one.
+func apiKeyCreator(c *PalClaims) string {
+	if c.Subject != "" {
+		return c.Subject
+	}
+	return "apikey:" + c.APIKeyID
+}
+
+// newAPIKey mints a pal_live_ key (128 random bits) and its stored prefix/hash.
+func newAPIKey() (raw, prefix, hash string, err error) {
+	b := make([]byte, 16)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", "", fmt.Errorf("generate api key: %w", err)
+	}
+	raw = apiKeyPrefix + hex.EncodeToString(b)
+	sum := sha256.Sum256([]byte(raw))
+	return raw, raw[:16], hex.EncodeToString(sum[:]), nil
+}
+
 // ---------- Create API key ----------
 
 // CreateApiKey handles POST /v1/api-keys.
@@ -100,8 +139,9 @@ func (h *ApiKeyHandler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name   string   `json:"name"`
-		Scopes []string `json:"scopes"`
+		Name      string     `json:"name"`
+		Scopes    []string   `json:"scopes"`
+		ExpiresAt *time.Time `json:"expiresAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -121,29 +161,26 @@ func (h *ApiKeyHandler) CreateApiKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate random key: hlx_live_ + 32 random hex chars (16 bytes).
-	keyBytes := make([]byte, 16)
-	if _, err := rand.Read(keyBytes); err != nil {
+	if err := validateKeyExpiry(body.ExpiresAt, time.Now()); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	rawKey, keyPrefix, keyHash, err := newAPIKey()
+	if err != nil {
 		h.logger().Error("failed to generate random key", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 
-	rawKey := "hlx_live_" + hex.EncodeToString(keyBytes)
-	keyPrefix := rawKey[:16] // "hlx_live_" + first 7 hex chars
-
-	// Hash with SHA-256.
-	hash := sha256.Sum256([]byte(rawKey))
-	keyHash := hex.EncodeToString(hash[:])
-
 	var id string
 	var createdAt time.Time
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, scopes, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, scopes, expires_at, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			RETURNING id, created_at
-		`, tenantID, body.Name, keyHash, keyPrefix, body.Scopes, tenantID).Scan(&id, &createdAt)
+		`, tenantID, body.Name, keyHash, keyPrefix, body.Scopes, body.ExpiresAt, apiKeyCreator(claims)).Scan(&id, &createdAt)
 	})
 	if err != nil {
 		h.logger().Error("create api key failed", zap.Error(err))
@@ -306,4 +343,110 @@ func (h *ApiKeyHandler) ValidateAPIKey(ctx context.Context, rawKey string) (stri
 	_, _ = h.srv.Pool.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE key_hash = $1`, keyHash)
 
 	return tenantID, nil
+}
+
+// ---------- Rotate API key ----------
+
+var (
+	errKeyNotFound   = errors.New("API key not found or already revoked")
+	errRotateExpired = errors.New("expiresAt is required: the key being rotated has already expired")
+)
+
+// RotateApiKey handles POST /v1/api-keys/{id}/rotate. The old key is revoked and
+// the replacement (same name and scopes) inserted in ONE transaction, so the
+// swap is atomic in the database. The gateway caches introspection for 60s, so
+// the old key can still be accepted there for up to that long. The subset-scope
+// rule applies to the old key's scopes. Optional body {expiresAt}; default keeps the old expiry.
+func (h *ApiKeyHandler) RotateApiKey(w http.ResponseWriter, r *http.Request) {
+	ctx, tenantID, err := h.contextWithTenant(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	claims, err := h.auth.validateRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+	var body struct {
+		ExpiresAt *time.Time `json:"expiresAt"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+	}
+	now := time.Now()
+	if err := validateKeyExpiry(body.ExpiresAt, now); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	rawKey, keyPrefix, keyHash, err := newAPIKey()
+	if err != nil {
+		h.logger().Error("rotate: generate key", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
+	var (
+		newID, name string
+		scopes      []string
+		expiresAt   *time.Time
+		createdAt   time.Time
+	)
+	var scopeErr error
+	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `
+			UPDATE api_keys SET revoked_at = now()
+			WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL
+			RETURNING name, scopes, expires_at
+		`, id, tenantID).Scan(&name, &scopes, &expiresAt); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errKeyNotFound
+			}
+			return err
+		}
+		if scopeErr = validateGrantableScopes(claims, scopes); scopeErr != nil {
+			return scopeErr // rolls back the revoke
+		}
+		if body.ExpiresAt != nil {
+			expiresAt = body.ExpiresAt
+		} else if expiresAt != nil && !expiresAt.After(now) {
+			return errRotateExpired
+		}
+		return tx.QueryRow(ctx, `
+			INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, scopes, expires_at, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id, created_at
+		`, tenantID, name, keyHash, keyPrefix, scopes, expiresAt, apiKeyCreator(claims)).Scan(&newID, &createdAt)
+	})
+	switch {
+	case errors.Is(err, errKeyNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	case errors.Is(err, errRotateExpired):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	case scopeErr != nil:
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	case err != nil:
+		h.logger().Error("rotate api key failed", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to rotate API key"})
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"key": map[string]any{
+			"id": newID, "name": name, "prefix": keyPrefix, "scopes": scopes,
+			"createdAt": createdAt, "expiresAt": expiresAt, "rotatedFrom": id,
+		},
+		"rawKey": rawKey,
+	})
 }

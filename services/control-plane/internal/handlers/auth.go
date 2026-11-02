@@ -253,6 +253,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
+	if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
+		h.logger().Error("mark bootstrapped failed", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
 
 	if err := applyFreeTierDefaults(ctx, tx, tenantID); err != nil {
 		h.logger().Error("apply free tier failed", zap.Error(err))
@@ -962,6 +967,12 @@ func (h *AuthHandler) resolveOAuthUser(ctx context.Context, provider, email, dis
 	`, a.tenantID, email, displayName, provider, email).Scan(&a.id); err != nil {
 		return a, "", fmt.Errorf("insert user: %w", err)
 	}
+	// Same tx as the user insert (#427): the instance is bootstrapped once its
+	// first user exists.
+	if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
+		return a, "", fmt.Errorf("mark bootstrapped: %w", err)
+	}
+
 	if err := applyFreeTierDefaults(ctx, tx, a.tenantID); err != nil {
 		return a, "", fmt.Errorf("apply free tier: %w", err)
 	}
@@ -1214,8 +1225,20 @@ func (h *AuthHandler) ValidateToken(tokenStr string) (*PalClaims, error) {
 	return claims, nil
 }
 
+// apiKeyPrefix is the prefix of newly issued keys; legacyAPIKeyPrefix keys
+// (issued before the PAL rename) keep validating.
+const (
+	apiKeyPrefix       = "pal_live_"
+	legacyAPIKeyPrefix = "hlx_live_"
+)
+
+// isAPIKey reports whether a bearer token has an API-key prefix (vs a JWT).
+func isAPIKey(tok string) bool {
+	return strings.HasPrefix(tok, apiKeyPrefix) || strings.HasPrefix(tok, legacyAPIKeyPrefix)
+}
+
 // validateRequest extracts and validates credentials from the Authorization
-// header. Accepts either a JWT or a long-lived API key (prefix hlx_live_).
+// header. Accepts either a JWT or a long-lived API key (prefix pal_live_, or legacy hlx_live_).
 func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
@@ -1228,7 +1251,7 @@ func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	}
 
 	token := parts[1]
-	if strings.HasPrefix(token, "hlx_live_") {
+	if isAPIKey(token) {
 		return h.validateAPIKey(r.Context(), token)
 	}
 	return h.ValidateToken(token)
