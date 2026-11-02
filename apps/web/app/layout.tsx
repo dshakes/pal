@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import { THEME_INIT_SCRIPT } from "@/lib/theme-init-script";
-import { Inter, Inter_Tight, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
 
 // Brand type (docs/brand): Inter Tight display, Inter text, JetBrains Mono code.
 // Exposed as CSS vars consumed by @theme in globals.css.
-const interTight = Inter_Tight({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-inter-tight", display: "swap" });
-const inter = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-inter", display: "swap" });
-const jetbrains = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-jetbrains", display: "swap" });
-
+// Self-hosted variable woff2 (latin subset, SIL OFL, from @fontsource-variable) so the
+// build makes no network font fetch. Weight ranges cover the previously requested weights.
+const interTight = localFont({ src: "./fonts/inter-tight-latin-wght-normal.woff2", weight: "100 900", variable: "--font-inter-tight", display: "swap" });
+const inter = localFont({ src: "./fonts/inter-latin-wght-normal.woff2", weight: "100 900", variable: "--font-inter", display: "swap" });
+const jetbrains = localFont({ src: "./fonts/jetbrains-mono-latin-wght-normal.woff2", weight: "100 800", variable: "--font-jetbrains", display: "swap" });
 export const metadata: Metadata = {
   title: "PAL Dashboard",
   description: "Manage your AI agents, monitor runs, and control your serverless agent platform.",

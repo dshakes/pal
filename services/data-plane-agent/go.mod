@@ -2,7 +2,7 @@ module github.com/dshakes/pal/services/data-plane-agent
 
 go 1.25.0
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require (
 	github.com/dshakes/pal/gen/go v0.0.0

@@ -1,0 +1,23 @@
+# Weekly, grouped update PRs. Alerts/security updates are enabled in repo settings (owner action).
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories: ["/e2e/deploy", "/e2e/examples", "/e2e/internal/e2ekit", "/e2e/quickstart", "/e2e/runtime", "/packages/agentpolicy", "/packages/cli", "/packages/grpctls", "/packages/sdk-go", "/services/billing", "/services/control-plane", "/services/data-plane-agent", "/services/memory", "/services/notifier", "/services/runtime-scheduler", "/services/scheduler", "/services/workflow-engine"]
+    schedule: { interval: weekly }
+    groups:
+      go-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: cargo
+    directories: ["/services/gateway", "/services/model-router", "/services/runtime-manager", "/services/harness", "/services/surface-gateway", "/packages/pal-grpc-tls-rs"]
+    schedule: { interval: weekly }
+    groups:
+      cargo-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: npm
+    directories: ["/apps/web", "/services/imessage-bridge", "/services/whatsapp-bridge", "/packages/bridge-core", "/packages/sdk-ts", "/site"]
+    schedule: { interval: weekly }
+    groups:
+      npm-minor-patch: { update-types: [minor, patch] }
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }

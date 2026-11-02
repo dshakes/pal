@@ -1,9 +1,9 @@
 # Vuln-scan — runs the dependency vulnerability audit on every PR push and FAILS the
 # check when a known-vulnerable dependency is found, so it can be a required status
-# check (the supply-chain half of the merge gate). Mirrors `make audit`:
-#   - govulncheck   (Go    — services/control-plane)
-#   - cargo audit   (Rust  — gateway / model-router / runtime-manager)
-#   - npm audit     (Node  — packages/sdk-ts)
+# check (the supply-chain half of the merge gate). Runs scripts/dep-audit.sh (= `make audit`)
+# over EVERY module: each go.mod (govulncheck), each Cargo.lock (cargo audit) and the six
+# shipped npm packages (npm audit --omit=dev, high+). Also runs nightly and on demand, since
+# new advisories land without any PR. Dated exceptions live in .security/audit-ignore.txt.
 # One gating job; per-language steps so a failure points at the offending ecosystem.
 # Comments on failure (a green check covers the passing case), like sdlc-qa does.
 #
@@ -19,13 +19,17 @@ name: "sdlc · vuln (dep audit)"
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  schedule:
+    - cron: "17 5 * * *"   # nightly: advisories appear without a code change
+  workflow_dispatch:
 
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 concurrency:
-  group: sdlc-vuln-${{ github.event.pull_request.number }}
+  group: sdlc-vuln-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +37,7 @@ jobs:
     name: vuln              # stable check name — referenced by branch-protection required checks
     runs-on: ubuntu-latest
     env:
-      GOTOOLCHAIN: go1.26.10   # match services/control-plane/go.mod toolchain; fixes the stdlib CVEs govulncheck flags through go1.26.10
+      GOTOOLCHAIN: go1.26.10   # pinned; fixes the stdlib CVEs govulncheck flags in earlier go1.26.x
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -51,7 +55,7 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Run dependency audit (make audit)
+      - name: Run dependency audit (make audit -> scripts/dep-audit.sh)
         id: audit
         run: |
           set -uo pipefail
@@ -63,7 +67,7 @@ jobs:
           exit "$rc"
 
       - name: Comment on failure
-        if: ${{ always() && steps.audit.outputs.rc != '0' }}
+        if: ${{ always() && steps.audit.outputs.rc != '0' && github.event_name == 'pull_request' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -71,3 +75,23 @@ jobs:
         run: |
           { printf '### 🛡️ Vuln scan — ❌ vulnerable dependency found\n\n```\n'; tail -80 "$LOG" 2>/dev/null; printf '\n```\n'; } \
             | gh pr comment "$PR" --body-file -
+
+      # A nightly/manual run has no PR to comment on: open (or update) one tracking
+      # issue so a red scheduled scan is never silent.
+      - name: Open or update issue on scheduled failure
+        if: ${{ always() && steps.audit.outputs.rc != '0' && github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOG: ${{ steps.audit.outputs.log }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Nightly dependency audit failing"
+          body="$RUNNER_TEMP/issue.md"
+          fence='```'
+          { printf 'Run: %s\n\n%s\n' "$RUN_URL" "$fence"; tail -80 "$LOG" 2>/dev/null; printf '\n%s\n' "$fence"; } > "$body"
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number -q '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file "$body"
+          else
+            gh issue create --title "$title" --label security --body-file "$body" || gh issue create --title "$title" --body-file "$body"
+          fi
