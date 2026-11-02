@@ -1,1 +1,1 @@
-DROP INDEX CONCURRENTLY IF EXISTS users_email_lower_idx;
+DROP INDEX IF EXISTS users_email_lower_idx;
