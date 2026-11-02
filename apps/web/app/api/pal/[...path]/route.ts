@@ -43,14 +43,7 @@ const cookieOptions = (maxAge: number) => ({
 });
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
-  const refusal = proxyRefusal({
-    method: req.method,
-    host: req.headers.get("host"),
-    forwardedHost: req.headers.get("x-forwarded-host"),
-    origin: req.headers.get("origin"),
-    secFetchSite: req.headers.get("sec-fetch-site"),
-    secFetchDest: req.headers.get("sec-fetch-dest"),
-  });
+  const refusal = proxyRefusal(req);
   if (refusal) return NextResponse.json({ error: "forbidden", reason: refusal }, { status: 403 });
 
   const path = upstreamPath((await ctx.params).path);

@@ -15,7 +15,7 @@ export default function KioskStart() {
     setError(null);
     try {
       // Same-origin proxy: it moves the demo session into the HttpOnly cookie.
-      const res = await fetch("/api/pal/v1/kiosk/session", { method: "POST" });
+      const res = await fetch("/api/pal/v1/kiosk/session", { method: "POST", headers: { "Content-Type": "application/json" } });
       if (!res.ok) {
         throw new Error(res.status === 429 ? "Too many demos from this device. Try again later."
           : res.status === 503 ? "The demo is full. Try again in a minute."

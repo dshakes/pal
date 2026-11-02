@@ -5,47 +5,29 @@
 // the server side. A cookie that rides along automatically is a CSRF target,
 // so every proxied request must look like the dashboard's own fetch():
 //
-//   - Sec-Fetch-Site, when sent, must be same-origin (or "none"). This refuses
-//     cross-site AND sibling-subdomain requests, including GETs (some GET
-//     routes have side effects, e.g. GET /v1/connectors/{id}/execute).
+//   - Writes go through the shared guard (lib/server-session.ts
+//     rejectCrossSiteWrite): Sec-Fetch-Site same-origin, or a same-host
+//     Origin when the browser sends no fetch metadata, and a JSON body.
+//   - Reads too, because some GET routes have side effects (e.g.
+//     GET /v1/connectors/{id}/execute): Sec-Fetch-Site, when sent, must be
+//     same-origin (or "none"), refusing cross-site and sibling-subdomain GETs.
 //   - Sec-Fetch-Dest, when sent, must be "empty" (fetch / EventSource). This
 //     refuses <img src>, <script src>, import() and navigations, so injected
 //     markup inside the dashboard cannot fire authenticated requests either.
-//   - State-changing methods must carry an Origin equal to this host. Browsers
-//     always send Origin on those, and a page cannot forge it.
 // The cookie itself is SameSite=Lax, so other sites' subresource requests do
 // not carry it in the first place.
 
-export const SESSION_COOKIE = "pal_token";
+import { rejectCrossSiteWrite } from "./server-session.ts";
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-
-export interface ProxyRequestFacts {
-  method: string;
-  host: string | null;
-  forwardedHost?: string | null;
-  origin: string | null;
-  secFetchSite: string | null;
-  secFetchDest: string | null;
-}
+export { SESSION_COOKIE } from "./server-session.ts";
 
 /** Why the proxy must refuse this request, or null when it may forward it. */
-export function proxyRefusal(r: ProxyRequestFacts): string | null {
-  const site = r.secFetchSite?.toLowerCase();
+export function proxyRefusal(req: { method: string; headers: Headers }): string | null {
+  const site = req.headers.get("sec-fetch-site")?.toLowerCase();
   if (site && site !== "same-origin" && site !== "none") return `cross-site request (Sec-Fetch-Site: ${site})`;
-  const dest = r.secFetchDest?.toLowerCase();
+  const dest = req.headers.get("sec-fetch-dest")?.toLowerCase();
   if (dest && dest !== "empty") return `not a fetch (Sec-Fetch-Dest: ${dest})`;
-  if (SAFE_METHODS.has(r.method.toUpperCase())) return null;
-  if (!r.origin) return "missing Origin header";
-  let originHost: string;
-  try {
-    originHost = new URL(r.origin).host;
-  } catch {
-    return "malformed Origin header";
-  }
-  const hosts = [r.host, r.forwardedHost?.split(",")[0]?.trim()].filter(Boolean);
-  if (!hosts.includes(originHost)) return "cross-origin request";
-  return null;
+  return rejectCrossSiteWrite({ method: req.method.toUpperCase(), headers: req.headers });
 }
 
 /**

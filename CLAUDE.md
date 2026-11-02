@@ -2360,6 +2360,22 @@ is per-binary in macOS TCC — easiest path is to run it via Terminal
 `/Users/shakes/.nvm/.../node` for true always-on. See
 `docs/personal/BOT-SETUP.md`.
 
+**Dashboard bind + bridge proxy.** The dashboard wrapper
+(`scripts/launchd/run-dashboard-wrapper.sh`) binds `PAL_DASHBOARD_HOST`
+(default `127.0.0.1`; also sourced from `~/.pal/bridge.env`) — Tailscale Serve
+fronts loopback, so never set `0.0.0.0` without a reason. The bridge proxy
+`/api/bridge/<whatsapp|imessage>/…` adds the bridge bearer itself, so it requires
+a valid `pal_token` session (`lib/server-session.ts`, `/auth/me`, 30s cache) whose
+tenant is the bridge owner tenant (`PAL_BRIDGE_OWNER_TENANT`, default the dev tenant)
+and whose role is owner/admin — the bridges are single-owner appliances, so a
+session for any other tenant would still read the owner's chat.db/Mail — the
+path `health` or `session/<the session's tenant>/…`, and for writes
+`Sec-Fetch-Site: same-origin` (or a matching Origin) + `Content-Type:
+application/json`; the `/api/pal` control-plane proxy reuses that guard for writes
+(plus Sec-Fetch-Site/-Dest checks on reads). Only `/api/signals` and `/api/pal/*`
+(the control plane authenticates it from the forwarded cookie) are public in
+`middleware.ts`; `/api/auth/session` was removed (the proxy sets the cookie).
+
 ### Web-search grounding (built-in `web_search` tool)
 
 The session tool loop has an always-on built-in `web_search` tool

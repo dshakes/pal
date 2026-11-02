@@ -48,6 +48,7 @@ The dashboard also has output filters (blocked topics and similar). They run in 
 - **At rest.** Connector credentials and LLM provider keys are encrypted at the application layer. Other Postgres columns use plain Postgres storage, and disk encryption is the host's job. Object-store encryption for bundles and snapshots is a bucket setting on your storage; PAL does not set it.
 - **In transit.** The gateway terminates TLS with rustls default protocol versions (TLS 1.2 and 1.3). Internal gRPC carries the service token and, when configured, mutual TLS. The data-plane tunnel to the control plane is server-authenticated TLS and does not use client certificates.
 - **Browser session.** Dashboard auth sets an HttpOnly session cookie. The JWT is also kept in `localStorage` for client-side API calls, so an XSS bug on the dashboard can read it.
+- **Bridge proxy.** The dashboard's `/api/bridge/...` route adds the messaging bridges' token server-side, so it requires a valid session cookie, only reaches the session's own tenant, and refuses writes that are not same-origin `application/json` (CSRF). The always-on dashboard binds `127.0.0.1` unless `PAL_DASHBOARD_HOST` says otherwise.
 
 ## Known gaps
 

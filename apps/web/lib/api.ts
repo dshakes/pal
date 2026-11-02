@@ -624,7 +624,7 @@ class PalAPI {
    *  cookie. Best-effort: the proxy clears the cookie even when the control
    *  plane is unreachable. */
   async logout(): Promise<void> {
-    await fetch(`${this.baseUrl}/auth/logout`, { method: "POST" }).catch(() => undefined);
+    await fetch(`${this.baseUrl}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json" } }).catch(() => undefined);
   }
 
   // ---- Agents -------------------------------------------------------------

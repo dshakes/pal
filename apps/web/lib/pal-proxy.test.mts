@@ -5,27 +5,33 @@ import { cookieMaxAge, mintsSession, proxyRefusal, upstreamPath } from "./pal-pr
 import { buildCsp, CODE_RUNNER_WORKER_CSP } from "./security-headers.ts";
 import * as route from "../app/api/pal/[...path]/route.ts";
 
-const facts = (o: Partial<Parameters<typeof proxyRefusal>[0]>) => ({
-  method: "POST", host: "dash.example", origin: "https://dash.example",
-  secFetchSite: "same-origin", secFetchDest: "empty", ...o,
-});
+const facts = (o: { method?: string; headers?: Record<string, string | null> }) => {
+  const base: Record<string, string | null> = {
+    host: "dash.example", origin: "https://dash.example", "sec-fetch-site": "same-origin",
+    "sec-fetch-dest": "empty", "content-type": "application/json", ...o.headers,
+  };
+  const h = new Headers();
+  for (const [k, v] of Object.entries(base)) if (v !== null) h.set(k, v);
+  return { method: o.method ?? "POST", headers: h };
+};
 
 test("proxyRefusal: CSRF table", () => {
-  const cases: Array<[string, Partial<Parameters<typeof proxyRefusal>[0]>, boolean]> = [
+  const cases: Array<[string, Parameters<typeof facts>[0], boolean]> = [
     ["same-origin fetch POST", {}, true],
-    ["same-origin GET", { method: "GET", origin: null }, true],
-    ["EventSource GET (dest empty)", { method: "GET", origin: null }, true],
-    ["old browser, no fetch metadata, right Origin", { secFetchSite: null, secFetchDest: null }, true],
-    ["Origin matches X-Forwarded-Host", { host: "10.0.0.7:3000", forwardedHost: "dash.example" }, true],
-    ["cross-site POST", { secFetchSite: "cross-site", origin: "https://evil.example" }, false],
-    ["cross-site GET (side-effecting GET routes)", { method: "GET", secFetchSite: "cross-site", origin: null }, false],
-    ["sibling subdomain", { secFetchSite: "same-site", origin: "https://evil.dash.example" }, false],
-    ["<img src> inside the dashboard", { method: "GET", secFetchDest: "image", origin: null }, false],
-    ["import() / <script src>", { method: "GET", secFetchDest: "script", origin: null }, false],
-    ["top-level navigation", { method: "GET", secFetchSite: "none", secFetchDest: "document", origin: null }, false],
-    ["POST without Origin", { origin: null, secFetchSite: null, secFetchDest: null }, false],
-    ["POST with foreign Origin, no metadata", { origin: "https://evil.example", secFetchSite: null, secFetchDest: null }, false],
-    ["DELETE with null Origin (sandboxed frame)", { method: "DELETE", origin: "null", secFetchSite: null, secFetchDest: null }, false],
+    ["same-origin GET", { method: "GET", headers: { origin: null } }, true],
+    ["EventSource GET (dest empty, no Origin)", { method: "GET", headers: { origin: null, "content-type": null } }, true],
+    ["old browser, no fetch metadata, right Origin", { headers: { "sec-fetch-site": null, "sec-fetch-dest": null } }, true],
+    ["cross-site POST", { headers: { "sec-fetch-site": "cross-site", origin: "https://evil.example" } }, false],
+    ["cross-site GET (side-effecting GET routes)", { method: "GET", headers: { "sec-fetch-site": "cross-site", origin: null } }, false],
+    ["sibling subdomain", { headers: { "sec-fetch-site": "same-site", origin: "https://evil.dash.example" } }, false],
+    ["<img src> inside the dashboard", { method: "GET", headers: { "sec-fetch-dest": "image", origin: null } }, false],
+    ["import() / <script src>", { method: "GET", headers: { "sec-fetch-dest": "script", origin: null } }, false],
+    ["top-level navigation", { method: "GET", headers: { "sec-fetch-site": "none", "sec-fetch-dest": "document", origin: null } }, false],
+    ["POST typed by the address bar (Sec-Fetch-Site none)", { headers: { "sec-fetch-site": "none" } }, false],
+    ["simple text/plain POST (no preflight)", { headers: { "content-type": "text/plain" } }, false],
+    ["POST without Origin or metadata", { headers: { origin: null, "sec-fetch-site": null, "sec-fetch-dest": null } }, false],
+    ["POST with foreign Origin, no metadata", { headers: { origin: "https://evil.example", "sec-fetch-site": null, "sec-fetch-dest": null } }, false],
+    ["DELETE with null Origin (sandboxed frame)", { method: "DELETE", headers: { origin: "null", "sec-fetch-site": null, "sec-fetch-dest": null } }, false],
   ];
   for (const [name, o, ok] of cases) {
     assert.equal(proxyRefusal(facts(o)) === null, ok, name);
@@ -126,7 +132,7 @@ test("route: login moves the token into an HttpOnly cookie and out of the body",
 test("route: logout clears the cookie even when the control plane refuses", async (t) => {
   stubFetch(t, () => new Response('{"error":"unauthorized"}', { status: 401 }));
   const res = await route.POST(req("/api/pal/auth/logout", {
-    method: "POST", headers: { origin: "http://dash.example", cookie: "pal_token=OLD" },
+    method: "POST", headers: { origin: "http://dash.example", "content-type": "application/json", cookie: "pal_token=OLD" },
   }), params("auth", "logout"));
   assert.match(res.headers.get("set-cookie") ?? "", /pal_token=;.*Max-Age=0/i);
 });
@@ -151,7 +157,7 @@ test("route: SSE streams through unbuffered", async (t) => {
 
 test("route: /internal is never proxied", async (t) => {
   const calls = stubFetch(t, () => new Response("{}"));
-  const res = await route.POST(req("/api/pal/internal/auth/introspect-key", { method: "POST", headers: { origin: "http://dash.example" } }), params("internal", "auth", "introspect-key"));
+  const res = await route.POST(req("/api/pal/internal/auth/introspect-key", { method: "POST", headers: { origin: "http://dash.example", "content-type": "application/json" } }), params("internal", "auth", "introspect-key"));
   assert.equal(res.status, 404);
   assert.equal(calls.length, 0);
 });
