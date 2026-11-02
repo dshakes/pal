@@ -650,11 +650,15 @@ error and the transport ignores overrides regardless.
 | ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST` | `/internal/auth/introspect-key` | Validate a raw API key for the gateway. Body `{"key":"..."}`, header `x-pal-service-token` (= `PAL_GRPC_SERVICE_TOKEN`). 200 `{tenantId, scopes}` or 401; 403 fail-closed in prod when the token env is unset. |
 
-The gateway's `X-API-Key` hot path calls this endpoint (60s in-memory cache
-keyed by SHA-256 of the key; fail-closed on any error). Gateway env:
-`PAL_CONTROL_PLANE_URL` (introspection base URL) +
-`PAL_GRPC_SERVICE_TOKEN` (same shared token as the gRPC trust boundary).
-Unset → API-key auth stays fail-closed-disabled; JWT auth is unaffected.
+The gateway accepts **API keys only** (`X-API-Key` or `Authorization: Bearer <key>`),
+each checked through this endpoint (60s in-memory cache keyed by SHA-256 of the key;
+fail-closed on any error). It no longer decodes JWTs: its local HS256 path used a
+claim shape (`user_id`, `scopes`) the control plane never mints, so it accepted only
+tokens forged with `JWT_SECRET` and could not honour session revocation (`tv`) or
+`PAL_JWT_TTL`. Dashboard sessions reach the control plane via the `/api/pal` proxy.
+Gateway env: `PAL_CONTROL_PLANE_URL` (introspection base URL) +
+`PAL_GRPC_SERVICE_TOKEN` (same shared token as the gRPC trust boundary); the gateway
+no longer reads `JWT_SECRET`. Unset → every gateway request is refused (fail-closed).
 
 #### Per-endpoint scope authorization (`PAL_AUTHZ_ENFORCE`, default ON in prod — ADR 0042)
 
@@ -683,7 +687,7 @@ erase/export, billing checkout/portal, runtime quota PUT); `RequireSessionRole(A
 narrows agents:write routes that are owner|admin for sessions (agent policy PUT, identity
 rotate/revoke) without touching API keys. `apps/web/lib/rbac.ts` MATRIX is the single
 source — `TestRoleScopesMatchDashboardMatrix` parses it; `cmd/server/routes_role_test.go`
-pins the S-5 route list. Sessions carry `tv` = `users.token_version` (migration 0046);
+pins the S-5 route list. Sessions carry `tv` = `users.token_version` (migration 0047);
 `validateRequest` refuses a stale `tv` or a missing user (60 s per-replica cache; the
 replica that handled the bump refuses at once; a newer token always forces a re-read).
 Bumped by `POST /auth/logout` and by a trigger on any `password_hash`/`role` change.

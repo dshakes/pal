@@ -1,7 +1,6 @@
 use axum::body::Body;
 use axum::http::{Method, Request};
 use axum::response::{IntoResponse, Response};
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -51,21 +50,24 @@ impl Claims {
     }
 }
 
+/// The gateway accepts API keys only. It used to decode HS256 JWTs locally, but
+/// with a claim shape (`user_id`, `scopes`) the control plane never mints:
+/// every real PAL session JWT already failed to decode here, so the only
+/// tokens that path could accept were ones forged with the shared
+/// `JWT_SECRET`, and it could not honour session revocation (`tv`) or the
+/// `PAL_JWT_TTL` cap. Dashboard sessions go to the control plane directly
+/// (through the dashboard's `/api/pal` proxy), where both are enforced.
 #[derive(Clone)]
 pub struct AuthLayer {
-    jwt_secret: Arc<String>,
     introspector: Option<Arc<ApiKeyIntrospector>>,
 }
 
 impl AuthLayer {
     /// `introspector` is `None` when API-key auth is unconfigured
-    /// (PAL_CONTROL_PLANE_URL / PAL_GRPC_SERVICE_TOKEN unset) — the
-    /// API-key path then stays fail-closed.
-    pub fn new(jwt_secret: String, introspector: Option<Arc<ApiKeyIntrospector>>) -> Self {
-        Self {
-            jwt_secret: Arc::new(jwt_secret),
-            introspector,
-        }
+    /// (PAL_CONTROL_PLANE_URL / PAL_GRPC_SERVICE_TOKEN unset) — every request
+    /// is then refused (fail-closed).
+    pub fn new(introspector: Option<Arc<ApiKeyIntrospector>>) -> Self {
+        Self { introspector }
     }
 }
 
@@ -75,7 +77,6 @@ impl<S> Layer<S> for AuthLayer {
     fn layer(&self, inner: S) -> Self::Service {
         AuthMiddleware {
             inner,
-            jwt_secret: self.jwt_secret.clone(),
             introspector: self.introspector.clone(),
         }
     }
@@ -84,7 +85,6 @@ impl<S> Layer<S> for AuthLayer {
 #[derive(Clone)]
 pub struct AuthMiddleware<S> {
     inner: S,
-    jwt_secret: Arc<String>,
     introspector: Option<Arc<ApiKeyIntrospector>>,
 }
 
@@ -109,7 +109,6 @@ where
             return Box::pin(future);
         }
 
-        let jwt_secret = self.jwt_secret.clone();
         let introspector = self.introspector.clone();
         let mut inner = self.inner.clone();
         // Extract the credential synchronously so the async block never borrows
@@ -117,13 +116,12 @@ where
         let credential = extract_credential(&req);
 
         Box::pin(async move {
-            let claims =
-                match resolve_claims(credential, &jwt_secret, introspector.as_deref()).await {
-                    Ok(claims) => claims,
-                    Err(err) => {
-                        return Ok(err.into_response());
-                    }
-                };
+            let claims = match resolve_claims(credential, introspector.as_deref()).await {
+                Ok(claims) => claims,
+                Err(err) => {
+                    return Ok(err.into_response());
+                }
+            };
 
             // H3: enforce scope before the request reaches any handler.
             if let Err(err) = claims.enforce_scope(req.method()) {
@@ -142,30 +140,28 @@ where
     }
 }
 
-/// A presented credential, extracted from request headers (owned, so it can
+/// The presented API key, extracted from request headers (owned, so it can
 /// cross an `.await` without borrowing the request).
-enum Credential {
-    Jwt(String),
-    ApiKey(String),
-}
+struct Credential(String);
 
-/// Pull the credential out of the request headers synchronously. Bearer JWT
-/// wins over X-API-Key when both are present.
+/// Pull the API key out of the request headers synchronously: `X-API-Key`, or
+/// `Authorization: Bearer <key>` (what the SDKs send). Both go through
+/// control-plane introspection; a Bearer JWT is not a key and is refused there.
 fn extract_credential(req: &Request<Body>) -> Result<Credential, AppError> {
+    if let Some(api_key_header) = req.headers().get("x-api-key") {
+        let key = api_key_header
+            .to_str()
+            .map_err(|_| AppError::Auth("invalid X-API-Key header encoding".to_string()))?;
+        return Ok(Credential(key.trim().to_string()));
+    }
+
     if let Some(auth_header) = req.headers().get("authorization") {
         let header_str = auth_header
             .to_str()
             .map_err(|_| AppError::Auth("invalid authorization header encoding".to_string()))?;
         if let Some(token) = header_str.strip_prefix("Bearer ") {
-            return Ok(Credential::Jwt(token.trim().to_string()));
+            return Ok(Credential(token.trim().to_string()));
         }
-    }
-
-    if let Some(api_key_header) = req.headers().get("x-api-key") {
-        let key = api_key_header
-            .to_str()
-            .map_err(|_| AppError::Auth("invalid X-API-Key header encoding".to_string()))?;
-        return Ok(Credential::ApiKey(key.to_string()));
     }
 
     Err(AppError::Auth(
@@ -175,38 +171,23 @@ fn extract_credential(req: &Request<Body>) -> Result<Credential, AppError> {
 
 async fn resolve_claims(
     credential: Result<Credential, AppError>,
-    jwt_secret: &str,
     introspector: Option<&ApiKeyIntrospector>,
 ) -> Result<Claims, AppError> {
-    match credential? {
-        Credential::Jwt(token) => decode_jwt(&token, jwt_secret),
-        // API-key path: introspect against the control-plane (cached 60s). Still
-        // FAILS CLOSED when introspection is unconfigured — a caller must not be
-        // able to impersonate a tenant by forging the key body.
-        Credential::ApiKey(key) => match introspector {
-            Some(i) => i.introspect(&key).await,
-            None => Err(AppError::Auth(
-                "API-key authentication is not configured at this gateway (set \
-                 PAL_CONTROL_PLANE_URL and PAL_GRPC_SERVICE_TOKEN)"
-                    .to_string(),
-            )),
-        },
+    let Credential(key) = credential?;
+    if key.is_empty() {
+        return Err(AppError::Auth("empty credential".to_string()));
     }
-}
-
-fn decode_jwt(token: &str, secret: &str) -> Result<Claims, AppError> {
-    let decoding_key = DecodingKey::from_secret(secret.as_bytes());
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.set_required_spec_claims(&["exp", "iat"]);
-
-    let token_data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &validation)
-        .map_err(|e| AppError::Auth(format!("invalid JWT: {e}")))?;
-
-    if token_data.claims.tenant_id.is_empty() {
-        return Err(AppError::Auth("JWT missing tenant_id claim".to_string()));
+    // Introspect against the control-plane (cached 60s). FAILS CLOSED when
+    // introspection is unconfigured — a caller must not be able to
+    // impersonate a tenant by forging the credential body.
+    match introspector {
+        Some(i) => i.introspect(&key).await,
+        None => Err(AppError::Auth(
+            "API-key authentication is not configured at this gateway (set \
+             PAL_CONTROL_PLANE_URL and PAL_GRPC_SERVICE_TOKEN)"
+                .to_string(),
+        )),
     }
-
-    Ok(token_data.claims)
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +200,7 @@ mod tests {
     use axum::http::Method;
     use jsonwebtoken::{EncodingKey, Header, encode};
 
-    fn make_jwt(claims: &Claims, secret: &str) -> String {
+    fn signed(claims: &serde_json::Value, secret: &str) -> String {
         encode(
             &Header::default(),
             claims,
@@ -228,78 +209,78 @@ mod tests {
         .unwrap()
     }
 
-    fn valid_claims() -> Claims {
-        let exp = std::time::SystemTime::now()
+    fn now() -> u64 {
+        std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            + 3600;
-        Claims {
-            tenant_id: "tenant-abc".to_string(),
-            user_id: "user-1".to_string(),
-            scopes: vec!["read".to_string()],
-            exp,
-            iat: 0,
-        }
     }
 
-    // ---- decode_jwt ----
-
-    #[test]
-    fn decode_jwt_valid_token() {
-        let secret = "super-secret";
-        let claims = valid_claims();
-        let token = make_jwt(&claims, secret);
-        let result = decode_jwt(&token, secret);
-        assert!(result.is_ok(), "valid JWT must decode successfully");
-        let decoded = result.unwrap();
-        assert_eq!(decoded.tenant_id, "tenant-abc");
-        assert_eq!(decoded.user_id, "user-1");
+    fn bearer(token: &str) -> Request<Body> {
+        Request::builder()
+            .method(Method::GET)
+            .uri("/v1/agents")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
     }
 
-    #[test]
-    fn decode_jwt_wrong_secret_rejected() {
-        let claims = valid_claims();
-        let token = make_jwt(&claims, "right-secret");
-        let result = decode_jwt(&token, "wrong-secret");
-        assert!(result.is_err(), "JWT signed with wrong secret must fail");
-        let err = result.unwrap_err();
+    // ---- JWTs are never accepted locally ----
+
+    /// A token in the claim shape the old local decoder accepted, correctly
+    /// signed: still refused, because nothing is decoded locally any more.
+    #[tokio::test]
+    async fn signed_gateway_shaped_jwt_refused() {
+        let tok = signed(
+            &serde_json::json!({"tenant_id":"victim","user_id":"u","scopes":["admin"],"iat":now(),"exp":now()+3600}),
+            "the-shared-jwt-secret",
+        );
+        let res = resolve_claims(extract_credential(&bearer(&tok)), None).await;
         assert!(
-            matches!(err, AppError::Auth(_)),
-            "error must be AppError::Auth"
+            matches!(res, Err(AppError::Auth(_))),
+            "local JWT acceptance is gone"
         );
     }
 
-    #[test]
-    fn decode_jwt_expired_token_rejected() {
-        let mut claims = valid_claims();
-        claims.exp = 1; // unix epoch + 1s — always expired
-        let token = make_jwt(&claims, "secret");
-        let result = decode_jwt(&token, "secret");
-        assert!(result.is_err(), "expired JWT must be rejected");
+    /// A revoked or over-age PAL session JWT presented at the gateway is not
+    /// honoured locally either (revocation and the TTL cap live in the control
+    /// plane, which this path never bypasses).
+    #[tokio::test]
+    async fn pal_session_jwt_refused() {
+        let tok = signed(
+            &serde_json::json!({"sub":"u","tenant_id":"t","role":"owner","tv":0,"iat":0,"exp":now()+30*86400}),
+            "s",
+        );
+        let res = resolve_claims(extract_credential(&bearer(&tok)), None).await;
+        assert!(matches!(res, Err(AppError::Auth(_))));
     }
 
     #[test]
-    fn decode_jwt_empty_tenant_id_rejected() {
-        let mut claims = valid_claims();
-        claims.tenant_id = String::new();
-        let token = make_jwt(&claims, "secret");
-        let result = decode_jwt(&token, "secret");
-        assert!(result.is_err(), "empty tenant_id must be rejected");
-        let err = result.unwrap_err();
-        assert!(matches!(err, AppError::Auth(_)));
+    fn bearer_and_x_api_key_both_yield_the_key() {
+        let Credential(k) = extract_credential(&bearer("hlx_live_abc")).unwrap();
+        assert_eq!(k, "hlx_live_abc");
+        let req = Request::builder()
+            .uri("/v1/agents")
+            .header("x-api-key", "hlx_live_xyz")
+            .header("authorization", "Bearer something-else")
+            .body(Body::empty())
+            .unwrap();
+        let Credential(k) = extract_credential(&req).unwrap();
+        assert_eq!(k, "hlx_live_xyz", "X-API-Key wins over Authorization");
     }
 
-    #[test]
-    fn decode_jwt_malformed_token_rejected() {
-        let result = decode_jwt("not.a.jwt", "secret");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn decode_jwt_empty_token_rejected() {
-        let result = decode_jwt("", "secret");
-        assert!(result.is_err());
+    #[tokio::test]
+    async fn empty_or_missing_credential_refused() {
+        assert!(
+            resolve_claims(extract_credential(&bearer("")), None)
+                .await
+                .is_err()
+        );
+        let req = Request::builder()
+            .uri("/v1/agents")
+            .body(Body::empty())
+            .unwrap();
+        assert!(matches!(extract_credential(&req), Err(AppError::Auth(_))));
     }
 
     // ---- C2: API-key path fails closed ----
@@ -314,7 +295,7 @@ mod tests {
             .header("x-api-key", "hlx_live_mytenant_randomsuffix")
             .body(Body::empty())
             .unwrap();
-        let result = resolve_claims(extract_credential(&req), "jwt-secret", None).await;
+        let result = resolve_claims(extract_credential(&req), None).await;
         assert!(
             result.is_err(),
             "API-key auth must fail closed — no tenant impersonation"
@@ -335,7 +316,7 @@ mod tests {
             .header("x-api-key", "hlx_live_victim-tenant_exploit")
             .body(Body::empty())
             .unwrap();
-        let result = resolve_claims(extract_credential(&req), "jwt-secret", None).await;
+        let result = resolve_claims(extract_credential(&req), None).await;
         assert!(result.is_err());
     }
 

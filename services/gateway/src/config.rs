@@ -5,7 +5,6 @@ pub struct Config {
     pub listen_addr: SocketAddr,
     pub control_plane_addr: String,
     pub redis_url: String,
-    pub jwt_secret: String,
     pub log_level: String,
     /// Comma-separated list of allowed CORS origins, e.g.
     /// "https://app.pal.example.com,http://localhost:3001".
@@ -30,8 +29,6 @@ impl Config {
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
 
-        let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| ConfigError::MissingJwtSecret)?;
-
         let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
         let allowed_origins = std::env::var("ALLOWED_ORIGINS")
@@ -47,7 +44,6 @@ impl Config {
             listen_addr,
             control_plane_addr,
             redis_url,
-            jwt_secret,
             log_level,
             allowed_origins,
             control_plane_tls_ca,
@@ -59,6 +55,4 @@ impl Config {
 pub enum ConfigError {
     #[error("invalid LISTEN_ADDR: {0}")]
     InvalidAddr(String),
-    #[error("JWT_SECRET environment variable is required")]
-    MissingJwtSecret,
 }

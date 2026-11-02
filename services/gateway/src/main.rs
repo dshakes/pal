@@ -52,15 +52,14 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let listen_addr = config.listen_addr;
-    let jwt_secret = config.jwt_secret.clone();
 
     // API-key introspection against the control-plane. None (fail-closed) when
     // PAL_CONTROL_PLANE_URL / PAL_GRPC_SERVICE_TOKEN are unset.
     let introspector = introspect::ApiKeyIntrospector::from_env().map(std::sync::Arc::new);
     if introspector.is_none() {
         tracing::warn!(
-            "API-key auth disabled: set PAL_CONTROL_PLANE_URL and \
-             PAL_GRPC_SERVICE_TOKEN to enable X-API-Key introspection"
+            "gateway auth disabled (every request refused): set PAL_CONTROL_PLANE_URL \
+             and PAL_GRPC_SERVICE_TOKEN to enable API-key introspection"
         );
     }
 
@@ -79,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(PropagateRequestIdLayer::new(x_request_id))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(AuthLayer::new(jwt_secret, introspector))
+        .layer(AuthLayer::new(introspector))
         // OtelSpanLayer runs after auth so Claims are available; records
         // tenant_id on the TraceLayer span and extracts upstream W3C context.
         .layer(OtelSpanLayer)

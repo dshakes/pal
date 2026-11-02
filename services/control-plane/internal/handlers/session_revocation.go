@@ -3,7 +3,7 @@ package handlers
 // Revocable sessions (S-2/E5). A session JWT carries the user's
 // users.token_version as its `tv` claim; validateRequest refuses a token whose
 // tv is stale or whose user is gone. POST /auth/logout bumps the version, and a
-// trigger (migration 0046) bumps it on any password or role change, so every
+// trigger (migration 0047) bumps it on any password or role change, so every
 // one of those kills the user's existing tokens.
 //
 // Revocation window: the (user → token_version) lookup is cached in process
