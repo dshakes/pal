@@ -49,7 +49,7 @@ async function warmRoutes() {
   });
   const { token } = (await r.json()) as { token?: string };
   const headers = { cookie: `pal_token=${token ?? ""}` };
-  for (const p of ["/login", "/auth/forgot", "/auth/reset?token=x", "/onboarding", "/agents", "/settings"]) {
+  for (const p of ["/login", "/auth/forgot", "/auth/reset?token=x", "/onboarding", "/agents", "/settings", "/api/pal/auth/me"]) {
     await fetch(WEB_URL + p, { headers }).catch(() => {});
   }
 }
@@ -114,7 +114,8 @@ export default async function globalSetup() {
       HTTP_ADDR: `127.0.0.1:${API_PORT}`,
       LISTEN_ADDR: `127.0.0.1:${GRPC_PORT}`,
       PAL_METRICS_ADDR: `127.0.0.1:${METRICS_PORT}`,
-      // Without this every API call from the dashboard origin fails CORS.
+      // The dashboard calls the API through its same-origin /api/pal proxy; CORS
+      // stays for the specs that hit the API host from a page directly.
       PAL_CORS_ORIGINS: WEB_URL,
       PAL_ENV: "",
       PAL_MAILER: "log",

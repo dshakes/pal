@@ -390,11 +390,23 @@ func TestSessions_PasswordResetRevokes(t *testing.T) {
 
 func TestSessions_RoleChangeRevokes(t *testing.T) {
 	h, _, email, tok := signedUp(t)
+	replica := NewAuthHandler(h.srv, testJWTSecret)
+	if getMe(replica, tok) != 200 { // the replica caches the pre-change version
+		t.Fatal("fresh session refused")
+	}
 	if _, err := h.srv.Pool.Exec(context.Background(), `UPDATE users SET role = 'viewer' WHERE email = $1`, email); err != nil {
 		t.Fatal(err)
 	}
 	if getMe(NewAuthHandler(h.srv, testJWTSecret), tok) != 401 {
 		t.Fatal("owner token survived a demotion")
+	}
+	// The re-login after the change is honored at once even by the replica
+	// whose cache still holds the old version (it is stale, not a revocation).
+	if code := getMe(replica, tokenOf(t, doLogin(h, email, "correct-horse-battery"))); code != 200 {
+		t.Fatalf("post-change login refused by a replica with a stale cache: %d", code)
+	}
+	if getMe(replica, tok) != 401 {
+		t.Fatal("replica accepted the pre-change token after refreshing")
 	}
 	// A touch that changes neither role nor password keeps sessions alive.
 	fresh := tokenOf(t, doLogin(h, email, "correct-horse-battery"))

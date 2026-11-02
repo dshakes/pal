@@ -22,22 +22,21 @@ test.beforeAll(async () => {
 });
 
 async function signedIn(page: Page) {
-  await page.context().addCookies([{ name: "pal_token", value: sharedToken, url: WEB_URL }]);
-  await page.addInitScript((t) => localStorage.setItem("pal_token", t), sharedToken);
+  await page.context().addCookies([{ name: "pal_token", value: sharedToken, url: WEB_URL, httpOnly: true, sameSite: "Lax" }]);
 }
 
 async function addDummyProvider(page: Page) {
   // llm-replay stands in for the provider (PAL_LLM_BASEURL_OPENAI), so a
   // dummy key routes every control-plane completion to the fixture rules.
-  const status = await page.evaluate(async (api) => {
-    const token = localStorage.getItem("pal_token");
-    const r = await fetch(`${api}/v1/settings/llm-providers`, {
+  // Through the same-origin proxy, exactly as the dashboard calls the API.
+  const status = await page.evaluate(async () => {
+    const r = await fetch("/api/pal/v1/settings/llm-providers", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "openai", apiKey: "sk-e2e-dummy-key" }),
     });
     return r.status;
-  }, API_URL);
+  });
   expect(status).toBeLessThan(300);
 }
 

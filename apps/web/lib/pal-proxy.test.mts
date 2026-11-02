@@ -102,6 +102,9 @@ test("route: forwards the cookie as Bearer, never the browser's Authorization", 
   assert.equal(calls[0].url, "http://cp.internal:8080/v1/agents?limit=2");
   assert.equal(new Headers(calls[0].init.headers).get("authorization"), "Bearer SESSION");
   assert.equal(res.headers.get("set-cookie"), null);
+  // No cookie: a page-supplied Authorization header is still not forwarded.
+  await route.GET(req("/api/pal/v1/agents", { headers: { authorization: "Bearer FORGED", "sec-fetch-site": "same-origin" } }), params("v1", "agents"));
+  assert.equal(new Headers(calls[1].init.headers).get("authorization"), null);
 });
 
 test("route: login moves the token into an HttpOnly cookie and out of the body", async (t) => {
@@ -132,7 +135,11 @@ test("route: SSE streams through unbuffered", async (t) => {
   let pull!: (s: string) => void;
   const stream = new ReadableStream<Uint8Array>({ start(c) { pull = (s) => c.enqueue(new TextEncoder().encode(s)); } });
   stubFetch(t, () => new Response(stream, { headers: { "content-type": "text/event-stream" } }));
-  const res = await route.GET(req("/api/pal/v1/runs/r1/events", { headers: { cookie: "pal_token=T", "sec-fetch-dest": "empty" } }), params("v1", "runs", "r1", "events"));
+  // The upstream never closes; a proxy that buffered would never answer at all.
+  const res = await Promise.race([
+    route.GET(req("/api/pal/v1/runs/r1/events", { headers: { cookie: "pal_token=T", "sec-fetch-dest": "empty" } }), params("v1", "runs", "r1", "events")),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("proxy buffered the stream")), 2000)),
+  ]);
   assert.equal(res.headers.get("content-type"), "text/event-stream");
   const reader = res.body!.getReader();
   pull("event: step_started\ndata: {}\n\n");

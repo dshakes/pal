@@ -17,7 +17,7 @@ Pass your API key in the `Authorization` header on every request:
 Authorization: Bearer hlx_live_your_api_key_here
 ```
 
-Create keys under **Settings > API keys**. Keys start with `hlx_live_` and carry scopes (`read`, `write`, `admin`, or fine-grained ones such as `agents:write` and `runs:execute`). Every route is annotated with the scope it needs (for example `GET /v1/runs` needs `runs:read`, `POST /v1/runs` needs `runs:execute`). Scope enforcement is on by default in production (`PAL_ENV=production|staging`) and off in dev. Set `PAL_AUTHZ_ENFORCE=0` to opt out (logged as a warning) or `=1` to force it on in dev; a key missing the required scope then gets `403`. Row-level security is on in production whenever `PAL_APP_DB_PASSWORD` is set; without it the control plane refuses to start unless you set `PAL_RLS_ENFORCE=0`.
+Create keys under **Settings > API keys**. Keys start with `hlx_live_` and carry scopes (`read`, `write`, `admin`, or fine-grained ones such as `agents:write` and `runs:execute`). Every route is annotated with the scope it needs (for example `GET /v1/runs` needs `runs:read`, `POST /v1/runs` needs `runs:execute`). A dashboard session JWT holds the scopes of the user's role, always enforced (see [Roles](/docs/build/accounts/#roles)), lasts `PAL_JWT_TTL` (default 12 hours) and is revoked by `POST /auth/logout` or a password or role change. For API keys, scope enforcement is on by default in production (`PAL_ENV=production|staging`) and off in dev. Set `PAL_AUTHZ_ENFORCE=0` to opt out (logged as a warning) or `=1` to force it on in dev; a key missing the required scope then gets `403`. Row-level security is on in production whenever `PAL_APP_DB_PASSWORD` is set; without it the control plane refuses to start unless you set `PAL_RLS_ENFORCE=0`.
 
 <Aside type="note" title="Self-hosted base URL">
 By default the control plane binds to `http://localhost:8080`. There is no managed cloud endpoint: you deploy the control plane yourself.
@@ -25,7 +25,7 @@ By default the control plane binds to `http://localhost:8080`. There is no manag
 
 ## Accounts
 
-Sign-up, login, email verification, password reset, data export and workspace deletion (`/auth/*` and `/v1/tenants/{id}`) are documented on [Accounts](/docs/build/accounts/).
+Sign-up, login, logout, sessions, roles, email verification, password reset, data export and workspace deletion (`/auth/*` and `/v1/tenants/{id}`) are documented on [Accounts](/docs/build/accounts/).
 
 ## Agents
 

@@ -72,7 +72,8 @@ var roleSpec = map[string][]string{
 	"POST /v1/runs":                    members,
 	"POST /v1/sessions":                members,
 	"POST /v1/marketplace/{slug}/star": members,
-	// viewer
+	// viewer (and every session may revoke its own sessions)
+	"POST /auth/logout":         everyone,
 	"GET /v1/agents":            everyone,
 	"GET /v1/runs":              everyone,
 	"GET /v1/budgets":           everyone,

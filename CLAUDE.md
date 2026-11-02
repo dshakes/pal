@@ -182,8 +182,19 @@ Keyboard: `⌘K` Ask PAL · `g t` Today · `g h` Holds · `g o` Overview · `g a
 `g r` Runs · `g v` Sandboxes · `g s` Settings · `?` cheat sheet.
 
 Sign-in (`app/login`) shows only what `GET /auth/providers` says is configured
-(OAuth buttons, sign-up open/invite/closed). The cookie write is awaited before
-any gated navigation (login, sign-up, OAuth callback, logout) — see the auth-loop fix.
+(OAuth buttons, sign-up open/invite/closed).
+
+**Session = HttpOnly cookie only (S-3).** The JWT never reaches page JS (no
+`localStorage`). The browser calls `/api/pal/*` (`app/api/pal/[...path]/route.ts`),
+which adds `Authorization: Bearer` from the `pal_token` cookie server-side, streams
+responses (SSE) unbuffered, and on login/sign-up/OAuth exchange/kiosk moves the
+returned `token` into the cookie (so the cookie exists when the call resolves — the
+old cookie-sync/auth-loop machinery is gone). CSRF rules (Sec-Fetch-Site/-Dest +
+Origin) are pure in `lib/pal-proxy.ts`; only `/v1/*` and `/auth/*` are proxied. Pages
+carry a nonce'd CSP from `middleware.ts` (`lib/security-headers.ts`); new inline
+`<script>` needs `nonce={nonce}`. The snippet runner's worker
+(`public/code-runner-worker.js`) has its own no-network CSP. The dashboard must be in
+`PAL_TRUSTED_PROXIES` (it forwards `X-Forwarded-For` for the sign-in rate limit).
 
 ### Dashboard UX primitives
 
@@ -294,6 +305,7 @@ The control-plane exposes REST on `:8080`. All authenticated endpoints require a
 | `POST` | `/auth/signup`           | Register new user (gated by `PAL_SIGNUP_MODE`) |
 | `POST` | `/auth/login`            | Email+password login |
 | `GET`  | `/auth/me`               | Current user info    |
+| `POST` | `/auth/logout`           | Revoke ALL of the caller's sessions (bumps `users.token_version`); `204` |
 | `GET`  | `/auth/oauth/google/...` | Google OAuth flow    |
 | `GET`  | `/auth/providers`        | Public: which sign-in methods are configured `{oauth:{google,github}, signup, passwordReset, emailVerification}` (booleans/enum only) |
 | `POST` | `/auth/verify`, `/auth/verify/resend` | Email verification (token / re-send) |
@@ -660,8 +672,24 @@ a new auth surface.
 **Secure default in production (ADR 0042).** `PAL_AUTHZ_ENFORCE` is ON by default
 when `PAL_ENV=prod/production/staging`; dev defaults remain OFF. Explicit `=0` disables
 enforcement with a loud startup WARN (alert on `enforced=false` field). A key missing the
-required scope returns `403`. JWT owner/admin sessions keep full access. The control-plane
-logs `authz: API-key scope enforcement {enforced}` at boot.
+required scope returns `403`. The control-plane logs `authz: API-key scope enforcement
+{enforced}` at boot.
+
+**Sessions are role-scoped and revocable (S-2/S-4).** A user JWT holds its role's
+scopes (`roleScopes` in `auth.go`: owner/admin → `admin`; member → `read`,
+`agents:write`, `runs:execute`; viewer/unknown → `read`), ALWAYS enforced (not gated by
+`PAL_AUTHZ_ENFORCE`) → `403 role_forbidden`. Owner-only stays explicit in handlers (GDPR
+erase/export, billing checkout/portal, runtime quota PUT); `RequireSessionRole(AdminRoles, …)`
+narrows agents:write routes that are owner|admin for sessions (agent policy PUT, identity
+rotate/revoke) without touching API keys. `apps/web/lib/rbac.ts` MATRIX is the single
+source — `TestRoleScopesMatchDashboardMatrix` parses it; `cmd/server/routes_role_test.go`
+pins the S-5 route list. Sessions carry `tv` = `users.token_version` (migration 0046);
+`validateRequest` refuses a stale `tv` or a missing user (60 s per-replica cache; the
+replica that handled the bump refuses at once; a newer token always forces a re-read).
+Bumped by `POST /auth/logout` and by a trigger on any `password_hash`/`role` change.
+`PAL_JWT_TTL` (default 12h, 5m..24h, fatal if invalid); tokens longer-lived than it are
+refused. No refresh token. Package tests stub the lookup in `TestMain`
+(`stubTokenVersion`); revocation tests call `useRealSessionLookup(t)`.
 
 Unannotated routes are intentional exemptions documented in `TestEveryGetRouteHasScope`
 and `TestEveryMutatingRouteHasScope` (both in `cmd/server/routes_scope_test.go`): auth

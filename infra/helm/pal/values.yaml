@@ -42,7 +42,9 @@ controlPlane:
     grpcPort: 50051
     httpPort: 8080
   # CIDR(s) of the ingress controller pods, comma-separated (PAL_TRUSTED_PROXIES). Required
-  # when ingress.enabled; X-Forwarded-For is trusted only from here.
+  # when ingress.enabled; X-Forwarded-For is trusted only from here. Include the dashboard
+  # pods too: the browser reaches the API through the dashboard's /api/pal proxy, which
+  # forwards X-Forwarded-For (otherwise every sign-in shares the dashboard's rate-limit bucket).
   trustedProxies: ""
   resources:
     requests:
