@@ -283,6 +283,10 @@ jobs:
           # the control-plane HTTP port is NOT open to arbitrary pods (only the ingress namespace)
           kubectl run np-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
             curl -sS -m 5 -o /dev/null http://pal-control-plane:8080/healthz && { echo "::error::arbitrary pod reached control-plane:8080"; exit 1; } || true
+          # ...including pods in a tenant-style namespace
+          kubectl create namespace pal-t-ci
+          kubectl -n pal-t-ci run np-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
+            curl -sS -m 5 -o /dev/null http://pal-control-plane.default.svc:8080/healthz && { echo "::error::pal-t-ci pod reached control-plane:8080"; exit 1; } || true
           # internal/metrics routes must not be reachable through the ingress
           code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: api.pal.test' localhost:18088/internal/auth/introspect-key)"
           [ "$code" = 404 ]

@@ -24,7 +24,7 @@ make dev        # full platform stack in Docker
 - For a load-bearing or cross-service change, read/add an
   [ADR](docs/adr/) first.
 - Prerequisites and versions: [README → Try it in 60 seconds](README.md#try-it-in-60-seconds)
-  (Go 1.26+, Rust 1.85+ edition 2024, Node 22+, Docker). Toolchains are
+  (Go 1.26+ (control plane pins go1.26.10), Rust 1.94 edition 2024, Node 22+, Docker). Toolchains are
   pinned via `.nvmrc` and `rust-toolchain.toml`.
 
 ## Standards

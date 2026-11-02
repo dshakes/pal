@@ -22,8 +22,8 @@ This is a **polyglot monorepo on purpose**. Pick the right tool for the layer; d
 
 | Layer                                                                | Language                    | Why                                                           |
 | -------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------- |
-| Control plane, workflow engine, scheduler, memory, notifier, billing | **Go 1.23**                 | K8s-native, single binary, mature gRPC + Postgres ecosystem   |
-| Gateway, model router, runtime manager, surface gateway              | **Rust 2024**               | Hot path; Firecracker is Rust; predictable latency and memory |
+| Control plane, workflow engine, scheduler, memory, notifier, billing | **Go 1.26**                 | K8s-native, single binary, mature gRPC + Postgres ecosystem   |
+| Gateway, model router, runtime manager, surface gateway              | **Rust 1.94 (2024)**            | Hot path; Firecracker is Rust; predictable latency and memory |
 | Dashboard (`apps/web`)                                               | **TypeScript / Next.js 15** | RSC + streaming, our SDK's primary language already           |
 | Website: landing + docs (`site/`)                                    | **Astro + Starlight**       | Static, content-first; replaced the Next.js landing/docs apps |
 | Primary SDK                                                          | **TypeScript**              | Where the agent ecosystem lives                               |
@@ -307,8 +307,16 @@ The control-plane exposes REST on `:8080`. All authenticated endpoints require a
 for `open` in prod). Mailer: `PAL_MAILER` = `log` (default) / `smtp` / `http` with
 `PAL_MAIL_FROM`, `PAL_SMTP_*`, `PAL_MAIL_HTTP_*`; prod with `open`/`invite`
 sign-up and `PAL_MAILER=log` refuses to start (`CheckSignupConfig`). Pre-auth routes are
-Redis rate-limited per IP (+ email), fail-open on Redis errors;
-`PAL_TRUSTED_PROXIES` controls `X-Forwarded-For` trust. Full reference:
+Redis rate-limited per IP (+ email). On a Redis error, prod sign-up FAILS
+CLOSED (503); login/verify/reset fail open (an outage must not lock owners
+out). The client IP (`remoteIP`, also used by bridge pair) is the TCP peer
+unless that peer is in `PAL_TRUSTED_PROXIES` (CIDRs; set it to the ingress
+range), then `X-Forwarded-For` is walked from the RIGHT and the first
+untrusted hop wins. Never read XFF leftmost: the client controls it.
+A NEW user via Google/GitHub OAuth is a sign-up: `oauthSignupGate` applies the
+same mode (closed → refused; invite → code carried in the server-side OAuth
+state via `/start?invite=`; open/invite → per-IP limit; no captcha). Prod
+open/invite refuses to boot without a reachable Redis (`CheckSignupLimiter`). Full reference:
 `site/src/content/docs/docs/` (accounts page).
 
 **Free tier + starter gallery (W2-S).** New tenants (password `Signup` and first Google login) get a hard-fail tenant-wide cap (`agent_budgets` row `agent_name='*'`) and a `runtime_quotas` row in the sign-up transaction (`handlers/tenant_defaults.go`; `DO NOTHING` on conflict, so owner edits survive; the seeded dev tenant is untouched). Env: `PAL_FREE_TIER_COST_USD_PER_DAY` (default 2.00), `PAL_FREE_TIER_MAX_VMS` (2), `PAL_FREE_TIER_RUNTIME_COST_USD_PER_DAY` (1.00); `off`/`0` skips that cap. `POST /v1/runs` returns `403 {code:"email_unverified"}` for an unverified local user when `requireEmailVerification()` (prod); OAuth users are stored verified. `GET /v1/agents/templates` marks six `gallery` templates (support-desk, pr-triage, incident-responder, daily-digest, data-analyst, telegram-assistant; models `fast`/`balanced`; only gallery templates expose `systemPrompt`) which the onboarding goal step offers as cards. OTel counter `pal.onboarding.step.total{pal.onboarding_step,pal.onboarding_event}` fires on `PUT /v1/onboarding` step transitions.
@@ -595,6 +603,13 @@ with any override set is a startup error (`CheckConnectorBaseURLOverrides`), and
 overrides in prod regardless. New actions: Slack `reply_thread` (+ `thread_ts` on `post_message`), GitHub
 `comment_pr`, Sentry `get_issue`, Google Calendar `create_event`, and a PagerDuty connector
 (`list_incidents`, `get_incident`, `create_incident`, `update_incident`, `add_note`; key in `apiKey`).
+**SSRF guard:** the connector HTTP client checks every dialled IP (`connectorDialPolicy`,
+reusing `internal/mcp` `DialPolicy`): metadata/link-local always refused, loopback/private
+refused unless dev `PAL_CONNECTOR_ALLOW_PRIVATE=1` or a base-URL fixture request (both ignored
+in prod); no proxy env. Tenant-supplied hosts are allowlisted (`vendorURL`): Jira `domain` under
+`atlassian.net`, Salesforce `instanceUrl` https under `salesforce.com`/`force.com`. Outbound
+mail goes through `buildPlainTextMail` (CR/LF refused, `net/mail` address list). Fixed
+first-party calls (OAuth, captcha, Gmail) use `outboundHTTPClient` (15 s), never `http.DefaultClient`.
 
 #### Fixture LLM tier (`PAL_LLM_BASEURL_{OPENAI,ANTHROPIC}`)
 
@@ -1295,8 +1310,8 @@ single-owner path is unchanged: `PAL_SIGNAL_TOKEN` shared secret
 **fails closed** when unset), appended to the JSONL file the live bridge reads
 (mode 0600, trimmed to the last 4000 lines past 5000) and mirrored best-effort
 into `device_signals` for ONE tenant, `PAL_SIGNALS_LEGACY_OWNER_TENANT` (default
-the dev tenant; `off` disables the legacy path — set it on multi-tenant
-deployments). The token is never logged.
+the dev tenant in dev; **unset in prod = OFF**, so a prod deployment must name
+the tenant explicitly; `off` disables the legacy path). The token is never logged.
 
 **Supported kinds (bridge reads all):**
 
@@ -1320,7 +1335,7 @@ Validation: `kind` is always required (≤40 chars). For `kind=app_open`, `app` 
 | Env var                 | Purpose                                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------------------------- |
 | `PAL_SIGNAL_TOKEN`  | Shared secret for the legacy `/v1/signals` path (sent as `x-pal-signal-token`; the pre-rename header is accepted for one release). Unset → legacy path is 401 fail-closed |
-| `PAL_SIGNALS_LEGACY_OWNER_TENANT` | Tenant the legacy shared-token path mirrors into (default dev tenant); `off` disables the legacy path |
+| `PAL_SIGNALS_LEGACY_OWNER_TENANT` | Tenant the legacy shared-token path mirrors into (default: dev tenant in dev, OFF in prod); `off` disables the legacy path |
 | `PAL_SIGNALS_RETENTION_DAYS` | Tenant `device_signals` retention (default 30) |
 
 ### Device tenancy — bridge enrollment (ADR 0047)

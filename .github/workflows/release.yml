@@ -65,6 +65,7 @@ jobs:
 
       - name: Create and push the tag (idempotent)
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
@@ -79,11 +80,12 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$VERSION" -m "pal $VERSION"
             git push origin "refs/tags/$VERSION"
-            # A tag pushed with GITHUB_TOKEN does not trigger on:push workflows, so build the
-            # images explicitly. Dispatch on the tag ref signs as @refs/tags/$VERSION and pushes
-            # the semver tags (build-images.yml keys off ref_type == tag).
-            GH_TOKEN="${{ github.token }}" gh workflow run build-images.yml --ref "$VERSION"
           fi
+          # A tag pushed with GITHUB_TOKEN does not trigger on:push workflows (and a human-pushed
+          # tag may predate this run), so always dispatch the image build for the tag ref. It signs
+          # as @refs/tags/$VERSION and pushes the semver tags (build-images.yml keys off
+          # ref_type == tag); re-running is safe, the tags are simply re-pushed.
+          gh workflow run build-images.yml --ref "$VERSION"
 
       - name: Publish the GitHub Release (idempotent, marks Latest)
         env:

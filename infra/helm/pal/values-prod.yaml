@@ -87,8 +87,8 @@ controlPlane:
   # PAL_TRUSTED_PROXIES: the auth rate limiter keys on the client IP and X-Forwarded-For is
   # honoured ONLY from these CIDRs. Deliberately EMPTY here: when ingress.enabled the chart
   # refuses to render until you set controlPlane.trustedProxies to your ingress controller's
-  # POD CIDR (not a broad private range). The control-plane's rightmost-untrusted-hop XFF
-  # parsing lands in PR #429; until then keep this as narrow as possible.
+  # POD CIDR (not a broad private range). The control-plane trusts
+  # X-Forwarded-For only from these CIDRs and uses the rightmost untrusted hop (PR #429).
   trustedProxies: ""
   # Internal gRPC TLS is wired by `mtls` below (cert-manager). Without it a
   # prod-class env refuses to serve gRPC unless PAL_GRPC_INSECURE=1 (ADR 0043).

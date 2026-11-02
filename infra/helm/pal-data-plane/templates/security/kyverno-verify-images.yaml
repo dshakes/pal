@@ -18,6 +18,9 @@ The imageReferences glob defaults to this chart's own registry/repository so we
 never demand signatures on third-party images (e.g. the egress proxy, postgres).
 */ -}}
 {{- if .Values.imageVerification.enabled }}
+{{- if .Values.imageVerification.keyless.subject }}
+{{- fail "imageVerification.keyless.subject (exact match) was replaced by imageVerification.keyless.subjectRegExp; set subjectRegExp and remove subject" }}
+{{- end }}
 {{- $glob := .Values.imageVerification.imageReferences | default (printf "%s/%s/*" .Values.global.image.registry .Values.global.image.repository) }}
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy

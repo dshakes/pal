@@ -107,8 +107,8 @@ PAL Runtime images (`imageVerification.imageReferences`, default = this chart's 
 
 - **keyless** (default) — Sigstore keyless: the signature must chain to a Fulcio
   cert whose OIDC identity is the GitHub Actions workflow that signed it.
-  `imageVerification.keyless.subjectRegExp` = the `sign-images.yml` workflow identity,
-  `.issuer` = GitHub's OIDC issuer. **Update `subject` to your org/repo** before
+  `imageVerification.keyless.subjectRegExp` = a regex matching the `build-images.yml` signer (master and `vX.Y.Z` tag refs; the legacy exact `subject` is rejected),
+  `.issuer` = GitHub's OIDC issuer. **Update `subjectRegExp` to your org/repo** before
   enabling Enforce.
 - **key** — set `imageVerification.mode: key` and paste a PEM into
   `imageVerification.publicKey`.

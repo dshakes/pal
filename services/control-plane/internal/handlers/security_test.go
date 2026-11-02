@@ -12,10 +12,12 @@ package handlers
 //   R1 — CheckSchedulerAddr: prod+unset => fatal; dev+unset => ok; prod+set => ok
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ---------- isProd / IsProd ----------
@@ -363,10 +365,8 @@ func TestRemoteIP_NoTrustedProxies_XFFIgnored(t *testing.T) {
 }
 
 // TestRemoteIP_TrustedProxy_XFFHonored verifies that when the immediate TCP
-// peer falls within a configured trusted-proxy CIDR, the leftmost
-// X-Forwarded-For element is used as the rate-limiter key (it is the original
-// client IP as inserted by the trusted proxy, which the client cannot forge
-// past the proxy boundary).
+// peer falls within a configured trusted-proxy CIDR, X-Forwarded-For is
+// walked from the right and the first untrusted hop is the key.
 func TestRemoteIP_TrustedProxy_XFFHonored(t *testing.T) {
 	// Configure the ingress load-balancer subnet as trusted.
 	t.Setenv(envTrustedProxies, "10.0.0.0/8,172.16.0.0/12")
@@ -384,10 +384,10 @@ func TestRemoteIP_TrustedProxy_XFFHonored(t *testing.T) {
 			wantIP:     "203.0.113.99",
 		},
 		{
-			name:       "multiple xff entries — leftmost wins",
+			name:       "multiple xff entries — rightmost untrusted wins",
 			remoteAddr: "172.16.0.5:8080", // trusted proxy
 			xff:        "198.51.100.7, 10.0.0.1",
-			wantIP:     "198.51.100.7", // leftmost = original client
+			wantIP:     "198.51.100.7", // first hop left of the trusted 10.0.0.1
 		},
 		{
 			name:       "xff with whitespace trimmed",
@@ -532,5 +532,61 @@ func TestCORS_IdempotencyHeaderExposeAndLoopbackDefault(t *testing.T) {
 		if rec.Header().Get("Access-Control-Expose-Headers") != "X-Pal-Truncated" {
 			t.Errorf("X-Pal-Truncated not exposed")
 		}
+	}
+}
+
+// TestRemoteIP_RightmostUntrusted pins S-1: the client controls everything
+// LEFT of the hop its first trusted proxy appended, so a spoofed leftmost XFF
+// must never become the rate-limit key.
+func TestRemoteIP_RightmostUntrusted(t *testing.T) {
+	t.Setenv(envTrustedProxies, "10.0.0.0/8,fd00::/8")
+	cases := []struct {
+		name, remoteAddr string
+		xff              []string // one entry per header line
+		want             string
+	}{
+		{"spoofed leftmost is ignored", "10.0.0.2:443", []string{"6.6.6.6, 203.0.113.9"}, "203.0.113.9"},
+		{"rotating spoof keeps one bucket", "10.0.0.2:443", []string{"7.7.7.7, 203.0.113.9"}, "203.0.113.9"},
+		{"chain of trusted proxies is skipped", "10.0.0.2:443", []string{"6.6.6.6, 203.0.113.9, 10.1.1.1, 10.2.2.2"}, "203.0.113.9"},
+		{"untrusted chain: stop at first untrusted from the right", "10.0.0.2:443", []string{"1.1.1.1, 198.51.100.1, 203.0.113.9"}, "203.0.113.9"},
+		{"multiple header lines are one chain", "10.0.0.2:443", []string{"6.6.6.6", "203.0.113.9"}, "203.0.113.9"},
+		{"all hops trusted: leftmost trusted hop", "10.0.0.2:443", []string{"10.9.9.9, 10.1.1.1"}, "10.9.9.9"},
+		{"garbage hop appended by proxy: key on proxy", "10.0.0.2:443", []string{"6.6.6.6, not-an-ip"}, "10.0.0.2"},
+		{"garbage left of real client is irrelevant", "10.0.0.2:443", []string{"evil, 203.0.113.9"}, "203.0.113.9"},
+		{"hop with port", "10.0.0.2:443", []string{"203.0.113.9:5555"}, "203.0.113.9"},
+		{"ipv6 client behind ipv6 proxy", "[fd00::1]:443", []string{"2001:db8::dead, 2001:DB8:0:0::BEEF"}, "2001:db8::beef"},
+		{"ipv6 bracketed hop with port", "[fd00::1]:443", []string{"[2001:db8::7]:1234"}, "2001:db8::7"},
+		{"ipv6 spoof left of trusted ipv6 proxy", "[fd00::1]:443", []string{"2001:db8::bad, 2001:db8::1, fd00::2"}, "2001:db8::1"},
+		{"untrusted ipv6 peer: xff ignored", "[2001:db8::9]:443", []string{"2001:db8::1"}, "2001:db8::9"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newXFFRequest(tc.remoteAddr, "")
+			for _, v := range tc.xff {
+				r.Header.Add("X-Forwarded-For", v)
+			}
+			if got := remoteIP(r); got != tc.want {
+				t.Errorf("remoteIP(peer=%s, xff=%q) = %q, want %q", tc.remoteAddr, tc.xff, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRemoteIP_NoTrustedProxies_SpoofCannotBypassLimiter drives the bridge pair
+// limiter (in-memory, keyed by remoteIP): rotating X-Forwarded-For must not
+// mint a fresh bucket per attempt when no proxies are trusted.
+func TestRemoteIP_NoTrustedProxies_SpoofCannotBypassLimiter(t *testing.T) {
+	t.Setenv(envTrustedProxies, "")
+	l := newPairLimiter(3, 1000, time.Minute)
+	now := time.Now()
+	allowed := 0
+	for i := 0; i < 10; i++ {
+		r := newXFFRequest("203.0.113.50:1000", fmt.Sprintf("198.51.100.%d", i))
+		if l.allow(remoteIP(r), now) {
+			allowed++
+		}
+	}
+	if allowed != 3 {
+		t.Fatalf("spoofed XFF let %d attempts through, want 3", allowed)
 	}
 }

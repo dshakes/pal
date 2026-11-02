@@ -76,6 +76,18 @@ jobs:
           - image: surface-gateway
             context: .
             file: services/surface-gateway/Dockerfile
+          - image: workflow-engine   # pal-data-plane chart
+            context: .
+            file: services/workflow-engine/Dockerfile
+          - image: data-plane-agent  # pal-data-plane chart
+            context: .
+            file: services/data-plane-agent/Dockerfile
+          - image: billing           # pal-control-plane chart
+            context: .
+            file: services/billing/Dockerfile
+          - image: scheduler         # pal-control-plane chart
+            context: .
+            file: services/scheduler/Dockerfile
           - image: model-router
             context: .
             file: services/model-router/Dockerfile
