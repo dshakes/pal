@@ -226,8 +226,14 @@ Usage: include "pal.ingressHost" (dict "root" . "service" "control-plane")
 {{- $out -}}
 {{- end }}
 
-{{- define "pal.ingressScheme" -}}
-{{- if .Values.ingress.tls -}}https{{- else -}}http{{- end -}}
+{{/* scheme://host for the ingress host serving <service>; https only if that host is in ingress.tls[].hosts. "" when none. */}}
+{{- define "pal.ingressURL" -}}
+{{- $h := include "pal.ingressHost" . -}}
+{{- if $h -}}
+{{- $tls := false -}}
+{{- range .root.Values.ingress.tls -}}{{- if has $h .hosts -}}{{- $tls = true -}}{{- end -}}{{- end -}}
+{{- if $tls -}}https{{- else -}}http{{- end -}}://{{ $h }}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -239,17 +245,19 @@ Empty -> the dashboard keeps its built-in default (http://localhost:8080).
 {{- if .Values.dashboard.publicApiUrl -}}
 {{- .Values.dashboard.publicApiUrl -}}
 {{- else -}}
-{{- $h := include "pal.ingressHost" (dict "root" . "service" "control-plane") -}}
-{{- if $h -}}{{ include "pal.ingressScheme" . }}://{{ $h }}{{- end -}}
+{{- include "pal.ingressURL" (dict "root" . "service" "control-plane") -}}
 {{- end -}}
 {{- end }}
 
-{{/* Dashboard origin(s) the control-plane must allow via CORS (PAL_CORS_ORIGINS). */}}
+{{/* Dashboard origin (browser-facing): CORS allow-list entry and OAuth/email landing base. */}}
+{{- define "pal.dashboardUrl" -}}
+{{- include "pal.ingressURL" (dict "root" . "service" "dashboard") -}}
+{{- end }}
+
 {{- define "pal.corsOrigins" -}}
 {{- if .Values.controlPlane.env.PAL_CORS_ORIGINS -}}
 {{- .Values.controlPlane.env.PAL_CORS_ORIGINS -}}
 {{- else -}}
-{{- $h := include "pal.ingressHost" (dict "root" . "service" "dashboard") -}}
-{{- if $h -}}{{ include "pal.ingressScheme" . }}://{{ $h }}{{- end -}}
+{{- include "pal.dashboardUrl" . -}}
 {{- end -}}
 {{- end }}

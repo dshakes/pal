@@ -272,6 +272,17 @@ jobs:
           curl -sS -D - -o /dev/null -X OPTIONS -H "Host: api.pal.test" -H "Origin: http://app.pal.test" \
             -H "Access-Control-Request-Method: GET" -H "Access-Control-Request-Headers: authorization" \
             localhost:18088/v1/agents | grep -i '^access-control-allow-origin: http://app.pal.test'
+          # sign-in methods endpoint is reachable (OAuth/sign-up discovery used by the login page)
+          api localhost:18088/auth/providers | jq -e 'has("signup")'
+          # rendered env carries the public URLs (no localhost fallbacks)
+          env_of() { kubectl get deploy pal-control-plane -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='$1')].value}"; }
+          [ "$(env_of OAUTH_REDIRECT_BASE)" = http://api.pal.test ]
+          [ "$(env_of PAL_PUBLIC_BASE_URL)" = http://api.pal.test ]
+          [ "$(env_of OAUTH_DASHBOARD_URL)" = http://app.pal.test ]
+          [ "$(env_of PAL_DASHBOARD_URL)" = http://app.pal.test ]
+          # the control-plane HTTP port is NOT open to arbitrary pods (only the ingress namespace)
+          kubectl run np-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
+            curl -sS -m 5 -o /dev/null http://pal-control-plane:8080/healthz && { echo "::error::arbitrary pod reached control-plane:8080"; exit 1; } || true
           # internal/metrics routes must not be reachable through the ingress
           code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: api.pal.test' localhost:18088/internal/auth/introspect-key)"
           [ "$code" = 404 ]

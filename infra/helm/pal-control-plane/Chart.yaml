@@ -6,8 +6,8 @@ description: >-
   SaaS-hosted control plane or for self-hosted control plane installations.
   For the data plane, see the pal-data-plane chart.
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.3.0
+appVersion: "0.3.0"
 keywords:
   - ai-agents
   - serverless

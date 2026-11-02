@@ -58,7 +58,7 @@ spec:
                 # the image. subject == the build-images.yml workflow identity (master),
                 # issuer == GitHub's OIDC token issuer.
                 - keyless:
-                    subject: {{ .Values.imageVerification.keyless.subject | quote }}
+                    subjectRegExp: {{ .Values.imageVerification.keyless.subjectRegExp | quote }}
                     issuer: {{ .Values.imageVerification.keyless.issuer | quote }}
                     {{- with .Values.imageVerification.keyless.rekorURL }}
                     rekor:

@@ -19,6 +19,7 @@ on:
 permissions:
   contents: write          # create + push the tag, publish the Release
   pull-requests: write     # open the Homebrew formula-bump PR
+  actions: write           # dispatch build-images.yml on the new tag (GITHUB_TOKEN tag pushes trigger nothing)
 
 concurrency:
   group: release
@@ -70,11 +71,18 @@ jobs:
           if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
             echo "tag $VERSION already on origin — skipping"
           else
+            # Never create a tag whose chart version/appVersion disagree with it: the chart's
+            # default image tag is appVersion, so a mismatch ships an uninstallable release.
+            scripts/check-chart-release.sh "$VERSION"
             # Runners have no git identity; annotated tags need one (empty-ident fatal).
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$VERSION" -m "pal $VERSION"
             git push origin "refs/tags/$VERSION"
+            # A tag pushed with GITHUB_TOKEN does not trigger on:push workflows, so build the
+            # images explicitly. Dispatch on the tag ref signs as @refs/tags/$VERSION and pushes
+            # the semver tags (build-images.yml keys off ref_type == tag).
+            GH_TOKEN="${{ github.token }}" gh workflow run build-images.yml --ref "$VERSION"
           fi
 
       - name: Publish the GitHub Release (idempotent, marks Latest)

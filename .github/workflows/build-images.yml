@@ -1,7 +1,7 @@
 # build-images — builds, pushes, and cosign-signs the deployable PAL Runtime service images
 # that Helm/Terraform reference (ghcr.io/dshakes/pal/<name>). Runs on push to master
 # and on demand (workflow_dispatch). Each image is tagged with the git SHA and `latest`.
-# A `v*` tag push instead publishes the SHA plus the semver tags vX.Y.Z and X.Y.Z (what the
+# A `v*` tag ref (push, or workflow_dispatch --ref vX.Y.Z from release.yml) instead publishes ONLY the semver tags vX.Y.Z and X.Y.Z (what the
 # Helm chart pulls by default: global.image.tag falls back to Chart.appVersion) and first
 # fails unless the chart version/appVersion equal the tag (scripts/check-chart-release.sh).
 # Signing/attestation/verification below are identical for tag builds (same digest flow).
@@ -99,11 +99,12 @@ jobs:
         run: |
           {
             echo "list<<EOF"
-            echo "$IMG:$GITHUB_SHA"
             if [ "$GITHUB_REF_TYPE" = tag ]; then
+              # Semver only: re-pushing :<sha> would repoint it at a tag-signed digest.
               echo "$IMG:$GITHUB_REF_NAME"
               echo "$IMG:${GITHUB_REF_NAME#v}"
             else
+              echo "$IMG:$GITHUB_SHA"
               echo "$IMG:latest"
             fi
             echo "EOF"

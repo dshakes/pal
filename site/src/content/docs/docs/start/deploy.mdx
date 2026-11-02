@@ -55,7 +55,7 @@ pal deploy --json
      --set secrets.schedulerNodeToken="$SCHEDULER_NODE_TOKEN" --set secrets.appDbPassword="$APP_DB_PASSWORD"
    ```
 
-   With `ingress.enabled`, the API host routes `/v1`, `/auth`, `/.well-known`, `/mcp` and `/dl` to the control plane and the app host serves the dashboard. The dashboard learns the API URL from the ingress at runtime (override with `dashboard.publicApiUrl`). Set `PAL_TRUSTED_PROXIES` (`controlPlane.extraEnv`, preset in `values-prod.yaml`) to your ingress controller's pod CIDR.
+   With `ingress.enabled`, the API host routes `/v1`, `/auth`, `/.well-known`, `/mcp` and `/dl` to the control plane and the app host serves the dashboard. The dashboard learns the API URL from the ingress at runtime (override with `dashboard.publicApiUrl`). Set `controlPlane.trustedProxies` (`PAL_TRUSTED_PROXIES`) to your ingress controller's pod CIDR; the chart refuses to render without it, and `networkPolicy.ingressFrom` must name the ingress namespace. The chart also sets `OAUTH_REDIRECT_BASE`, `PAL_PUBLIC_BASE_URL`, `OAUTH_DASHBOARD_URL` and `PAL_DASHBOARD_URL` from the ingress hosts. For Google sign-in, register the redirect URI `https://<api host>/auth/oauth/google/callback`.
 
 3. Point the CLI at it. Set `PAL_API_URL` and `PAL_USE_REST=1` to make this permanent. Without `--rest`, `--api-url` is a gRPC address.
 

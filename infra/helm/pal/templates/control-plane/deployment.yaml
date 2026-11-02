@@ -101,6 +101,23 @@ spec:
             # completely off — a fail-open on the tenant-isolation control.
             - name: PAL_ENV
               value: {{ .Values.controlPlane.env.PAL_ENV | default "production" | quote }}
+            {{- if .Values.ingress.enabled }}
+            {{- if not .Values.controlPlane.trustedProxies }}
+            {{- fail "controlPlane.trustedProxies is required when ingress.enabled: set it to the ingress controller pod CIDR (PAL_TRUSTED_PROXIES); the auth rate limiter depends on it" }}
+            {{- end }}
+            - name: PAL_TRUSTED_PROXIES
+              value: {{ .Values.controlPlane.trustedProxies | quote }}
+            # Public URLs the control-plane embeds in OAuth redirects, A2A cards, /mcp metadata
+            # and emails (otherwise they fall back to localhost).
+            - name: OAUTH_REDIRECT_BASE
+              value: {{ include "pal.publicApiUrl" . | quote }}
+            - name: PAL_PUBLIC_BASE_URL
+              value: {{ include "pal.publicApiUrl" . | quote }}
+            - name: OAUTH_DASHBOARD_URL
+              value: {{ include "pal.dashboardUrl" . | quote }}
+            - name: PAL_DASHBOARD_URL
+              value: {{ include "pal.dashboardUrl" . | quote }}
+            {{- end }}
             {{- with include "pal.corsOrigins" . }}
             # The browser calls the API host cross-origin; allow the dashboard origin.
             - name: PAL_CORS_ORIGINS

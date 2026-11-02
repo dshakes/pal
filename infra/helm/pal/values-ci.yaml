@@ -20,6 +20,7 @@ global:
 controlPlane:
   replicas: 1
   autoscaling: {enabled: false}
+  trustedProxies: "10.0.0.0/8"   # kind pod CIDR
   env:
     PAL_ENV: "development"   # prod guards need TLS Secrets the chart cannot mint
 
@@ -55,6 +56,10 @@ ingress:
 
 networkPolicy:
   enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
 
 backup:
   enabled: true

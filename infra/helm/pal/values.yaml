@@ -41,6 +41,9 @@ controlPlane:
     type: ClusterIP
     grpcPort: 50051
     httpPort: 8080
+  # CIDR(s) of the ingress controller pods, comma-separated (PAL_TRUSTED_PROXIES). Required
+  # when ingress.enabled; X-Forwarded-For is trusted only from here.
+  trustedProxies: ""
   resources:
     requests:
       cpu: 200m

@@ -15,8 +15,8 @@ description: >-
 type: application
 # Must equal the release tag minus the leading v (scripts/check-chart-release.sh,
 # enforced by build-images.yml on a v* tag push). global.image.tag defaults to appVersion.
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.3.0
+appVersion: "0.3.0"
 keywords:
   - ai-agents
   - serverless

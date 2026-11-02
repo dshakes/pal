@@ -7,7 +7,7 @@ tag="${1:?usage: $0 vX.Y.Z}"
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::tag '$tag' is not vX.Y.Z[-pre]"; exit 1; }
 want="${tag#v}"
 bad=0
-for name in pal pal-control-plane; do
+for name in pal pal-control-plane pal-data-plane; do
   chart="$(dirname "$0")/../infra/helm/$name/Chart.yaml"
   ver="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$chart")"
   app="$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$chart")"
@@ -15,4 +15,4 @@ for name in pal pal-control-plane; do
     echo "::error file=infra/helm/$name/Chart.yaml::tag $tag needs version/appVersion $want (found version=$ver appVersion=$app)"; bad=1; }
 done
 [[ $bad == 0 ]] || exit 1
-echo "chart version/appVersion $want match tag $tag (pal, pal-control-plane)"
+echo "chart version/appVersion $want match tag $tag (pal, pal-control-plane, pal-data-plane)"
