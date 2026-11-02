@@ -12,21 +12,21 @@
     "check:mobile": "node scripts/shots.mjs"
   },
   "dependencies": {
-    "@astrojs/react": "7.0.1",
-    "@astrojs/starlight": "0.42.4",
+    "@astrojs/react": "7.1.2",
+    "@astrojs/starlight": "0.42.7",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/inter-tight": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "astro": "7.3.5",
+    "astro": "7.4.4",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.4",
+    "@astrojs/check": "0.9.12",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "playwright": "^1.56.1",
-    "starlight-links-validator": "^0.26.0",
+    "playwright": "^1.64.1",
+    "starlight-links-validator": "^0.27.0",
     "typescript": "5.9.3"
   }
 }
