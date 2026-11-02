@@ -1,7 +1,7 @@
 {
   "_comment": "Owner/family-specific literals that must never appear in bridge source (comments excluded). Add a name here the moment it leaks into a prompt. `allowIn` lists the only source files permitted to contain a match.",
   "entries": [
-    { "label": "owner/family first names", "pattern": "\\b(Manasa|Shekhar|Sarika|Madhu|Raju|Sujith|Ritesh|Chikka|Bhavik|Sirisha|Penchala|Mudarapu|Shiva|Ved)\\b", "flags": "i" },
+    { "label": "owner/family first names", "pattern": "\\b(Manasa|Shekhar|Sarika|Madhu|Raju|Sujith|Ritesh|Chikka|Bhavik|Sirisha|Penchala|Mudarapu|Shiva|Ved|Sheks)\\b", "flags": "i" },
     { "label": "owner home path / handle", "pattern": "/Users/shakes|dshakes", "flags": "i" },
     { "label": "owner places", "pattern": "Poolville|Chantilly|Spokane", "flags": "i" },
     { "label": "Telangana dialect outside the gated dialect module", "pattern": "\\bTelangana\\b", "flags": "i", "allowIn": ["packages/bridge-core/src/dialect-te.ts"] }

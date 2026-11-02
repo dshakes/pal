@@ -105,6 +105,25 @@ test("a Voice without a dialect adds no Telugu rules", () => {
   assert.match(p, /his calendar/);
 });
 
+test("neutral persona has no subject-verb mismatches and no Telugu kinship terms", () => {
+  const BAD = /\b(?:they|them) (?:is|sees|has|does|was|doesn't|hasn't|isn't|says|wants|needs)\b|\bthey's\b/i;
+  for (const v of variants) {
+    const p = agentPersonaPrompt("Ada", style, false, { ...v, voice: parseProfile("## Voice\n- pronouns: they/them\n").voice });
+    assert.deepEqual(p.match(new RegExp(`.{20}${BAD.source}.{10}`, "gi")) ?? [], []);
+    assert.match(p, /ADDRESS \/ KINSHIP RULE/, "generic kinship rule must stay for everyone");
+    assert.doesNotMatch(p, /bava|annaya|akka|Sheks/);
+  }
+  assert.match(agentPersonaPrompt("Ada", style, false, { voice: parseProfile(OWNER_VOICE).voice }), /"bava", "anna"/);
+});
+
+test("Voice register and languages reach the persona", () => {
+  const voice = parseProfile("## Voice\n- register: dry, lowercase\n- languages: English, Hindi\n").voice;
+  const p = agentPersonaPrompt("Ada", style, false, { voice });
+  assert.match(p, /REGISTER \(their own notes.*dry, lowercase/);
+  assert.match(p, /LANGUAGES: Ada writes in English, Hindi/);
+  assert.doesNotMatch(agentPersonaPrompt("Ada", style, false, {}), /LANGUAGES: |REGISTER \(their/);
+});
+
 // ── detectBotTells gating ──
 
 const TE = parseProfile(OWNER_VOICE).voice;

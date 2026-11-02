@@ -20,16 +20,24 @@ function sourceFiles(dir: string): string[] {
     const p = join(dir, f);
     if (["node_modules", "dist", "fixtures"].includes(f)) return [];
     if (statSync(p).isDirectory()) return sourceFiles(p);
-    return /\.ts$/.test(f) && !/\.test\.ts$/.test(f) ? [p] : [];
+    return /\.(?:ts|tsx|js|mjs)$/.test(f) && !/\.test\.(?:ts|tsx|js)$/.test(f) ? [p] : [];
   });
 }
 
-/** Strip block and line comments (comments may keep historical names). */
+/** Blank block comments, then drop a `//` tail only when it sits outside a
+ *  string (even count of quote chars before it), so "x // Name" stays scanned. */
 function stripComments(src: string): string {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
     .split("\n")
-    .map((l) => l.replace(/(^|\s)\/\/.*$/, "$1"))
+    .map((line) => {
+      for (let i = line.indexOf("//"); i >= 0; i = line.indexOf("//", i + 1)) {
+        const before = line.slice(0, i).replace(/\\./g, "");
+        const quotes = (re: RegExp) => (before.match(re) ?? []).length;
+        if (quotes(/"/g) % 2 === 0 && quotes(/'/g) % 2 === 0 && quotes(/`/g) % 2 === 0) return before;
+      }
+      return line;
+    })
     .join("\n");
 }
 
@@ -69,13 +77,17 @@ test("gate catches a planted literal (mutation) and honours allowIn + comments",
     writeFileSync(join(d, "dialect-te.ts"), 'export const t = "Telangana";\n');
     writeFileSync(join(d, "other.ts"), 'export const t = "Telangana";\n');
     writeFileSync(join(d, "commented.ts"), '// Manasa was here\n/* Shekhar */\nexport const ok = 1;\n');
+    writeFileSync(join(d, "instring.ts"), 'export const s = "x // Shekhar";\n');
+    writeFileSync(join(d, "w.tsx"), 'export const w = "Madhu";\n');
     writeFileSync(join(d, "x.test.ts"), 'const t = "Manasa";\n');
     const hits = scan(tmp, ["packages/bridge-core/src"]);
     const files = hits.map((h) => h.split(":")[0]).sort();
     assert.deepEqual(files, [
+      "packages/bridge-core/src/instring.ts",
       "packages/bridge-core/src/other.ts",
       "packages/bridge-core/src/path.ts",
       "packages/bridge-core/src/planted.ts",
+      "packages/bridge-core/src/w.tsx",
     ]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
