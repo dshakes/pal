@@ -182,8 +182,26 @@ Keyboard: `⌘K` Ask PAL · `g t` Today · `g h` Holds · `g o` Overview · `g a
 `g r` Runs · `g v` Sandboxes · `g s` Settings · `?` cheat sheet.
 
 Sign-in (`app/login`) shows only what `GET /auth/providers` says is configured
-(OAuth buttons, sign-up open/invite/closed). The cookie write is awaited before
-any gated navigation (login, sign-up, OAuth callback, logout) — see the auth-loop fix.
+(OAuth buttons, sign-up open/invite/closed).
+
+**Session = HttpOnly cookie only (S-3).** The JWT never reaches page JS (no
+`localStorage`). The browser calls `/api/pal/*` (`app/api/pal/[...path]/route.ts`),
+which adds `Authorization: Bearer` from the `pal_token` cookie server-side, streams
+responses (SSE) unbuffered, and on login/sign-up/OAuth exchange/kiosk moves the
+returned `token` into the cookie (so the cookie exists when the call resolves — the
+old cookie-sync/auth-loop machinery is gone). CSRF rules (Sec-Fetch-Site/-Dest +
+Origin) are pure in `lib/pal-proxy.ts`; only `/v1/*` and `/auth/*` are proxied. Pages
+carry a nonce'd CSP from `middleware.ts` (`lib/security-headers.ts`); new inline
+`<script>` needs `nonce={nonce}`. The snippet runner's worker
+(`public/code-runner-worker.js`) has its own no-network CSP. The dashboard must be in
+`PAL_TRUSTED_PROXIES`. The proxy drops the browser's `X-Forwarded-For`/`X-Real-IP`/`Forwarded`
+and sends one hop it computed (`lib/client-ip.ts`) from the TCP peer stamped by the
+`peer-ip.cjs` preload (`node --require ./peer-ip.cjs …` — Dockerfile, `npm run dev/start`,
+the launchd wrapper and e2e all load it); behind an ingress, list it in
+`PAL_DASHBOARD_TRUSTED_PROXIES` (Helm sets it from `controlPlane.trustedProxies`). Bodies
+over 2 MiB → 413. Prod cookie name is `__Host-pal_token` (legacy `pal_token` read once,
+migrated and cleared; `sessionToken()` in `lib/server-session.ts`). OAuth start is a
+top-level navigation to the API host (`lib/oauth-url.ts`), never the proxy.
 
 ### Dashboard UX primitives
 
@@ -294,6 +312,7 @@ The control-plane exposes REST on `:8080`. All authenticated endpoints require a
 | `POST` | `/auth/signup`           | Register new user (gated by `PAL_SIGNUP_MODE`) |
 | `POST` | `/auth/login`            | Email+password login |
 | `GET`  | `/auth/me`               | Current user info    |
+| `POST` | `/auth/logout`           | Revoke ALL of the caller's sessions (bumps `users.token_version`); `204` |
 | `GET`  | `/auth/oauth/google/...` | Google OAuth flow    |
 | `GET`  | `/auth/providers`        | Public: which sign-in methods are configured `{oauth:{google,github}, signup, passwordReset, emailVerification}` (booleans/enum only) |
 | `POST` | `/auth/verify`, `/auth/verify/resend` | Email verification (token / re-send) |
@@ -655,11 +674,15 @@ error and the transport ignores overrides regardless.
 | ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST` | `/internal/auth/introspect-key` | Validate a raw API key for the gateway. Body `{"key":"..."}`, header `x-pal-service-token` (= `PAL_GRPC_SERVICE_TOKEN`). 200 `{tenantId, scopes}` or 401; 403 fail-closed in prod when the token env is unset. |
 
-The gateway's `X-API-Key` hot path calls this endpoint (60s in-memory cache
-keyed by SHA-256 of the key; fail-closed on any error). Gateway env:
-`PAL_CONTROL_PLANE_URL` (introspection base URL) +
-`PAL_GRPC_SERVICE_TOKEN` (same shared token as the gRPC trust boundary).
-Unset → API-key auth stays fail-closed-disabled; JWT auth is unaffected.
+The gateway accepts **API keys only** (`X-API-Key` or `Authorization: Bearer <key>`),
+each checked through this endpoint (60s in-memory cache keyed by SHA-256 of the key;
+fail-closed on any error). It no longer decodes JWTs: its local HS256 path used a
+claim shape (`user_id`, `scopes`) the control plane never mints, so it accepted only
+tokens forged with `JWT_SECRET` and could not honour session revocation (`tv`) or
+`PAL_JWT_TTL`. Dashboard sessions reach the control plane via the `/api/pal` proxy.
+Gateway env: `PAL_CONTROL_PLANE_URL` (introspection base URL) +
+`PAL_GRPC_SERVICE_TOKEN` (same shared token as the gRPC trust boundary); the gateway
+no longer reads `JWT_SECRET`. Unset → every gateway request is refused (fail-closed).
 
 #### Per-endpoint scope authorization (`PAL_AUTHZ_ENFORCE`, default ON in prod — ADR 0042)
 
@@ -677,8 +700,30 @@ a new auth surface.
 **Secure default in production (ADR 0042).** `PAL_AUTHZ_ENFORCE` is ON by default
 when `PAL_ENV=prod/production/staging`; dev defaults remain OFF. Explicit `=0` disables
 enforcement with a loud startup WARN (alert on `enforced=false` field). A key missing the
-required scope returns `403`. JWT owner/admin sessions keep full access. The control-plane
-logs `authz: API-key scope enforcement {enforced}` at boot.
+required scope returns `403`. The control-plane logs `authz: API-key scope enforcement
+{enforced}` at boot.
+
+**Sessions are role-scoped and revocable (S-2/S-4).** A user JWT holds its role's
+scopes (`roleScopes` in `auth.go`: owner/admin → `admin`; member → `read`,
+`agents:write`, `runs:execute`; viewer/unknown → `read`), ALWAYS enforced (not gated by
+`PAL_AUTHZ_ENFORCE`) → `403 role_forbidden`. Owner-only stays explicit in handlers (GDPR
+erase/export, billing checkout/portal, runtime quota PUT); `RequireSessionRole(AdminRoles, …)`
+narrows agents:write routes that are owner|admin for sessions (agent policy PUT, identity
+rotate/revoke) without touching API keys. `apps/web/lib/rbac.ts` MATRIX is the single
+source — `TestRoleScopesMatchDashboardMatrix` parses it; `cmd/server/routes_role_test.go`
+pins the S-5 route list. Sessions carry `tv` = `users.token_version` (migration 0047);
+`validateRequest` refuses a stale `tv` or a missing user (60 s per-replica cache; the
+replica that handled the bump refuses at once; a newer token always forces a re-read).
+Bumped by `POST /auth/logout` and by a trigger on any `password_hash`/`role` change.
+`PAL_JWT_TTL` (default 12h, 5m..24h, fatal if invalid); tokens longer-lived than it are
+refused. No refresh token. SSE handlers wrap their ctx in `auth.guardStream(ctx, claims)`
+(closes at `exp`, re-checks `token_version` every 60 s) — a new long-lived stream must too.
+Session-vs-key is decided by provenance (`isUserSession`: Subject set, no `APIKeyID`), never
+by the role string. Connector/surface/MCP-attachment config goes out through
+`redactConfig` (allowlist of identifier keys; everything else `********`) and writes
+merge masks back with `mergeRedacted` — return any new secret-bearing config the same way.
+Connector execute (GET and POST) needs `connectors:write`. Package tests stub the lookup in `TestMain`
+(`stubTokenVersion`); revocation tests call `useRealSessionLookup(t)`.
 
 Unannotated routes are intentional exemptions documented in `TestEveryGetRouteHasScope`
 and `TestEveryMutatingRouteHasScope` (both in `cmd/server/routes_scope_test.go`): auth
@@ -1685,7 +1730,9 @@ agents in `examples/headless-agents/{01-hello,02-web-scraper,03-stateful-researc
   check (cross-tenant run-control / microVM-compute takeover). Both run the
   service-auth interceptor before tenant extraction, fail-closed in prod, and the
   control-plane caller (`internal/handlers/runtime.go`) attaches the token as
-  `PerRPCCredentials`. Set `PAL_GRPC_SERVICE_TOKEN` to the **same value** on
+  `PerRPCCredentials`. The scheduler's REST port (`:8085`) follows the same rule: the
+  tenant routes take `x-pal-service-token` + `X-Pal-Tenant-Id` and no longer accept JWTs
+  (they could not check session revocation); with no token set they are refused. Set `PAL_GRPC_SERVICE_TOKEN` to the **same value** on
   control-plane, gateway, workflow-engine, runtime-scheduler, **model-router
   (`:50053`, which carries tenant provider keys; fail-closed in prod)**, and
   **runtime-manager (`:50054`)**. The manager adds per-call authz (ADR 0025): a
@@ -2360,8 +2407,10 @@ and whose role is owner/admin — the bridges are single-owner appliances, so a
 session for any other tenant would still read the owner's chat.db/Mail — the
 path `health` or `session/<the session's tenant>/…`, and for writes
 `Sec-Fetch-Site: same-origin` (or a matching Origin) + `Content-Type:
-application/json`; `/api/auth/session` POST has the same CSRF guard. Only
-`/api/signals` and `/api/auth/session` are public in `middleware.ts`.
+application/json`; the `/api/pal` control-plane proxy reuses that guard for writes
+(plus Sec-Fetch-Site/-Dest checks on reads). Only `/api/signals` and `/api/pal/*`
+(the control plane authenticates it from the forwarded cookie) are public in
+`middleware.ts`; `/api/auth/session` was removed (the proxy sets the cookie).
 
 ### Web-search grounding (built-in `web_search` tool)
 
