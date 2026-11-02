@@ -6,12 +6,3 @@
 # Found by the first full-repo audit (2026-11-01): reachable advisories in x/net, grpc, x/text
 # and pgx across the non-control-plane Go modules. Fixes are minor bumps (x/net v0.60.0,
 # grpc v1.83.1, x/text v0.41.0, pgx v5.9.2) that need their own PR + test run.
-GO-2026-6629 2026-12-01 x/text<v0.41.0, dep-bump PR pending
-GO-2026-6617 2026-12-01 x/net<v0.60.0, dep-bump PR pending
-GO-2026-6612 2026-12-01 x/net<v0.60.0, dep-bump PR pending
-GO-2026-6611 2026-12-01 x/net<v0.60.0, dep-bump PR pending
-GO-2026-6603 2026-12-01 x/net<v0.60.0, dep-bump PR pending
-GO-2026-6443 2026-12-01 grpc<v1.82.2, dep-bump PR pending
-GO-2026-6348 2026-12-01 grpc<v1.83.1, dep-bump PR pending
-GO-2026-5970 2026-12-01 x/text<v0.39.0, dep-bump PR pending
-GO-2026-5004 2026-12-01 pgx<v5.9.2, dep-bump PR pending
