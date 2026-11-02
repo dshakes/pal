@@ -56,6 +56,7 @@ final config. Re-run it any time the routing looks wrong.
 | Var | Where | Why |
 |-----|-------|-----|
 | `PAL_SIGNAL_TOKEN` | **API** (`dev.pal.api.plist`) **and** dashboard | Gates `POST /v1/signals`; the iOS Shortcut sends it as `x-pal-signal-token`. Pick any long random string. |
+| `PAL_DASHBOARD_HOST` | **dashboard** (plist or `~/.pal/bridge.env`) | Interface the dashboard binds. Default `127.0.0.1`, which is all Serve needs (it fronts loopback). Don't set `0.0.0.0`: the dashboard proxies to your bridges. |
 | `NEXT_PUBLIC_API_URL` | **dashboard** (`dev.pal.dashboard.plist`) | Set to `https://<your-mac>.<tailnet>.ts.net` so the dashboard's *client-side* API calls resolve to the tailnet host instead of `localhost:8080` (which a phone can't reach). |
 
 Set plist env via `PlistBuddy` then reload with `launchctl bootout … && bootstrap …`
