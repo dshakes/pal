@@ -83,6 +83,7 @@ func TestPairLimiter_PerIPGlobalAndWindow(t *testing.T) {
 }
 
 func TestLegacyOwnerTenant(t *testing.T) {
+	t.Setenv("PAL_ENV", "")
 	for in, want := range map[string]string{
 		"":                                     legacyOwnerDefaultTenant,
 		"off":                                  "",
@@ -95,6 +96,27 @@ func TestLegacyOwnerTenant(t *testing.T) {
 		if got := legacyOwnerTenant(); got != want {
 			t.Errorf("PAL_SIGNALS_LEGACY_OWNER_TENANT=%q → %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestLegacyOwnerTenant_ProdDefaultsOff pins S-15: in prod an unset value must
+// disable the legacy path; an explicit tenant still works.
+func TestLegacyOwnerTenant_ProdDefaultsOff(t *testing.T) {
+	for _, env := range []string{"prod", "production", "staging"} {
+		t.Setenv("PAL_ENV", env)
+		t.Setenv("PAL_SIGNALS_LEGACY_OWNER_TENANT", "")
+		if got := legacyOwnerTenant(); got != "" {
+			t.Errorf("PAL_ENV=%s, unset legacy tenant → %q, want disabled", env, got)
+		}
+		t.Setenv("PAL_SIGNALS_LEGACY_OWNER_TENANT", "11111111-1111-1111-1111-111111111111")
+		if got := legacyOwnerTenant(); got != "11111111-1111-1111-1111-111111111111" {
+			t.Errorf("PAL_ENV=%s, explicit tenant → %q", env, got)
+		}
+	}
+	t.Setenv("PAL_ENV", "")
+	t.Setenv("PAL_SIGNALS_LEGACY_OWNER_TENANT", "")
+	if got := legacyOwnerTenant(); got != legacyOwnerDefaultTenant {
+		t.Errorf("dev (PAL_ENV unset) must keep the dev-tenant default, got %q", got)
 	}
 }
 

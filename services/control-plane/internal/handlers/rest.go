@@ -2785,9 +2785,11 @@ func (h *RESTHandler) sendEmailViaGmail(tenantID, to, subject, body string) erro
 
 // doGmailSend performs the actual Gmail API send.
 func (h *RESTHandler) doGmailSend(accessToken, to, subject, body string) error {
-	// Build RFC 2822 message.
-	msg := fmt.Sprintf("To: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s", to, subject, body)
-	encoded := base64.URLEncoding.EncodeToString([]byte(msg))
+	msg, err := buildPlainTextMail(to, subject, body)
+	if err != nil {
+		return fmt.Errorf("gmail send: %w", err)
+	}
+	encoded := base64.URLEncoding.EncodeToString(msg)
 
 	reqBody, _ := json.Marshal(map[string]string{"raw": encoded})
 	req, err := http.NewRequest("POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", bytes.NewReader(reqBody))
@@ -2797,7 +2799,7 @@ func (h *RESTHandler) doGmailSend(accessToken, to, subject, body string) error {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("gmail API call: %w", err)
 	}
