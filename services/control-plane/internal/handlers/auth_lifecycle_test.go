@@ -310,6 +310,8 @@ func TestExportRedacted_Catalog(t *testing.T) {
 		"side_effect_receipts.idem_key":   false,
 		"users.auth_provider":             false,
 		"users.auth_subject":              false,
+		// S-2: session revocation counter — internal, nothing for the data subject.
+		"users.token_version": true,
 		// ADR 0058: MCP credentials / pending OAuth state never leave the DB.
 		"mcp_credentials.secret":       true,
 		"mcp_oauth_pending.secret":     true,

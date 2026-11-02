@@ -115,7 +115,7 @@ func TestAuth_Signup_IssuesValidJWT(t *testing.T) {
 	// The issued token must validate against the same secret and carry the
 	// claims that were minted — this is the load-bearing assertion (a token
 	// that doesn't validate is useless).
-	claims, err := h.ValidateToken(resp.Token)
+	claims, err := h.ValidateToken(context.Background(), resp.Token)
 	if err != nil {
 		t.Fatalf("issued token failed to validate: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestAuth_Login_Success(t *testing.T) {
 	if resp.Token == "" {
 		t.Fatal("login returned empty token")
 	}
-	claims, err := h.ValidateToken(resp.Token)
+	claims, err := h.ValidateToken(context.Background(), resp.Token)
 	if err != nil {
 		t.Fatalf("login token failed to validate: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestAuth_Login_RoleFromDB(t *testing.T) {
 			}
 
 			// JWT claims role must match DB.
-			claims, err := h.ValidateToken(resp.Token)
+			claims, err := h.ValidateToken(context.Background(), resp.Token)
 			if err != nil {
 				t.Fatalf("validate token: %v", err)
 			}
@@ -527,7 +527,7 @@ func TestAuth_Signup_StoresOwnerRole(t *testing.T) {
 	if resp.User.Role != "owner" {
 		t.Errorf("login response role: got %q, want \"owner\"", resp.User.Role)
 	}
-	claims, err := h.ValidateToken(resp.Token)
+	claims, err := h.ValidateToken(context.Background(), resp.Token)
 	if err != nil {
 		t.Fatalf("validate token: %v", err)
 	}

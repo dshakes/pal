@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +34,8 @@ type AuthHandler struct {
 	rl spawnRedisClient
 	// mailer delivers verification + reset links (ADR 0027).
 	mailer mailer.Mailer
+	// sessions caches users.token_version for revocation (session_revocation.go).
+	sessions sessionCache
 }
 
 // NewAuthHandler creates an AuthHandler using the given server and JWT secret.
@@ -116,6 +119,9 @@ type PalClaims struct {
 	// agent, dataplane-session). A user session never carries it, so
 	// ValidateToken rejects any token that does (ADR 0055 §7).
 	Typ string `json:"typ,omitempty"`
+	// TokenVersion is users.token_version at mint time; a session whose tv no
+	// longer matches the row is revoked (session_revocation.go).
+	TokenVersion int `json:"tv"`
 }
 
 // ---------- handlers ----------
@@ -280,7 +286,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT.
-	token, err := h.generateToken(userID, tenantID, req.Email, req.Name, "owner")
+	token, err := h.generateToken(ctx, userID, tenantID, req.Email, req.Name, "owner")
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -408,7 +414,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		name = *displayName
 	}
 
-	token, err := h.generateToken(userID, tenantID, req.Email, name, role)
+	token, err := h.generateToken(ctx, userID, tenantID, req.Email, name, role)
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -778,7 +784,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Issue JWT.
-	token, err := h.generateToken(userID, tenantID, email, name, role)
+	token, err := h.generateToken(ctx, userID, tenantID, email, name, role)
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
 		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
@@ -1028,27 +1034,34 @@ func (h *AuthHandler) fetchGitHubEmail(ctx context.Context, accessToken string) 
 
 // ---------- token helpers ----------
 
-func (h *AuthHandler) generateToken(userID, tenantID, email, name, role string) (string, error) {
+func (h *AuthHandler) generateToken(ctx context.Context, userID, tenantID, email, name, role string) (string, error) {
+	tv, err := h.currentTokenVersion(ctx, userID)
+	if err != nil {
+		return "", err
+	}
 	now := time.Now()
 	claims := PalClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(30 * 24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(jwtTTL())),
 			Issuer:    "pal",
 		},
-		TenantID: tenantID,
-		Email:    email,
-		Name:     name,
-		Role:     role,
+		TenantID:     tenantID,
+		Email:        email,
+		Name:         name,
+		Role:         role,
+		TokenVersion: tv,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(h.jwtSecret)
 }
 
-// ValidateToken parses and validates a JWT string, returning the claims.
-func (h *AuthHandler) ValidateToken(tokenStr string) (*PalClaims, error) {
+// ValidateToken parses and validates a session JWT: signature, expiry, a
+// lifetime no longer than PAL_JWT_TTL (so tokens minted under a longer TTL,
+// such as the old 30-day ones, are refused), and revocation (token_version).
+func (h *AuthHandler) ValidateToken(ctx context.Context, tokenStr string) (*PalClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &PalClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -1068,7 +1081,16 @@ func (h *AuthHandler) ValidateToken(tokenStr string) (*PalClaims, error) {
 	if claims.Typ != "" || claims.Issuer == "pal-agent" {
 		return nil, fmt.Errorf("not a session token")
 	}
-
+	// Kiosk sessions carry their own short TTL (PAL_KIOSK_TTL_MIN, ADR 0029).
+	if claims.Role != kioskRole {
+		if claims.IssuedAt == nil || claims.ExpiresAt == nil ||
+			claims.ExpiresAt.Sub(claims.IssuedAt.Time) > jwtTTL()+jwtTTLSlack {
+			return nil, fmt.Errorf("session lifetime exceeds PAL_JWT_TTL")
+		}
+	}
+	if err := h.checkSession(ctx, claims); err != nil {
+		return nil, err
+	}
 	return claims, nil
 }
 
@@ -1089,7 +1111,7 @@ func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	if strings.HasPrefix(token, "hlx_live_") {
 		return h.validateAPIKey(r.Context(), token)
 	}
-	return h.ValidateToken(token)
+	return h.ValidateToken(r.Context(), token)
 }
 
 // validateAPIKey looks up an API key by its SHA-256 hash and returns synthetic
@@ -1211,23 +1233,54 @@ func isWriteScope(s Scope) bool {
 	return false
 }
 
+// roleScopes is what an interactive session of each users.role may do
+// (S-4/E4). It must agree with the dashboard's apps/web/lib/rbac.ts MATRIX;
+// TestRoleScopesMatchDashboardMatrix fails the build if they drift. Owner-only
+// actions (workspace erase/export, billing, runtime quota) keep their explicit
+// role checks in the handlers; owner and admin differ only there.
+//
+//	member: build and run agents; read everything; no keys, connectors,
+//	        budgets, channels, billing, sandboxes admin or personal (coarse
+//	        write) data. Connectors are admin-only because their credentials
+//	        are tenant-wide secrets every agent can use.
+//	viewer: read only. Unknown roles get viewer.
+var roleScopes = map[string][]Scope{
+	"owner":  {ScopeAdmin},
+	"admin":  {ScopeAdmin},
+	"member": {ScopeRead, ScopeAgentsWrite, ScopeRunsExecute},
+	"viewer": {ScopeRead},
+}
+
+// sessionScopes returns the scopes a JWT session holds by role.
+func sessionScopes(role string) []Scope {
+	if s, ok := roleScopes[role]; ok {
+		return s
+	}
+	return roleScopes["viewer"]
+}
+
+// isUserSession reports whether claims came from an interactive user JWT
+// (not an API key, not a kiosk visitor).
+func isUserSession(c *PalClaims) bool {
+	return c.Role != "service" && c.Role != kioskRole
+}
+
 // HasScope returns true when the claims allow the requested scope.
 //
 // Rules:
-//   - JWT-based auth (Role != "service"): always allowed — JWT holders are
-//     interactive users, not machine tokens.
+//   - User session (JWT): the role's scopes (roleScopes).
+//   - Kiosk (ADR 0029): its explicit token scopes.
 //   - API key with empty scopes list: always allowed (legacy / unrestricted key).
 //   - API key with non-empty scopes: see scopeImplies for the full lattice.
 func HasScope(claims *PalClaims, required Scope) bool {
-	// Role "kiosk" (ADR 0029) is scope-limited like a service key, so
-	// PAL_AUTHZ_ENFORCE=1 actually constrains an anonymous demo visitor.
-	if claims.Role != "service" && claims.Role != kioskRole {
+	held := claims.Scopes
+	switch {
+	case isUserSession(claims):
+		held = sessionScopes(claims.Role)
+	case claims.Role != kioskRole && len(claims.Scopes) == 0:
 		return true
 	}
-	if len(claims.Scopes) == 0 && claims.Role != kioskRole {
-		return true
-	}
-	for _, s := range claims.Scopes {
+	for _, s := range held {
 		if Scope(s) == required || scopeImplies(Scope(s), required) {
 			return true
 		}
@@ -1279,6 +1332,15 @@ func (h *AuthHandler) WithScope(required Scope, next http.HandlerFunc) http.Hand
 			return
 		}
 		if !HasScope(claims, required) {
+			// A user session's role is ALWAYS enforced; PAL_AUTHZ_ENFORCE only
+			// stages enforcement for API keys and kiosk (ADR 0042).
+			if isUserSession(claims) {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"error": fmt.Sprintf("your role (%s) cannot do this (needs %s)", claims.Role, required),
+					"code":  "role_forbidden",
+				})
+				return
+			}
 			if authzEnforce() {
 				writeJSON(w, http.StatusForbidden, map[string]string{
 					"error": fmt.Sprintf("API key missing required scope: %s", required),
@@ -1311,6 +1373,29 @@ func (h *AuthHandler) WithScopeOrAgent(required Scope, next http.HandlerFunc) ht
 			return
 		}
 		scoped(w, r)
+	}
+}
+
+// AdminRoles are the session roles that may administer the workspace.
+var AdminRoles = []string{"owner", "admin"}
+
+// RequireSessionRole narrows a WithScope route for interactive sessions: a
+// user JWT whose role is not listed gets 403. API keys and agents pass through
+// (their scope / policy already governs them), so it never breaks a key that
+// holds the route's scope. Wrap it INSIDE WithScope, which puts the claims in
+// the context:
+//
+//	auth.WithScope(ScopeAgentsWrite, auth.RequireSessionRole(AdminRoles, h.Rotate))
+func (h *AuthHandler) RequireSessionRole(roles []string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if c := claimsFromCtx(r.Context()); c != nil && isUserSession(c) && !slices.Contains(roles, c.Role) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": fmt.Sprintf("your role (%s) cannot do this (needs %s)", c.Role, strings.Join(roles, " or ")),
+				"code":  "role_forbidden",
+			})
+			return
+		}
+		next(w, r)
 	}
 }
 

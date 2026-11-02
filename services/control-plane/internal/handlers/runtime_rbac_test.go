@@ -39,7 +39,7 @@ func mintSvcToken(t *testing.T, tenantID string, scopes []string) string {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "svc-key-id",
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 			Issuer:    "pal-test",
 		},
 		TenantID: tenantID,
@@ -475,7 +475,7 @@ func TestListVMsRBAC_UnknownRoleDenied(t *testing.T) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "analyst-key",
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 			Issuer:    "pal-test",
 		},
 		TenantID: "tenant-1",

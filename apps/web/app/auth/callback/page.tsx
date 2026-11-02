@@ -12,7 +12,6 @@ function AuthCallbackInner() {
 
   useEffect(() => {
     const code = searchParams.get("code");
-    const token = searchParams.get("token"); // legacy fallback
     const errorParam = searchParams.get("error");
 
     if (errorParam) {
@@ -22,14 +21,10 @@ function AuthCallbackInner() {
     }
 
     // Full reload after auth so AuthProvider re-runs its mount effect and
-    // fetches /auth/me with the new token (router.replace keeps stale user).
-    // Await the HttpOnly cookie write first: navigating before it lands lets
-    // middleware bounce the gated route back to /login (the auth loop).
+    // fetches /auth/me (router.replace keeps a stale user). The proxy set the
+    // HttpOnly cookie on the exchange response, so it is already in place.
     // "/" then picks the landing (welcome for a brand-new account).
-    const finish = async () => {
-      await api.whenCookieSynced();
-      window.location.replace("/");
-    };
+    const finish = () => window.location.replace("/");
 
     if (code) {
       // Preferred: exchange the one-time code for a JWT (token is never in the
@@ -41,9 +36,6 @@ function AuthCallbackInner() {
           setError("Sign-in link expired or already used");
           setTimeout(() => router.replace("/login"), 3000);
         });
-    } else if (token) {
-      api.setToken(token);
-      void finish();
     } else {
       setError("No sign-in code received");
       setTimeout(() => router.replace("/login"), 3000);

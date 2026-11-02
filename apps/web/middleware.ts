@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { buildCsp } from "./lib/security-headers";
 
 const PUBLIC_PATHS = ["/login", "/onboarding", "/api", "/auth", "/kiosk"];
 
@@ -24,11 +25,28 @@ function redirectToLogin(request: NextRequest): NextResponse {
   return res;
 }
 
-export async function middleware(request: NextRequest) {
+// Every page gets a fresh CSP nonce (lib/security-headers.ts). The request
+// header lets Next stamp its own scripts and app/layout.tsx read x-nonce.
+function withCsp(request: NextRequest): { headers: Headers; csp: string } {
+  const nonce = btoa(crypto.randomUUID());
+  const csp = buildCsp(nonce, process.env.NODE_ENV !== "production");
+  const headers = new Headers(request.headers);
+  headers.set("x-nonce", nonce);
+  headers.set("Content-Security-Policy", csp);
+  return { headers, csp };
+}
+
+export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
+  const { headers, csp } = withCsp(request);
+  const next = () => {
+    const r = NextResponse.next({ request: { headers } });
+    r.headers.set("Content-Security-Policy", csp);
+    return r;
+  };
 
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
+    return next();
   }
 
   const token = request.cookies.get("pal_token")?.value;
@@ -36,8 +54,8 @@ export async function middleware(request: NextRequest) {
   // Presence is necessary but NOT sufficient — a non-empty cookie used to be
   // enough to authenticate, which let a garbage value (or a client-minted
   // demo_token_*) through. We now hand the token to the control-plane's
-  // /auth/me, which validates the HS256 signature + expiry with the shared
-  // JWT_SECRET we don't (and shouldn't) hold here. Non-200 → unauthenticated.
+  // /auth/me, which validates the HS256 signature, expiry and revocation
+  // (token_version) with state we don't (and shouldn't) hold here.
   if (!token) {
     return redirectToLogin(request);
   }
@@ -62,7 +80,7 @@ export async function middleware(request: NextRequest) {
     return redirectToLogin(request);
   }
 
-  return NextResponse.next();
+  return next();
 }
 
 export const config = {

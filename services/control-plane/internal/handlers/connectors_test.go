@@ -41,6 +41,10 @@ func TestMain(m *testing.M) {
 		// 64 hex chars = 32 bytes = AES-256.
 		os.Setenv(secrets.EnvKey, strings.Repeat("a1b2c3d4", 8))
 	}
+	// Most tests mint session JWTs for users that never exist (or run with no
+	// pool), so revocation is stubbed package-wide; the session-revocation tests
+	// switch the real lookup back on with useRealSessionLookup.
+	tokenVersionLookup = stubTokenVersion
 	os.Exit(m.Run())
 }
 

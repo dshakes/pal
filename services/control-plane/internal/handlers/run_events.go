@@ -60,7 +60,7 @@ func (h *RESTHandler) GetRunEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		tokenParam := r.URL.Query().Get("token")
 		if tokenParam != "" {
-			claims, err = h.auth.ValidateToken(tokenParam)
+			claims, err = h.auth.ValidateToken(r.Context(), tokenParam)
 		}
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})

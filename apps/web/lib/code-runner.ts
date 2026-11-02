@@ -32,9 +32,11 @@ export async function runCode(code: string, language: CodeLanguage): Promise<Cod
 
   // JavaScript: execute inside a Web Worker, NOT on the main thread. The
   // snippets we run here can come from assistant/LLM output (a prompt-injected
-  // agent could emit hostile JS). A Worker has no DOM, no `window`, and — most
-  // importantly — no `localStorage`, so executed code cannot read the bearer
-  // token or touch the dashboard origin's session. Hard timeout + terminate.
+  // agent could emit hostile JS). A Worker has no DOM and no `window`, and
+  // public/code-runner-worker.js is served with a CSP that forbids every
+  // network fetch, so executed code cannot use the session cookie to call the
+  // API (the /api/pal proxy would otherwise accept a same-origin worker fetch).
+  // Hard timeout + terminate.
   return runJsInWorker(code, start);
 }
 
@@ -42,33 +44,13 @@ const WORKER_TIMEOUT_MS = 2000;
 
 function runJsInWorker(code: string, start: number): Promise<CodeRunResult> {
   // SSR / no-Worker guard.
-  if (typeof Worker === "undefined" || typeof Blob === "undefined") {
+  if (typeof Worker === "undefined") {
     return Promise.resolve({
       output: "Sandbox unavailable (no Worker support in this environment).",
       error: true,
       duration: Date.now() - start,
     });
   }
-  const workerSrc = `
-    const logs = [];
-    function fmt(a){ try { return (a !== null && typeof a === "object") ? JSON.stringify(a, null, 2) : String(a); } catch (_) { return String(a); } }
-    const sandboxConsole = {
-      log:  (...a) => logs.push(a.map(fmt).join(" ")),
-      error:(...a) => logs.push("[error] " + a.map(fmt).join(" ")),
-      warn: (...a) => logs.push("[warn] " + a.map(fmt).join(" ")),
-      info: (...a) => logs.push(a.map(fmt).join(" ")),
-    };
-    self.onmessage = (e) => {
-      try {
-        const fn = new Function("console", e.data);
-        const result = fn(sandboxConsole);
-        if (result !== undefined && logs.length === 0) logs.push(fmt(result));
-        self.postMessage({ ok: true, output: logs.join("\\n") || "(no output)" });
-      } catch (err) {
-        self.postMessage({ ok: false, output: (err && err.message) ? err.message : String(err) });
-      }
-    };
-  `;
   return new Promise<CodeRunResult>((resolve) => {
     let worker: Worker | null = null;
     let settled = false;
@@ -83,9 +65,8 @@ function runJsInWorker(code: string, start: number): Promise<CodeRunResult> {
       WORKER_TIMEOUT_MS,
     );
     try {
-      const url = URL.createObjectURL(new Blob([workerSrc], { type: "application/javascript" }));
-      worker = new Worker(url);
-      URL.revokeObjectURL(url);
+      // A real URL (not a blob:) so the worker gets its own no-network CSP.
+      worker = new Worker("/code-runner-worker.js");
       worker.onmessage = (e: MessageEvent<{ ok: boolean; output: string }>) => {
         clearTimeout(timer);
         finish({ output: e.data.output, error: !e.data.ok, duration: Date.now() - start });

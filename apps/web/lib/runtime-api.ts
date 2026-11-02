@@ -2,25 +2,20 @@
 //
 // The main PalAPI class is method-per-endpoint; the runtime surface is
 // small + new + likely to evolve, so we keep it isolated here behind generic
-// get/post/del helpers that read auth from the same localStorage slot.
+// get/post/del helpers. In the browser they go through the same-origin
+// /api/pal proxy, which adds the session from the HttpOnly cookie (S-3).
 
 import { isNoSessionPath } from "./no-session-paths";
 import { parseSSE } from "./sse";
-import { runtimeApiUrl } from "./runtime-config.ts";
 function baseUrl(): string {
   if (typeof window !== "undefined") {
-    return runtimeApiUrl() ?? "http://localhost:8080";
+    return "/api/pal";
   }
   return (
     process.env.PAL_API_URL ??
     process.env.NEXT_PUBLIC_API_URL ??
     "http://localhost:8080"
   );
-}
-
-function token(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("pal_token");
 }
 
 /** Thrown when the API rejects the bearer token (401). Callers can detect
@@ -46,13 +41,7 @@ export class HttpError extends Error {
 
 function purgeTokenAndRedirect() {
   if (typeof window === "undefined") return;
-  try {
-    localStorage.removeItem("pal_token");
-    // Clear the HttpOnly cookie via the server-side Route Handler.
-    fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
-  } catch {
-    /* ignore */
-  }
+  // The middleware clears the rejected cookie on the next gated navigation.
   // Avoid bouncing back-and-forth if we're already on /login (or another no-session page).
   if (!isNoSessionPath(window.location.pathname)) {
     const next = encodeURIComponent(
@@ -68,8 +57,6 @@ async function request<T>(
   body?: unknown,
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
 
   const res = await fetch(`${baseUrl()}${path}`, {
     method,
@@ -95,10 +82,7 @@ async function request<T>(
 
 /** GET a text/plain body (file contents). `truncated` mirrors the X-Pal-Truncated header. */
 async function getText(path: string): Promise<{ text: string; truncated: boolean }> {
-  const headers: Record<string, string> = {};
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
-  const res = await fetch(`${baseUrl()}${path}`, { headers });
+  const res = await fetch(`${baseUrl()}${path}`);
   if (res.status === 401) {
     purgeTokenAndRedirect();
     throw new UnauthorizedError();
@@ -111,14 +95,11 @@ async function getText(path: string): Promise<{ text: string; truncated: boolean
 }
 
 /**
- * Read an SSE endpoint with fetch so the bearer token travels as a header (EventSource can't
- * send one, and a cross-origin credentialed EventSource is refused by CORS). Resolves when the
+ * Read an SSE endpoint with fetch (named frames, abortable; the proxy adds the session). Resolves when the
  * server closes the stream; rejects on a non-2xx or a dropped connection. Aborting resolves.
  */
 async function streamSSE(path: string, onData: (data: string) => void, signal: AbortSignal): Promise<void> {
   const headers: Record<string, string> = { Accept: "text/event-stream" };
-  const t = token();
-  if (t) headers.Authorization = `Bearer ${t}`;
   try {
     const res = await fetch(`${baseUrl()}${path}`, { headers, signal });
     if (res.status === 401) {

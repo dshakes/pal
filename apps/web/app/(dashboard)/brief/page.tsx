@@ -37,7 +37,7 @@ const CHANNELS: BridgeChannel[] = ["whatsapp", "imessage"];
 type ChannelHealth = Record<BridgeChannel, "online" | "offline" | "unknown">;
 
 export default function BriefPage() {
-  const canAct = useCan("runs:execute");
+  const canAct = useCan("write");
   const { user } = useAuth();
   const { isConfigured } = useModels();
   const toast = useToast();
@@ -394,7 +394,7 @@ function HoldCard({
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(draft.draftText);
   const [busy, setBusy] = useState<null | "approve" | "edit" | "discard">(null);
-  const canAct = useCan("runs:execute"); // sending/discarding a held reply (UX gating, lib/rbac-matrix.ts)
+  const canAct = useCan("write"); // sending/discarding a held reply (UX gating, lib/rbac-matrix.ts)
   const act = async (a: "approve" | "edit" | "discard") => {
     setBusy(a);
     await onResolve(draft, a, a === "edit" ? text : undefined);

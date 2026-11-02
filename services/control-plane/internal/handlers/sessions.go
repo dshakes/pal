@@ -866,7 +866,7 @@ func (h *SessionHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 		// Also check query param for EventSource (which can't set headers).
 		tokenParam := r.URL.Query().Get("token")
 		if tokenParam != "" {
-			claims, err = h.auth.ValidateToken(tokenParam)
+			claims, err = h.auth.ValidateToken(r.Context(), tokenParam)
 		}
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})

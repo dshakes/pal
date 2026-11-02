@@ -436,7 +436,7 @@ function EventCard({
   onMarkDone: (id: string) => void;
 }) {
   const [busy, setBusy] = useState<"undo" | "mark-done" | null>(null);
-  const canAct = useCan("runs:execute"); // undo/dismiss steer the owner's bridge (UX gating, lib/rbac-matrix.ts)
+  const canAct = useCan("write"); // undo/dismiss steer the owner's bridge (UX gating, lib/rbac-matrix.ts)
   const icon = KIND_ICONS[event.kind] ?? <Zap className="h-4 w-4" />;
   const isDone = event.status === "undone" || event.status === "dismissed";
 
