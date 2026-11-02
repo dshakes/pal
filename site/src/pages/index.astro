@@ -59,14 +59,14 @@ const STATUS = [
   { h: 'You run both planes', b: 'There is no managed cloud endpoint yet. You deploy the control plane and the data plane.' },
 ] as const;
 ---
-<Page title="PAL — the Personalized Agentic Layer" description="PAL is the Personalized Agentic Layer: a personal agent in your iMessage and WhatsApp that asks before anything risky, and PAL Runtime, the same runtime for building, testing and governing your company’s agents. Open beta, Apache-2.0.">
+<Page title="PAL — the Personalized Agentic Layer" description="PAL is the Personalized Agentic Layer: a personal agent in your iMessage and WhatsApp that asks before anything risky, and PAL Runtime, the runtime to build, test and ship your own agents. Open beta, Apache-2.0.">
   <section class="hero hero-choose" aria-labelledby="hero-h">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="wrap">
       <p class="center" data-reveal><span class="beta">Open beta · Apache-2.0</span></p>
       <p class="eyebrow center hero-eyebrow" data-reveal>PAL · the <b>Personalized Agentic Layer</b></p>
-      <h1 id="hero-h" class="display center hero-title hero-v3" data-reveal><span>Agents personalized to you.</span> <span class="grad">And to your business.</span></h1>
-      <p class="lede center hero-lede" data-reveal>For you, an agent in the chats you already use that drafts, holds and asks before anything risky. For your company, the same runtime to build, test, ship and govern your own agents.</p>
+      <h1 id="hero-h" class="display center hero-title hero-v3" data-reveal><span>Agents that work for you.</span> <span class="grad">And only with your yes.</span></h1>
+      <p class="lede center hero-lede" data-reveal>For you, an agent in the chats you already use that drafts, holds and asks before anything risky. Build as many as you need, then test, ship and run them on the same runtime, PAL Runtime, with your own agents.</p>
       <div class="choose" data-reveal>
         <a class="choice choice-pal" href={u('pal/')}>
           <span class="choice-k">For you</span>
@@ -80,9 +80,9 @@ const STATUS = [
           <span class="choice-go">Meet PAL</span>
         </a>
         <a class="choice choice-rt" href={u('runtime/')}>
-          <span class="choice-k">For your company</span>
+          <span class="choice-k">Build and ship agents</span>
           <Logo variant="runtime" size={26} />
-          <span class="choice-h">Agents for your business, governed.</span>
+          <span class="choice-h">Build it. Prove it. Ship it.</span>
           <span class="choice-b">Eval gates, promotion with approval and canary, default-deny policy, microVM sandboxes. In your cloud.</span>
           <span class="mini-loop" aria-hidden="true"><i>build</i><i>eval</i><i>promote</i><i>observe</i></span>
           <span class="choice-go">Explore PAL Runtime</span>
@@ -149,9 +149,9 @@ const STATUS = [
   <section class="section" aria-labelledby="ship-h">
     <div class="wrap">
       <div class="section-head" data-reveal>
-        <p class="eyebrow"><b class="rt-k">PAL Runtime</b> · for your company</p>
+        <p class="eyebrow"><b class="rt-k">PAL Runtime</b> · build and ship</p>
         <h2 id="ship-h" class="h2" style="margin-top:12px">Ship agents the way you ship software.</h2>
-        <p class="lede">Agents personalized to your business, on the same runtime that powers PAL. Nothing reaches production without passing its evals, and prod needs a person’s yes.</p>
+        <p class="lede">Build agents on the same runtime that powers PAL. Nothing reaches production without passing its evals, and prod needs a person’s yes.</p>
       </div>
       <div data-reveal><ShipLoop /></div>
     </div>
@@ -231,7 +231,7 @@ const STATUS = [
           <ul>{TRUST_YOU.map((t) => <li><h3>{t.h}</h3><p>{t.b}</p></li>)}</ul>
         </div>
         <div class="trust-col trust-co" data-reveal>
-          <p class="trust-k"><b class="rt-k">PAL Runtime</b> · for your company</p>
+          <p class="trust-k"><b class="rt-k">PAL Runtime</b> · build and ship</p>
           <ul>{TRUST_CO.map((t) => <li><h3>{t.h}</h3><p>{t.b}</p></li>)}</ul>
         </div>
       </div>
@@ -279,7 +279,7 @@ make demo-down</code></pre>
   <section class="section closer closer-grad" aria-labelledby="close-h">
     <div class="wrap" data-reveal>
       <h2 id="close-h" class="h2">PAL runs on PAL Runtime.</h2>
-      <p class="lede" style="margin:20px auto 0">The agent that answers for us every day runs on the same open layer you can run your company’s agents on.</p>
+      <p class="lede" style="margin:20px auto 0">The agent that answers for us every day runs on the same open layer you can build and run your own agents on.</p>
       <div class="actions">
         <a class="btn btn-pal" href={u('pal/')}>Meet PAL</a>
         <a class="btn btn-rt" href={u('runtime/')}>Explore PAL Runtime</a>
