@@ -21,7 +21,7 @@ type DiscordDeliverer struct {
 // NewDiscordDeliverer creates a new DiscordDeliverer.
 func NewDiscordDeliverer(logger *zap.Logger) *DiscordDeliverer {
 	return &DiscordDeliverer{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: deliveryDialPolicy().newHTTPClient(15 * time.Second), // SSRF guard: Recipient is tenant input
 		logger: logger.Named("discord"),
 	}
 }

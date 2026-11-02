@@ -21,7 +21,7 @@ type SlackDeliverer struct {
 // NewSlackDeliverer creates a new SlackDeliverer.
 func NewSlackDeliverer(logger *zap.Logger) *SlackDeliverer {
 	return &SlackDeliverer{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: deliveryDialPolicy().newHTTPClient(15 * time.Second), // SSRF guard: Recipient is tenant input
 		logger: logger.Named("slack"),
 	}
 }
