@@ -36,7 +36,7 @@ prometheus = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 # Test-time PKI for the mTLS handshake tests (never in production code).
-rcgen = "0.13"
+rcgen = "0.14"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 http = "1"
 tokio-stream = { version = "0.1", features = ["net"] }
