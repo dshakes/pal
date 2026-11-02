@@ -174,7 +174,7 @@ const LLM_CLUSTER_PROMPT = [
   "1. Each `text` is ONE imperative style rule, max 120 chars. No names,",
   "   no quotes from the messages, no PII — only a general writing rule.",
   "   GOOD: \"Avoid corporate jargon — the owner prefers plain words.\"",
-  "   BAD:  \"Don't tell Raju you'll call at 5pm.\" (specific / PII)",
+  "   BAD:  \"Don't tell Alex you'll call at 5pm.\" (specific / PII)",
   "2. `support` = how many of the drafts below exhibit the pattern.",
   "3. ONLY return a lesson if 3+ drafts share the pattern. Else omit.",
   "4. Return {\"lessons\": []} if nothing recurs.",

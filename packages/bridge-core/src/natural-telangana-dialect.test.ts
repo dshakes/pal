@@ -18,8 +18,11 @@ import {
   agentPersonaPrompt,
   inferStyle,
 } from "./natural.ts";
+import { parseProfile } from "./owner-profile.ts";
 
 const style = inferStyle([]);
+// The dialect rules are gated on the profile's `## Voice` declaration.
+const TE = parseProfile("## Voice\n- dialect: te-telangana\n- pronouns: he/him\n").voice;
 
 // ── isRespectRelationship ──
 
@@ -74,25 +77,25 @@ test("native-script ండి imperative flagged for a peer", () => {
 // ── detectBotTells integration (register-aware via ctx.relationship) ──
 
 test("detectBotTells suppresses cheppandi for a peer", () => {
-  const v = detectBotTells("ha cheppandi, repu matladtham", "em chestunnav", { relationship: "college friend" });
+  const v = detectBotTells("ha cheppandi, repu matladtham", "em chestunnav", { relationship: "college friend", voice: TE });
   assert.equal(v.ok, false, "should suppress for a peer");
   assert.match(v.reason ?? "", /-andi/);
 });
 
 test("detectBotTells allows cheppandi for an elder", () => {
-  const v = detectBotTells("ha cheppandi, repu matladtham", "em chestunnav", { relationship: "father" });
+  const v = detectBotTells("ha cheppandi, repu matladtham", "em chestunnav", { relationship: "father", voice: TE });
   assert.equal(v.ok, true, `should allow for an elder: ${v.reason}`);
 });
 
 test("detectBotTells allows the casual medium-Telangana form", () => {
-  const v = detectBotTells("ha cheppu, repu matladtham", "em chestunnav", { relationship: "college friend" });
+  const v = detectBotTells("ha cheppu, repu matladtham", "em chestunnav", { relationship: "college friend", voice: TE });
   assert.equal(v.ok, true, `casual form should pass: ${v.reason}`);
 });
 
 // ── Persona steering ──
 
 test("persona carries the medium-tone Telangana dialect rule", () => {
-  const p = agentPersonaPrompt("Ada", style, false, {});
+  const p = agentPersonaPrompt("Ada", style, false, { voice: TE });
   assert.match(p, /medium-tone Telangana/i, "medium-tone Telangana rule missing");
   assert.match(p, /cheppu/i, "casual imperative guidance missing");
   assert.match(p, /-andi/i, "formal -andi guidance missing");
@@ -114,7 +117,7 @@ test("detectTeluguBotTell flags a standalone 'ra' in an English reply (the repor
 });
 
 test("detectBotTells suppresses the exact cousin-chat 'ra' reply", () => {
-  const v = detectBotTells("Not automated ra, just quick on the reply 😊", "Idhi automate chesnava");
+  const v = detectBotTells("Not automated ra, just quick on the reply 😊", "Idhi automate chesnava", { voice: TE });
   assert.equal(v.ok, false, "the 'ra' reply must be suppressed");
   assert.match(v.reason ?? "", /vocative particle/i);
 });
@@ -151,12 +154,12 @@ test("English look-alikes never trip the vocative net", () => {
 
 test("garbled invented-Telugu word-salad is suppressed (nudistunnanu)", () => {
   assert.ok(detectTeluguBotTell("nudistunnanu 🙂 meeru?"), "hallucinated Telugu must be flagged");
-  const v = detectBotTells("nudistunnanu 🙂 meeru?", "Edunnav");
+  const v = detectBotTells("nudistunnanu 🙂 meeru?", "Edunnav", { voice: TE });
   assert.equal(v.ok, false, "hallucinated Telugu must be suppressed");
 });
 
 test("persona no longer instructs the model to use 'ra'", () => {
-  const p = agentPersonaPrompt("Ada", style, false, {});
+  const p = agentPersonaPrompt("Ada", style, false, { voice: TE });
   assert.doesNotMatch(p, /"thanks ra"/i, "persona must not suggest 'thanks ra'");
   assert.doesNotMatch(p, /"raa"\/"ra"/i, "persona must not give 'ra' as an imperative example");
   assert.match(p, /NEVER use the vocative\/address particles/i, "explicit 'ra' ban missing");

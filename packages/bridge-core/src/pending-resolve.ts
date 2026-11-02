@@ -37,7 +37,7 @@ export function buildPendingResolvePrompt(pendings: PendingDescriptor[], ownerMe
     `{"decision":"none"}                  — the reply is unrelated to any staged action`,
     ``,
     `Rules:`,
-    `- If the reply names a contact ("send to Bhavik"), a document ("send the aadhaar one"), or clearly points at one ("yes the first", "the text"), pick THAT id.`,
+    `- If the reply names a contact ("send to Sam"), a document ("send the aadhaar one"), or clearly points at one ("yes the first", "the text"), pick THAT id.`,
     `- If it's a bare "send"/"yes"/"do it" and there are multiple staged actions with no way to tell which, choose "ask" with a crisp either/or naming the contacts/docs. NEVER guess when a document (PII) could go to the wrong person.`,
     `- "no"/"cancel"/"drop it" with one obvious target → reject it; if ambiguous which to cancel, "ask".`,
     `- Anything that isn't confirming/cancelling a staged action → "none".`,
