@@ -90,7 +90,12 @@ const HOLDS_COPY =
 
 async function probe<T>(channel: Channel, path: string, init?: RequestInit): Promise<{ reachable: boolean; httpStatus?: number; body?: T }> {
   try {
-    const res = await fetch(`/api/bridge/${channel}${path}`, { cache: "no-store", ...init });
+    const res = await fetch(`/api/bridge/${channel}${path}`, {
+      cache: "no-store",
+      // The proxy refuses non-JSON writes (CSRF); JSON on reads is harmless.
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
     let body: T | undefined;
     try {
       body = (await res.json()) as T;
@@ -825,8 +830,8 @@ function Shell({ step, blocked, onReset, children }: { step: PalStep; blocked: b
   return (
     <div className="min-h-screen bg-surface-0">
       <PageHeader
-        title="Set up pal"
-        description="Connect your channels, teach pal your voice, decide what it may do."
+        title="Set up PAL"
+        description="Connect your channels, teach PAL your voice, decide what it may do."
         secondaryAction={
           <Button variant="ghost" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={onReset}>
             Start over
@@ -902,7 +907,7 @@ function ConsentCard({
       <div className="space-y-3 text-sm text-zinc-200">
         <label className="flex items-start gap-2">
           <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-pal-500" />
-          <span>pal may read my iMessage and WhatsApp on this Mac and reply as me, sending conversation text to my own model provider to write replies. I can mute it or stop it any time.</span>
+          <span>PAL may read my iMessage and WhatsApp on this Mac and reply as me, sending conversation text to my own model provider to write replies. I can mute it or stop it any time.</span>
         </label>
         <label className="flex items-start gap-2">
           <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} className="mt-0.5 h-4 w-4 accent-pal-500" />

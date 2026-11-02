@@ -20,6 +20,10 @@ import {
   inferStyle,
 } from "./natural.ts";
 import { computeContactStyle } from "./per-contact-style.ts";
+import { parseProfile } from "./owner-profile.ts";
+
+// Dialect tells are gated on the profile's `## Voice` declaration.
+const TE = parseProfile("## Voice\n- dialect: te-telangana\n").voice;
 
 // ---------------------------------------------------------------------------
 // Telugu textbook long forms — MUST be flagged (suppressed → regenerate)
@@ -48,7 +52,7 @@ for (const bad of TELUGU_BAD) {
       `expected a Telugu bot-tell for: ${bad}`,
     );
     assert.equal(
-      detectBotTells(bad).ok,
+      detectBotTells(bad, undefined, { voice: TE }).ok,
       false,
       `detectBotTells should suppress: ${bad}`,
     );
@@ -85,7 +89,7 @@ for (const good of TELUGU_GOOD) {
       `should be clean (good form): ${good}`,
     );
     assert.equal(
-      detectBotTells(good).ok,
+      detectBotTells(good, undefined, { voice: TE }).ok,
       true,
       `detectBotTells should pass: ${good}`,
     );
@@ -108,7 +112,7 @@ const TELUGU_PARTICLE_BAD = [
 for (const bad of TELUGU_PARTICLE_BAD) {
   test(`flags Telugu end-particle: ${bad}`, () => {
     assert.notEqual(detectTeluguBotTell(bad), null, `expected flag: ${bad}`);
-    assert.equal(detectBotTells(bad).ok, false);
+    assert.equal(detectBotTells(bad, undefined, { voice: TE }).ok, false);
   });
 }
 
@@ -150,7 +154,7 @@ const ENGLISH_BAD = [
 for (const bad of ENGLISH_BAD) {
   test(`flags English LLM-cadence tell: ${bad}`, () => {
     assert.equal(
-      detectBotTells(bad).ok,
+      detectBotTells(bad, undefined, { voice: TE }).ok,
       false,
       `expected suppression for: ${bad}`,
     );
@@ -176,7 +180,7 @@ const OWNER_OK = [
 
 for (const ok of OWNER_OK) {
   test(`does NOT flag real owner message: ${ok}`, () => {
-    assert.equal(detectBotTells(ok).ok, true, `should pass: ${ok}`);
+    assert.equal(detectBotTells(ok, undefined, { voice: TE }).ok, true, `should pass: ${ok}`);
   });
 }
 

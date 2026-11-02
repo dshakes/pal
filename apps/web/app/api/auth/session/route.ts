@@ -10,11 +10,18 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { rejectCrossSiteWrite } from "../../../../lib/server-session.ts";
 
 const COOKIE_NAME = "pal_token";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export async function POST(req: NextRequest) {
+  // Login CSRF: without this a cross-site text/plain POST could plant an
+  // attacker's JWT as the victim's session cookie.
+  const csrf = rejectCrossSiteWrite(req);
+  if (csrf) {
+    return NextResponse.json({ error: csrf }, { status: 403 });
+  }
   let token: string;
   try {
     const body = (await req.json()) as { token?: string };

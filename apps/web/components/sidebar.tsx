@@ -56,7 +56,7 @@ export function Sidebar() {
         <OrgSwitcher collapsed={collapsed} />
       </div>
 
-      <nav aria-label={mode === "pal" ? "pal navigation" : "Runtime navigation"} className="mt-3 flex-1 overflow-y-auto px-2 pb-2">
+      <nav aria-label={mode === "pal" ? "PAL navigation" : "PAL Runtime navigation"} className="mt-3 flex-1 overflow-y-auto px-2 pb-2">
         {NAV[mode].map((section, si) => (
           <div key={si} className={clsx(si > 0 && "mt-4")}>
             {section.title && !collapsed && (

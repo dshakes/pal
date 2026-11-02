@@ -11,9 +11,9 @@ export interface DocRelayContext {
   ownerName: string;
   contactLabel: string;
   relationship?: string; // e.g. "wife", "brother", "college friend"
-  request: string; // what they asked for, e.g. "PAN card"
-  fileName: string; // the file we found, e.g. "Shekhar_PAN_Card.pdf"
-  folder?: string; // human folder hint, e.g. "I-485/Shekhar"
+  request: string; // what they asked for, e.g. "passport"
+  fileName: string; // the file we found, e.g. "Alex_Passport.pdf"
+  folder?: string; // human folder hint, e.g. "Travel/Alex"
 }
 
 // Generic words that don't identify WHICH document (they match card/copy/etc.
@@ -168,7 +168,7 @@ export function buildDocRelayPrompt(c: DocRelayContext): string {
     `${who} just messaged ${c.ownerName} asking for their ${c.request}.`,
     `You searched ${c.ownerName}'s files and found "${c.fileName}".${where}`,
     ``,
-    `Write ONE short line to ${c.ownerName} — their own casual texting voice, lowercase, no emoji, no greeting, no preamble — saying who's asking and that you found the file. Name the file. If you know the relationship, use it naturally ("manasa wants…"). Do NOT ask a question or add "want me to send it?" — a confirm prompt is appended after your line. Invent nothing beyond the facts above.`,
+    `Write ONE short line to ${c.ownerName} — their own casual texting voice, lowercase, no emoji, no greeting, no preamble — saying who's asking and that you found the file. Name the file. If you know the relationship, use it naturally ("alex wants…"). Do NOT ask a question or add "want me to send it?" — a confirm prompt is appended after your line. Invent nothing beyond the facts above.`,
   ].join("\n");
 }
 

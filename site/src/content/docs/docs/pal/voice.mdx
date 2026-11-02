@@ -1,11 +1,11 @@
 ---
 title: Teach it your voice
-description: "How pal learns your voice, checks each draft against what you have actually sent, and learns from every thumbs-down."
+description: "How PAL learns your voice, checks each draft against what you have actually sent, and learns from every thumbs-down."
 ---
 
 import { VoicePipeline } from '../../../../components/diagrams';
 
-pal drafts replies in your voice, then measures the draft against **your own sent messages** before it goes out. Three checks are about voice: a **bot-tell guard**, a **voice floor** and a **critique-refine** pass. They are code, not prompt advice, so a draft that reads like a bot is rewritten or dropped rather than sent. You teach pal in three ways: during `pal setup`, by tapping thumbs-down on a bad reply, and by telling it facts in your own chat.
+PAL drafts replies in your voice, then measures the draft against **your own sent messages** before it goes out. Three checks are about voice: a **bot-tell guard**, a **voice floor** and a **critique-refine** pass. They are code, not prompt advice, so a draft that reads like a bot is rewritten or dropped rather than sent. You teach PAL in three ways: during `pal setup`, by tapping thumbs-down on a bad reply, and by telling it facts in your own chat.
 
 <VoicePipeline client:visible />
 
@@ -29,7 +29,7 @@ It scores surface style, not meaning. It never runs on your own chat, on groups,
 
 ## Teach it during setup
 
-Step 3 of [`pal setup`](/docs/pal/surfaces/) can read your recent one-to-one messages, only if you agree at step 1. It shows a profile (register, sentence length, warmth, patterns) and a sample reply as you. Answer `a` if it sounds like you, `r` to say what is off and try again, or `s` to skip. With `pal setup --apply`, an approved profile sets `PAL_VOICE_REASONING=1`, which makes pal use that reasoned profile instead of a fixed heuristic.
+Step 3 of [`pal setup`](/docs/pal/surfaces/) can read your recent one-to-one messages, only if you agree at step 1. It shows a profile (register, sentence length, warmth, patterns) and a sample reply as you. Answer `a` if it sounds like you, `r` to say what is off and try again, or `s` to skip. With `pal setup --apply`, an approved profile sets `PAL_VOICE_REASONING=1`, which makes PAL use that reasoned profile instead of a fixed heuristic.
 
 ## Teach it with a thumbs-down
 
@@ -41,7 +41,7 @@ A model pass also finds patterns the fixed rules miss. It can only add or raise 
 
 ## Tell it facts
 
-Your owner profile (`~/.pal/owner-profile.md`, or the path in `PAL_OWNER_PROFILE`) holds facts pal must never contradict and per-contact naming rules:
+Your owner profile (`~/.pal/owner-profile.md`, or the path in `PAL_OWNER_PROFILE`) holds facts PAL must never contradict and per-contact naming rules:
 
 ```markdown
 ## Facts
@@ -53,7 +53,7 @@ Your owner profile (`~/.pal/owner-profile.md`, or the path in `PAL_OWNER_PROFILE
 - Jordan: college friend | address as: Jo | never: buddy, bro
 ```
 
-Dates are `YYYY-MM-DD`. You can also teach it in your own chat: "remember: anniversary is May 2 2015" or "don't call Jordan buddy". pal answers `📝 noted — …`. `address as:` sets what to call someone; `never:` lists terms pal must not use for them.
+Dates are `YYYY-MM-DD`. You can also teach it in your own chat: "remember: anniversary is May 2 2015" or "don't call Jordan buddy". PAL answers `📝 noted — …`. `address as:` sets what to call someone; `never:` lists terms PAL must not use for them.
 
 ## Settings
 
@@ -64,4 +64,4 @@ Dates are `YYYY-MM-DD`. You can also teach it in your own chat: "remember: anniv
 | `PAL_DISLIKE_LLM_CLUSTER` | on | `0` keeps only the fixed-rule lesson miner |
 | `PAL_VOICE_CLONE` | off | Opt-in and deepfake-class. `1` speaks outbound phone calls in a cloned voice (ElevenLabs) instead of a stock one. It needs `PAL_ELEVENLABS_API_KEY`, `PAL_ELEVENLABS_VOICE_ID` and a public cache URL, or it falls back to the stock voice. The recording-consent announcement still plays. |
 
-The remaining voice variables are in [Environment variables](/docs/reference/env-vars/) and [pal internals](/docs/architecture/pal/).
+The remaining voice variables are in [Environment variables](/docs/reference/env-vars/) and [PAL internals](/docs/architecture/pal/).

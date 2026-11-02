@@ -1,24 +1,24 @@
 ---
 title: What PAL is
-description: "PAL is two products on one platform: pal, a personal agent for your own messages, and PAL Runtime, the platform it runs on."
+description: "PAL is two products on one platform: PAL, a personal agent for your own messages, and PAL Runtime, the platform it runs on."
 tableOfContents: false
 ---
 
 import CapabilityGrid from '../../../components/CapabilityGrid.astro';
 
-PAL is two products on one platform. **pal** is a personal agent that answers your iMessage and WhatsApp threads as you, from your Mac, and holds anything that commits you until you say yes. **PAL Runtime** is the platform pal runs on: a runtime for AI agents that makes runs **durable**, **budgeted** and **sandboxed**. pal talks to the same sessions API you use for your own agents.
+PAL is two products on one platform. **PAL** is a personal agent that answers your iMessage and WhatsApp threads as you, from your Mac, and holds anything that commits you until you say yes. **PAL Runtime** is the platform PAL runs on: a runtime for AI agents that makes runs **durable**, **budgeted** and **sandboxed**. PAL talks to the same sessions API you use for your own agents.
 
-| | pal | PAL Runtime |
+| | PAL | PAL Runtime |
 | --- | --- | --- |
-| What it is | A personal agent for your own iMessage and WhatsApp | A platform for running agents, yours or pal's |
+| What it is | A personal agent for your own iMessage and WhatsApp | A platform for running agents, yours or PAL's |
 | Who it is for | You, on your Mac | Developers and platform teams |
 | What it does | Drafts, checks and sends replies in your voice; holds the risky ones | Runs agents durably, within budget, with untrusted code in a microVM |
 | Where it runs | Two channel bridges on your Mac, next to a control plane | Your laptop, your cluster, or a managed control plane with the data plane in your VPC |
-| Start with | [How pal works](/docs/pal/) | [How PAL Runtime works](/docs/architecture/overview/) |
+| Start with | [How PAL works](/docs/pal/) | [How PAL Runtime works](/docs/architecture/overview/) |
 
-## What pal does
+## What PAL does
 
-Replies in your voice, holds what commits you, briefs you on what needs you, and keeps one memory of your people across iMessage and WhatsApp. Each capability, with its own diagram: [How pal works](/docs/pal/).
+Replies in your voice, holds what commits you, briefs you on what needs you, and keeps one memory of your people across iMessage and WhatsApp. Each capability, with its own diagram: [How PAL works](/docs/pal/).
 
 ## What PAL Runtime does
 
@@ -26,8 +26,8 @@ Replies in your voice, holds what commits you, briefs you on what needs you, and
 
 ## What PAL is not
 
-- **Not a chat client.** pal acts through the iMessage and WhatsApp accounts on your Mac. It does not replace either app.
-- **Not fully unattended.** pal sends ordinary replies on its own. It holds anything that commits you, and it does not verify a held claim; it holds it.
+- **Not a chat client.** PAL acts through the iMessage and WhatsApp accounts on your Mac. It does not replace either app.
+- **Not fully unattended.** PAL sends ordinary replies on its own. It holds anything that commits you, and it does not verify a held claim; it holds it.
 - **Not a hosted service you sign up for.** A fully managed PAL cloud is the intended offering, not a shipped one. Today you run the control plane yourself ([Deploy to the cloud](/docs/start/deploy/)).
 - **Not a model.** You bring provider keys. Agents ask for a capability, and PAL maps it to a model from your providers.
 

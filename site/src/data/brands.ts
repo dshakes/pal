@@ -96,7 +96,7 @@ export const CONNECTORS: Brand[] = [
   { name: 'Vercel', icon: 'vercel', sub: 'deployments' }, { name: 'HubSpot', icon: 'hubspot', sub: 'contacts, deals' },
   { name: 'Salesforce', icon: 'salesforce', sub: 'SOQL' }, { name: 'Stripe', icon: 'stripe', sub: 'charges, customers' },
 ];
-// Where pal and your agents talk to people (docs/pal/surfaces).
+// Where PAL and your agents talk to people (docs/pal/surfaces).
 export const SURFACES: Brand[] = [
   { name: 'iMessage', icon: 'imessage', sub: 'on your own Mac', href: 'pal/surfaces' }, { name: 'WhatsApp', icon: 'whatsapp', sub: 'self-host or Business API', href: 'pal/surfaces' },
   { name: 'Slack', icon: 'slack', sub: 'Events API', href: 'pal/surfaces' }, { name: 'Telegram', icon: 'telegram', sub: 'Bot API', href: 'pal/surfaces' },

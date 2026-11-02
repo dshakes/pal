@@ -1,6 +1,6 @@
 > **Quick setup:** run `make bridge-setup` in the repo root — the interactive wizard handles prereq checks, creates `.env.local`, and walks you through bridge selection in ~5 minutes. Come back here for details.
 
-# PAL Personal — Setup guide
+# PAL — Setup guide
 
 End-to-end walkthrough for setting up PAL as your personal
 assistant on WhatsApp + iMessage, with auto-start at every Mac boot.
@@ -13,7 +13,7 @@ assistant on WhatsApp + iMessage, with auto-start at every Mac boot.
 - VIPs queue drafts for your approval instead of auto-sending
 - Natural-language commands ("pause for 2 hours", "status", "what's
   paused") from any thread
-- Voice notes ("hey pal, mute until tomorrow")
+- Voice notes ("hey PAL, mute until tomorrow")
 - Daily morning digest of overnight activity
 - iOS Siri integration (separate guide: `SHORTCUTS.md`)
 
@@ -178,7 +178,7 @@ it). One-tap approve / edit / discard.
   current state (also via email + dashboard)
 - **Type "pause for 2 hours" in self-chat** → mute auto-reply, auto-
   resume in 2h
-- **Record voice note "pal, status"** → same as above
+- **Record voice note "PAL, status"** → same as above
 - **React ⏸ to any bot reply** → pause that contact
 - **Friend mentions you in a monitored group** → bot DMs you a
   summary + can auto-reply

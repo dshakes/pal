@@ -68,7 +68,7 @@ export function buildPlanPrompt(request: string, ctx: PlanContext): string {
     "",
     "Reply with STRICT JSON only:",
     '{"steps":[',
-    '  {"kind":"message","contact":"<name or handle>","body":"<the gist to tell them, ≤200 chars>","summary":"text Madhu about the call"},',
+    '  {"kind":"message","contact":"<name or handle>","body":"<the gist to tell them, ≤200 chars>","summary":"text Sam about the call"},',
     '  {"kind":"calendar","title":"<event title>","start":"YYYY-MM-DDTHH:MM:SS","end":"YYYY-MM-DDTHH:MM:SS (optional)","notes":"(optional)","summary":"add Fireworks Sat 9pm"},',
     '  {"kind":"note","title":"<note title>","body":"(optional)","summary":"note the lease terms"},',
     '  {"kind":"snooze","target":"<the attention item / thing to defer>","summary":"snooze the lease thing"}',

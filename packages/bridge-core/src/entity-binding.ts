@@ -1,5 +1,5 @@
 // Per-turn entity binding — keeps a contact's name stable within ONE reply
-// so the LLM can't flip "Arun" to "Manasa" mid-answer.
+// so the LLM can't flip "Arun" to "Sam" mid-answer.
 //
 // Usage: create a fresh TurnBindings at the start of each reply, call bind()
 // as you resolve names from the roster/profile, then gate every name lookup
