@@ -15,7 +15,7 @@ const GW: &str = "spiffe://pal.internal/svc/gateway";
 
 struct Ca {
     cert: rcgen::Certificate,
-    key: KeyPair,
+    issuer: rcgen::Issuer<'static, KeyPair>,
 }
 
 fn ca() -> Ca {
@@ -25,7 +25,7 @@ fn ca() -> Ca {
     let key = KeyPair::generate().unwrap();
     Ca {
         cert: p.self_signed(&key).unwrap(),
-        key,
+        issuer: rcgen::Issuer::new(p, key),
     }
 }
 
@@ -60,7 +60,7 @@ fn issue(
         ExtendedKeyUsagePurpose::ClientAuth,
     ];
     let key = KeyPair::generate().unwrap();
-    let cert = p.signed_by(&key, &ca.cert, &ca.key).unwrap();
+    let cert = p.signed_by(&key, &ca.issuer).unwrap();
     let write = |suffix: &str, body: String| {
         let path = dir.0.join(format!("{name}-{suffix}"));
         std::fs::write(&path, body).unwrap();

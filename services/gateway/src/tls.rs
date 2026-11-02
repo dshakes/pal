@@ -191,7 +191,7 @@ mod tests {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("rcgen generate_simple_self_signed failed");
         let cert_pem = cert.cert.pem().into_bytes();
-        let key_pem = cert.key_pair.serialize_pem().into_bytes();
+        let key_pem = cert.signing_key.serialize_pem().into_bytes();
         (cert_pem, key_pem)
     }
 

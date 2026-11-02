@@ -4716,7 +4716,7 @@ mod tests {
         let vm_id = "vm-hb-test";
         let ca = rcgen::generate_simple_self_signed(vec!["ca".to_string()]).expect("rcgen CA");
         let ca_cert_pem = ca.cert.pem();
-        let ca_key_pem = ca.key_pair.serialize_pem();
+        let ca_key_pem = ca.signing_key.serialize_pem();
         let issued =
             crate::tls::generate_vm_client_cert(vm_id, &ca_cert_pem, &ca_key_pem, None).unwrap();
         let der: Vec<u8> = certs(&mut BufReader::new(Cursor::new(issued.cert_pem.as_bytes())))
@@ -4772,7 +4772,7 @@ mod tests {
         let issued = crate::tls::generate_vm_client_cert(
             "vm-rep",
             &ca.cert.pem(),
-            &ca.key_pair.serialize_pem(),
+            &ca.signing_key.serialize_pem(),
             None,
         )
         .unwrap();
@@ -4823,7 +4823,7 @@ mod tests {
         let vm_id = "vm-report-a";
         let ca = rcgen::generate_simple_self_signed(vec!["ca".to_string()]).expect("rcgen CA");
         let ca_cert_pem = ca.cert.pem();
-        let ca_key_pem = ca.key_pair.serialize_pem();
+        let ca_key_pem = ca.signing_key.serialize_pem();
         let issued =
             crate::tls::generate_vm_client_cert(vm_id, &ca_cert_pem, &ca_key_pem, None).unwrap();
         let der: Vec<u8> = certs(&mut BufReader::new(Cursor::new(issued.cert_pem.as_bytes())))
@@ -4861,7 +4861,7 @@ mod tests {
         let vm_id = "vm-otlp-test";
         let ca = rcgen::generate_simple_self_signed(vec!["ca".to_string()]).expect("rcgen CA");
         let ca_cert_pem = ca.cert.pem();
-        let ca_key_pem = ca.key_pair.serialize_pem();
+        let ca_key_pem = ca.signing_key.serialize_pem();
         let issued =
             crate::tls::generate_vm_client_cert(vm_id, &ca_cert_pem, &ca_key_pem, None).unwrap();
         let der: Vec<u8> = certs(&mut BufReader::new(Cursor::new(issued.cert_pem.as_bytes())))
