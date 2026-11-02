@@ -418,7 +418,7 @@ func TestBootstrapMarker_SetByOAuthNewUser(t *testing.T) {
 		case "/token":
 			_, _ = w.Write([]byte(`{"access_token":"tok"}`))
 		case "/userinfo":
-			_, _ = w.Write([]byte(`{"email":"o@x.test","name":"O"}`))
+			_, _ = w.Write([]byte(`{"email":"o@x.test","name":"O","verified_email":true}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -439,6 +439,7 @@ func TestBootstrapMarker_SetByOAuthNewUser(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/google/callback?code=c&state="+state, nil)
 	req.SetPathValue("provider", "google")
+	req.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: oauthStateDigest(state)})
 	rr := httptest.NewRecorder()
 	h.OAuthCallback(rr, req)
 	if loc := rr.Header().Get("Location"); !strings.Contains(loc, "/auth/callback?code=") {

@@ -34,6 +34,17 @@ func main() {
 	logger := mustInitLogger(cfg.LogLevel)
 	defer logger.Sync() //nolint:errcheck
 
+	// The gRPC port is a trust boundary like the other services' (invariant
+	// #7): only callers presenting PAL_GRPC_SERVICE_TOKEN may set a tenant_id.
+	// Fail closed in production; warn and continue in dev.
+	serviceToken := os.Getenv("PAL_GRPC_SERVICE_TOKEN")
+	if serviceToken == "" {
+		if delivery.IsProd() {
+			logger.Fatal("PAL_GRPC_SERVICE_TOKEN is unset — notifier gRPC port would accept any caller-supplied tenant_id; set the shared service token (same value as the control-plane)")
+		}
+		logger.Warn("PAL_GRPC_SERVICE_TOKEN is unset — notifier gRPC accepts unauthenticated callers (acceptable in dev, required in production)")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
@@ -76,7 +87,11 @@ func main() {
 
 	// --- Delivery dispatcher ---
 	dispatcher := delivery.NewDispatcher(logger)
-	dispatcher.RegisterChannel(delivery.NewWebhookDeliverer(logger))
+	webhook, err := delivery.NewWebhookDeliverer(logger)
+	if err != nil {
+		logger.Fatal("webhook deliverer", zap.Error(err))
+	}
+	dispatcher.RegisterChannel(webhook)
 	dispatcher.RegisterChannel(delivery.NewEmailDeliverer(logger))
 	dispatcher.RegisterChannel(delivery.NewSlackDeliverer(logger))
 	dispatcher.RegisterChannel(delivery.NewDiscordDeliverer(logger))
@@ -85,10 +100,12 @@ func main() {
 	// --- gRPC server ---
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
+			middleware.UnaryServiceAuthInterceptor(logger, serviceToken),
 			middleware.UnaryTenantInterceptor(logger),
 			unaryTracingInterceptor(),
 		),
 		grpc.ChainStreamInterceptor(
+			middleware.StreamServiceAuthInterceptor(logger, serviceToken),
 			middleware.StreamTenantInterceptor(logger),
 			streamTracingInterceptor(),
 		),

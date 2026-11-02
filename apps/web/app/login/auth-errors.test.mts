@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { describeAuthError, safeNextPath } from "./auth-errors.ts";
+import { describeAuthError, oauthErrorMessage, safeNextPath } from "./auth-errors.ts";
 
 test("status-specific copy", () => {
   assert.equal(describeAuthError(new Error('API 429: {"error":"too many login attempts"}'), "signin").kind, "rate_limited");
@@ -29,4 +29,22 @@ test("safeNextPath blocks open redirects and loops", () => {
   assert.equal(safeNextPath("/\\evil.example"), "/");
   assert.equal(safeNextPath("/login?next=/x"), "/");
   assert.equal(safeNextPath(null), "/");
+});
+
+test("oauthErrorMessage: known codes map to copy, raw query text never rendered", () => {
+  assert.equal(oauthErrorMessage(null, null), null);
+  const u = oauthErrorMessage("email_unverified", "github")!;
+  assert.equal(u.kind, "unverified");
+  assert.match(u.message, /GitHub email address isn't verified/);
+  assert.match(oauthErrorMessage("link_refused", "google")!.message, /Sign in with your password/);
+  assert.equal(oauthErrorMessage("signup_closed", null)!.kind, "closed");
+  assert.match(oauthErrorMessage("state_invalid", "google")!.message, /wasn't started in this browser/);
+  // Unknown provider is not echoed; unknown code / free text gets the generic line.
+  assert.match(oauthErrorMessage("oauth_denied", "<img src=x>")!.message, /with your provider was cancelled/);
+  const evil = "Your account is locked, call +1-555-0100";
+  const g = oauthErrorMessage(evil, "google")!;
+  assert.ok(!g.message.includes("555"));
+  assert.equal(g.message, "That sign-in didn't complete. Try again or use email.");
+  assert.equal(oauthErrorMessage("__proto__", null)!.message, "That sign-in didn't complete. Try again or use email.");
+  assert.equal(oauthErrorMessage("toString", null)!.message, "That sign-in didn't complete. Try again or use email.");
 });
