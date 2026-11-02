@@ -125,7 +125,11 @@ func (h *AuthHandler) checkSession(ctx context.Context, c *PalClaims) error {
 	}
 	now := time.Now()
 	tv, ok := h.sessions.get(c.Subject, now)
-	if !ok {
+	// A token newer than the cached version means the cache is stale (a bump
+	// on another replica or in SQL, then a fresh login): re-read rather than
+	// refuse a valid session. An OLDER token is refused straight from the
+	// cache, so replaying a revoked token costs no query.
+	if !ok || c.TokenVersion > tv {
 		var err error
 		if tv, err = tokenVersionLookup(ctx, h, c.Subject); err != nil {
 			return err
