@@ -67,7 +67,7 @@ im_code=$(curl -s -o /dev/null -w "%{http_code}" "$IM_URL/health" --max-time 3 2
 # ---- 4. iMessage chat.db read access -----------------------------------
 log "[4/8] iMessage chat.db read access"
 if [[ "$im_code" == "200" ]]; then
-  diag=$(curl -s "$IM_URL/session/$TENANT/diagnostics" --max-time 5 2>/dev/null)
+  diag=$(curl -s ${PAL_IMESSAGE_BRIDGE_TOKEN:+-H "Authorization: Bearer $PAL_IMESSAGE_BRIDGE_TOKEN"} "$IM_URL/session/$TENANT/diagnostics" --max-time 5 2>/dev/null)
   state=$(echo "$diag" | python3 -c "import sys,json;print(json.load(sys.stdin).get('state','?'))" 2>/dev/null)
   case "$state" in
     ready) pass "imessage bridge ready" ;;

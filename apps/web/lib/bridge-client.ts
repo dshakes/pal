@@ -281,21 +281,30 @@ export function fetchEventScout(
 // ---- WebSocket URL ----------------------------------------------------------
 //
 // Components open their own WS to handle reconnection/cleanup, but the URL
-// + auth-query shape is centralized here.
+// shape is centralized here. The bridge refuses a WS upgrade without credentials, and a
+// browser cannot hold the bridge token, so the dashboard SERVER mints a short-lived
+// (60s), single-use, tenant-bound ticket through the token-injecting REST proxy
+// (POST /api/bridge/<channel>/session/<tenant>/ws-ticket) and the browser connects with
+// ?ticket=. Every (re)connect needs a fresh ticket.
 
-export function bridgeWebSocketUrl(
+export function buildBridgeWsUrl(baseUrl: string, tenantId: string, ticket: string): string {
+  const wsUrl = baseUrl.replace(/\/$/, "").replace(/^http/, "ws");
+  const qs = new URLSearchParams({ tenantId, ticket });
+  return `${wsUrl}/ws?${qs.toString()}`;
+}
+
+export async function fetchBridgeWsTicket(
   tenantId: string,
   channel: BridgeChannel = "whatsapp",
-): string {
-  // WebSocket connections go directly to the bridge — Next.js Route Handlers
-  // cannot proxy WS.  The bridge URL is not a secret (it's a localhost port).
-  // The shared token is intentionally omitted from the WS URL: it would be
-  // visible in browser devtools and logs.  Bridge WS auth is enforced at the
-  // HTTP level (REST calls proxy through /api/bridge/... with the server-side
-  // token).  If the bridge requires token auth on WS too, set
-  // PAL_BRIDGE_WS_TOKEN_REQUIRED=0 on the bridge side to disable it,
-  // or upgrade to cookie-based WS auth.
-  const wsUrl = bridgeBaseUrl(channel).replace(/^http/, "ws");
-  const qs = new URLSearchParams({ tenantId });
-  return `${wsUrl}/ws?${qs.toString()}`;
+): Promise<string> {
+  const r = await post<{ ticket?: string }>(channel, `/session/${encodeURIComponent(tenantId)}/ws-ticket`, {});
+  if (!r.ticket) throw new BridgeError(502, "bridge returned no ws ticket");
+  return r.ticket;
+}
+
+export async function bridgeWebSocketTicketUrl(
+  tenantId: string,
+  channel: BridgeChannel = "whatsapp",
+): Promise<string> {
+  return buildBridgeWsUrl(bridgeBaseUrl(channel), tenantId, await fetchBridgeWsTicket(tenantId, channel));
 }

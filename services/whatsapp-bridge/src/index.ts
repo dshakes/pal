@@ -21,6 +21,10 @@
 // JIDs are validated at the boundary — see validateJid. The rest of the
 // service trusts the validated JID shape.
 
+import type { IncomingMessage } from "http";
+import { authorizeWs, allowedWsOrigins, WsTicketStore } from "@pal/bridge-core/bridge-ws-auth";
+import { isAllowedHost, parseAllowedHosts, tokenPolicy } from "@pal/bridge-core/bridge-http-guard";
+import { ownerApprovedSend } from "@pal/bridge-core/reply-mode";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -93,6 +97,15 @@ if (!isLoopback && !BRIDGE_TOKEN) {
 // ---------------------------------------------------------------------------
 
 const app = express();
+
+// DNS-rebinding defence: serve only loopback Host headers (+ PAL_BRIDGE_ALLOWED_HOSTS).
+// Independent of the token, so it holds even when no token is configured.
+const ALLOWED_HOSTS = parseAllowedHosts(process.env.PAL_BRIDGE_ALLOWED_HOSTS);
+app.use((req, res, next) => {
+  if (isAllowedHost(req.headers.host, ALLOWED_HOSTS)) { next(); return; }
+  logger.warn({ host: req.headers.host, path: req.path }, "request rejected: Host header not allowed (set PAL_BRIDGE_ALLOWED_HOSTS for non-loopback hosts)");
+  res.status(403).json({ error: "forbidden host" });
+});
 app.use(
   cors({
     origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(",").map((s) => s.trim()),
@@ -102,7 +115,32 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+const WS_TICKETS = new WsTicketStore();
+const WS_ORIGINS = allowedWsOrigins(CORS_ORIGIN);
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  // Auth happens at the UPGRADE, so an unauthorised page never receives a single frame
+  // (messages, bot replies, the pairing QR). Host + Origin + (token | single-use ticket).
+  verifyClient: (info: { req: IncomingMessage }, cb: (ok: boolean, code?: number, msg?: string) => void) => {
+    const req = info.req;
+    if (!isAllowedHost(req.headers.host, ALLOWED_HOSTS)) { cb(false, 403, "forbidden host"); return; }
+    const url = new URL(req.url || "/", "http://localhost");
+    const auth = (req.headers.authorization || "") as string;
+    const r = authorizeWs({
+      origin: req.headers.origin,
+      allowedOrigins: WS_ORIGINS,
+      policy: TOKEN_POLICY,
+      token: BRIDGE_TOKEN,
+      bearer: auth.startsWith("Bearer ") ? auth.slice(7) : "",
+      ticket: url.searchParams.get("ticket") || undefined,
+      tenantId: url.searchParams.get("tenantId") || "default",
+      tickets: WS_TICKETS,
+    });
+    if (!r.ok) logger.warn({ origin: req.headers.origin, reason: r.reason }, "WebSocket upgrade refused");
+    cb(r.ok, r.ok ? undefined : r.status, r.ok ? undefined : r.reason);
+  },
+});
 
 logger.info(
   {
@@ -123,11 +161,18 @@ const sessions = new Map<string, WhatsAppSession>();
 // Auth middleware
 // ---------------------------------------------------------------------------
 
-// requireToken enforces shared-token auth on mutation endpoints. It is a
-// no-op when PAL_BRIDGE_TOKEN is unset (explicitly allowed only on
-// loopback binds; see the boot check above).
+// requireToken enforces shared-token auth on every /session route. FAIL-CLOSED:
+// with PAL_BRIDGE_TOKEN unset it refuses (403) instead of waving requests through,
+// unless the dev-only PAL_BRIDGE_ALLOW_NO_TOKEN=1 hatch is set (ignored in prod).
+const TOKEN_POLICY = tokenPolicy(BRIDGE_TOKEN, "PAL_BRIDGE_TOKEN", process.env);
+if (TOKEN_POLICY.action === "refuse") logger.error(TOKEN_POLICY.message);
+if (TOKEN_POLICY.action === "open-dev") logger.warn(TOKEN_POLICY.warning);
 function requireToken(req: Request, res: Response, next: NextFunction) {
-  if (!BRIDGE_TOKEN) return next();
+  if (TOKEN_POLICY.action === "open-dev") return next();
+  if (TOKEN_POLICY.action === "refuse") {
+    res.status(403).json({ error: "bridge token not configured", hint: "set PAL_BRIDGE_TOKEN" });
+    return;
+  }
   const header = req.get("authorization") || "";
   const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (bearer && timingSafeEqual(bearer, BRIDGE_TOKEN)) return next();
@@ -169,6 +214,12 @@ app.get("/diagnostics", (_, res) => {
 
 // All /session/* routes require auth when a token is configured.
 app.use("/session", requireToken);
+
+// Short-lived single-use WebSocket ticket. The dashboard SERVER calls this (proxy injects
+// the bearer token) and hands the ticket to the browser, which cannot hold the secret.
+app.post("/session/:tenantId/ws-ticket", (req, res) => {
+  res.json(WS_TICKETS.issue(req.params.tenantId));
+});
 
 // GET /session/:tenantId/diagnostics -- per-session snapshot
 app.get("/session/:tenantId/diagnostics", (req, res) => {
@@ -488,12 +539,13 @@ app.post("/session/:tenantId/send", async (req, res) => {
     return;
   }
 
-  try {
-    await session.sendMessage(to, message);
-    res.json({ status: "sent" });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
+  // Owner-approved by construction (bearer-guarded; dashboard Approve/Edit and the
+  // iMessage owner-confirmed relay land here). A boundary refusal is a 409, never "sent".
+  const out = await ownerApprovedSend(async (allow) => {
+    await session.sendMessage(to, message, { allow, throwOnBlock: true }); // throws ReplyModeBlockedError (reply mode / muted / group)
+    return { ok: true };
+  });
+  res.status(out.status).json(out.body);
 });
 
 // Cross-bridge document relay: the iMessage bridge POSTs here when the owner
@@ -802,25 +854,7 @@ wss.on("connection", (ws, req) => {
   const url = new URL(req.url || "/", `http://localhost`);
   const tenantId = url.searchParams.get("tenantId") || "default";
 
-  // Token auth also applies to WS — but ONLY on non-loopback binds. The QR
-  // stream is consumed by a BROWSER WebSocket that connects directly to the
-  // bridge (Next.js route handlers can't proxy WS), and the shared token is a
-  // SERVER-side secret the browser deliberately never receives (it would be
-  // visible in devtools). On the default 127.0.0.1 bind the WS is only reachable
-  // locally, so it is open — matching the client, which sends no token. The HTTP
-  // /session mutation routes stay token-gated (dashboard proxies them with a
-  // Bearer server-side). A non-loopback bind still requires the token here.
-  if (BRIDGE_TOKEN && !isLoopback) {
-    const header = (req.headers.authorization || "") as string;
-    const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
-    const qs = url.searchParams.get("token") || "";
-    const provided = bearer || qs;
-    if (!provided || !timingSafeEqual(provided, BRIDGE_TOKEN)) {
-      logger.warn({ tenantId }, "WebSocket unauthorized");
-      ws.close(4401, "unauthorized");
-      return;
-    }
-  }
+  // Auth/Origin/Host were enforced at the upgrade (verifyClient) — an unauthorised page never gets here.
 
   logger.info({ tenantId }, "WebSocket client connected");
 

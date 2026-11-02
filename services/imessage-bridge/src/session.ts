@@ -18,6 +18,7 @@
 //   - Mirror to email when configured
 //   - Persisted state in bridge_state/<tenant>/
 
+import { peerAuthHeaders } from "@pal/bridge-core/bridge-http-guard";
 import { palStateDir } from "@pal/bridge-core/state-dir";
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, chmodSync } from "fs";
 import { readFile as readFileAsync } from "fs/promises";
@@ -53,6 +54,7 @@ import {
 } from "@pal/bridge-core/natural";
 import { judgeCommitment, commitmentHoldPage, extractContactRequests, isConfidentContactShare, promiseIsAboutNumber, type CommitmentVerdict, type ResolvedShare } from "@pal/bridge-core/commitment-gate";
 import { judgeGrounding, groundingHoldPage, type GroundingVerdict } from "@pal/bridge-core/grounding-gate";
+import { resolveReplyMode, decideContactReply, describeReplyMode, budgetFyiDue, markBudgetFyi, BUDGET_FYI_TEXT, allowContactSend, ALLOW_OWNER_APPROVED, ALLOW_SAFETY_EXCEPTION, type SendAllow, type BudgetFyiState } from "@pal/bridge-core/reply-mode";
 import { fitVoiceModel, scoreVoice, voiceDelta, type VoiceModel } from "@pal/bridge-core/voice-score";
 import type { BotTellContext } from "@pal/bridge-core/natural";
 import { strictRegenHint } from "@pal/bridge-core/natural";
@@ -1306,6 +1308,8 @@ export class IMessageSession {
   // Open chat.db, check Automation, start polling.
   async start(): Promise<void> {
     this.setState("starting");
+    if (this.replyMode.warning) this.logger.warn(this.replyMode.warning);
+    this.logger.info({ replyMode: this.replyMode.mode, source: this.replyMode.source }, describeReplyMode(this.replyMode));
 
     const opened = this.db.open();
     if (!opened.ok) {
@@ -1570,6 +1574,8 @@ export class IMessageSession {
   // in?" answerable without diffing inbound against reply counts.
   private unmonitoredGroupDrops: Map<number, number> = new Map();
   private recentDropNotices: Map<string, number> = new Map();
+  private readonly replyMode = resolveReplyMode(process.env.PAL_REPLY_MODE);
+  private readonly budgetFyi: BudgetFyiState = {};
 
   // Per-contact dedup for the URGENCY heads-up (a contact pleading
   // "URGENT" / "on priority" / "asap"). Keyed by handle → last-fired
@@ -1865,7 +1871,7 @@ export class IMessageSession {
             });
             const tell = followUp ? detectBotTells(followUp, w.topic) : { ok: false as const, reason: "empty follow-up" };
             if (followUp && tell.ok) {
-              await this.send(w.jid, followUp);
+              await this.send(w.jid, followUp, this.contactAllow(w.jid));
               w.status = "done";
               this.logger.info({ handle: w.jid, topic: w.topic, followUp }, "live watch resolved — follow-up sent");
               const target = this.ownerSelfChatTarget();
@@ -3774,7 +3780,7 @@ export class IMessageSession {
       this.pendingSelfChatDrafts.delete(ownerHandle); // one-shot
       this.pendingDraftEdits.delete(ownerHandle); // B5 — keep maps in sync
       try {
-        const res = await this.send(pending.target, pending.draft);
+        const res = await this.send(pending.target, pending.draft, ALLOW_OWNER_APPROVED);
         await this.send(
           ownerHandle,
           res.ok ? `✅ sent to ${pending.targetLabel}.` : `⚠️ couldn't send to ${pending.targetLabel}.`,
@@ -4456,7 +4462,7 @@ export class IMessageSession {
 
       // STATUS QUERY — truthful answer from real task state; no execution.
       if (resp.type === "status") {
-        await this.send(handle, resp.replyToSpouse).catch(() => {});
+        await this.send(handle, resp.replyToSpouse, this.contactAllow(handle)).catch(() => {});
         this.logger.info({ handle }, "spouse-agent: answered status query");
         return true;
       }
@@ -4464,7 +4470,7 @@ export class IMessageSession {
       // DONE REPORT — she says an item's handled → mark it complete + close loop.
       if (resp.type === "done") {
         for (const id of resp.doneIds) await this.commitments.done(id).catch(() => null);
-        await this.send(handle, resp.replyToSpouse).catch(() => {});
+        await this.send(handle, resp.replyToSpouse, this.contactAllow(handle)).catch(() => {});
         if (owner && owner !== handle) await this.send(owner, `✅ ${spouseName} — ${resp.ownerSummary}`).catch(() => {});
         this.logger.info({ handle, done: resp.doneIds.length }, "spouse-agent: closed items she reported done");
         return true;
@@ -4478,7 +4484,7 @@ export class IMessageSession {
           createdBy: spouseName,
           createdMs: Date.now(),
         });
-        await this.send(handle, resp.replyToSpouse).catch(() => {});
+        await this.send(handle, resp.replyToSpouse, this.contactAllow(handle)).catch(() => {});
         if (owner && owner !== handle) await this.send(owner, `⏰ ${spouseName} set a recurring reminder — ${resp.ownerSummary}`).catch(() => {});
         this.logger.info({ handle, title: resp.reminder.title }, "spouse-agent: created recurring reminder");
         return true;
@@ -4496,7 +4502,7 @@ export class IMessageSession {
         } else {
           reply = renderList(loadList(this.stateDir));
         }
-        await this.send(handle, reply).catch(() => {});
+        await this.send(handle, reply, this.contactAllow(handle)).catch(() => {});
         this.logger.info({ handle, op: resp.op }, "spouse-agent: shared list op");
         return true;
       }
@@ -4526,7 +4532,7 @@ export class IMessageSession {
           done.push(`📝 ${item.title}`);
         }
       }
-      if (resp.replyToSpouse) await this.send(handle, resp.replyToSpouse).catch(() => {});
+      if (resp.replyToSpouse) await this.send(handle, resp.replyToSpouse, this.contactAllow(handle)).catch(() => {});
       if (owner && owner !== handle) {
         await this.send(owner, `📋 ${spouseName} — ${resp.ownerSummary}\n${done.join("\n")}`).catch(() => {});
       }
@@ -4818,9 +4824,9 @@ export class IMessageSession {
   //   digest   → queue the short owner line into the morning briefing.
   //   suppress → drop (record kind for the owner model), as today.
   private async surfaceLifeEvent(handle: string, text: string, channel = "iMessage"): Promise<boolean> {
-    const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision } =
+    const { classifyLifeEvent, makeLifeEventLlm, proactiveDecision, isActionableKind, autoActDecision, autoActEnabled } =
       await import("@pal/bridge-core/life-events");
-    const { loadLifeEventPrefs, isAutoActPaused } = await import("@pal/bridge-core/life-events-store");
+    const { loadLifeEventPrefs, isAutoActPaused, isAutoActOptedIn } = await import("@pal/bridge-core/life-events-store");
 
     // Unknown-sender inbound only (gated by maybeIngestUnknownInbound) — so the
     // LLM classifier runs on the low-volume transactional tail, not chit-chat.
@@ -4845,9 +4851,9 @@ export class IMessageSession {
     // For SAFE, REVERSIBLE kinds (delivery → Deliveries note; appointment /
     // travel → calendar) the bot stops asking and just DOES it, then logs +
     // arms an undo. Money/fraud/OTP/sending are NEVER auto. Kill switch
-    // (PAL_LIFE_EVENT_AUTOACT, default on) gates the whole ladder.
+    // (PAL_LIFE_EVENT_AUTOACT=on, or the owner "resume automation" opt-in) gates the whole ladder.
     const autoEnabled =
-      (process.env.PAL_LIFE_EVENT_AUTOACT || "on").toLowerCase() !== "off" && !isAutoActPaused();
+      (autoActEnabled(process.env.PAL_LIFE_EVENT_AUTOACT) || isAutoActOptedIn()) && !isAutoActPaused();
     const auto = autoActDecision(event, prefs, { enabled: autoEnabled });
     this.logger.info(
       { kind: event.kind, urgency: event.urgency, conf: event.confidence, autoMode: auto.mode, reason: auto.reason },
@@ -5297,7 +5303,7 @@ export class IMessageSession {
       try {
         const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/thread-peek`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: peerAuthHeaders("whatsapp", { "content-type": "application/json" }),
           body: JSON.stringify(canon.length ? { canon } : { name: contactName }),
           signal: ctrl.signal,
         });
@@ -5893,7 +5899,8 @@ export class IMessageSession {
       ttlSeconds: 3600,
     });
     if (!staged) return { ok: false, reason: "couldn't create a secure link" };
-    const sent = await this.send(target, buildDocLinkMessage(request, staged.url, 60));
+    // Only reached from owner-approved doc delivery (deliverFileToContact / its re-delivery watch).
+    const sent = await this.send(target, buildDocLinkMessage(request, staged.url, 60), ALLOW_OWNER_APPROVED);
     return sent.ok ? { ok: true, via: "link" } : { ok: false, reason: sent.reason };
   }
 
@@ -5941,7 +5948,7 @@ export class IMessageSession {
         clearTimeout(timer);
       }
     }
-    return this.send(pending.target, body);
+    return this.send(pending.target, body, ALLOW_OWNER_APPROVED);
   }
 
   /** Quality loop: encrypted sent-log of CONTACT replies only (never bot-self/owner traffic). */
@@ -5950,7 +5957,31 @@ export class IMessageSession {
     void appendSentLog(this.stateDir, { channel: "imessage", to, text });
   }
 
-  async send(to: string, text: string): Promise<{ ok: boolean; reason?: string }> {
+  /** Typed allow for a CONTACT-facing send: the decideContactReply verdict for THAT contact. */
+  private contactAllow(handle: string, isGroup = false): SendAllow {
+    const inInnerCircle = !isGroup && this.isInnerCircleHandle(handle);
+    return { kind: "contact-reply", decision: decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle, spam: false }) };
+  }
+
+  /** Owner-declared inner circle (address-book name is owner-controlled on iMessage). */
+  private isInnerCircleHandle(handle: string): boolean {
+    return !!this.ownerProfileStore.relationshipFor(handle, this.contactNames.get(handle));
+  }
+
+  private blockedHolds = new Map<string, number>();
+  /** A send the boundary refused goes to the owner as a draft — never sent, never silently dropped. */
+  private holdBlockedSend(to: string, text: string): void {
+    const k = `${to}\u0000${text}`;
+    const now = Date.now();
+    if ((this.blockedHolds.get(k) ?? 0) > now - 10 * 60_000) return;
+    if (this.blockedHolds.size > 200) this.blockedHolds.clear();
+    this.blockedHolds.set(k, now);
+    void this.draftToOwnerForApproval(to, this.contactLabel(to), "", text).then((held) => {
+      if (!held) this.logger.warn({ to }, "reply-mode boundary: blocked send could not be handed to the owner — suppressed (nothing sent)");
+    });
+  }
+
+  async send(to: string, text: string, allow?: SendAllow): Promise<{ ok: boolean; reason?: string }> {
     if (this.state !== "ready") {
       return { ok: false, reason: `bridge not ready (state=${this.state})` };
     }
@@ -5975,6 +6006,15 @@ export class IMessageSession {
       this.mutedBoundaryBlocks++;
       this.logger.warn({ to, textPreview: text.slice(0, 80) }, "MUTED — send BLOCKED at boundary (only the owner is reachable while muted)");
       return { ok: false, reason: "muted" };
+    }
+    // REPLY-MODE SEND BOUNDARY (GA PR-1). Beyond mute: in drafts / inner-circle a
+    // non-owner destination needs an EXPLICIT typed allow (see allowContactSend).
+    // Callers that forget the token fail closed into the owner's draft queue.
+    const gate = allowContactSend({ mode: this.replyMode.mode, destination: to, isOwner: this.isOwnerTarget(to), allow });
+    if (!gate.ok) {
+      this.logger.warn({ to, textPreview: text.slice(0, 80), reason: gate.reason }, "REPLY MODE — send BLOCKED at boundary, handed to owner as a draft");
+      this.holdBlockedSend(to, text);
+      return { ok: false, reason: "reply-mode" };
     }
     // FINAL PASS — verifiable-claims rewriter. Catches "I sent him an
     // email" / "I added it to your calendar" / "I told him" when no
@@ -7085,7 +7125,7 @@ export class IMessageSession {
           isOwner: ownerChat,
           contactWritesTelugu: !ownerChat && this.contactWritesTelugu(row.handle),
         });
-        await this.send(row.handle, ack).catch((err) =>
+        await this.send(row.handle, ack, this.contactAllow(row.handle)).catch((err) =>
           this.logger.warn({ err, handle: row.handle }, "voice-note ack send failed"),
         );
         this.broadcast({
@@ -7389,8 +7429,13 @@ export class IMessageSession {
 
     // INNER-CIRCLE AGENTIC HANDLING + CONCIERGE CAPTURE.
     if (!isGroup && row.handle && !this.killSwitch && text && !this.isOwnerChatRow(row)) {
+      await this.hydrateContactName(row.handle); // owner address-book name BEFORE any membership decision
       const relForAgent = this.ownerProfileStore.relationshipFor(row.handle, this.contactNames.get(row.handle));
-      if (IMessageSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent)) {
+      const spouseAllow = this.contactAllow(row.handle);
+      if (IMessageSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent) && spouseAllow.kind === "contact-reply" && spouseAllow.decision.action !== "send") {
+        // Reply mode would draft: the spouse agent auto-replies AND executes todos/calendar, so skip it entirely.
+        this.logger.info({ handle: row.handle, reason: spouseAllow.decision.reason }, "spouse agent skipped — reply mode drafts (normal reply path will hold it)");
+      } else if (IMessageSession.SPOUSE_AGENT_ENABLED && isInnerCircle(relForAgent)) {
         // Spouse-nudge-agent: if the message is an action-item list, plan +
         // EXECUTE (todos + calendar), confirm to her, and heads-up the owner —
         // then skip the normal reply (the confirmation IS the reply).
@@ -7571,6 +7616,25 @@ export class IMessageSession {
     // non-owner (set below) keeps it pinned to "contact" — never escalates.
     let personaAudience: "owner" | "contact" = isOwnerChan ? "owner" : "contact";
 
+    // PAL_REPLY_MODE (GA PR-1): drafts (default) / inner-circle / everyone. A
+    // "draft" decision rides the SAME hold path as mute (mutedHold -> tier LOW ->
+    // draftToOwnerForApproval; hand-off failure suppresses, never sends). Mute,
+    // killswitch and the commitment/grounding holds are unchanged and still win.
+    if (!isOwnerChan && this.replyMode.mode !== "everyone") {
+      await this.hydrateContactName(row.handle);
+      const inInnerCircle = !isGroup && this.isInnerCircleHandle(row.handle);
+      let spam = false;
+      if (!inInnerCircle) {
+        const { classifyUnknownInbound } = await import("@pal/bridge-core/inbound-classifier");
+        spam = classifyUnknownInbound(text).kind === "spam";
+      }
+      const modeDecision = decideContactReply({ mode: this.replyMode.mode, isOwnerChannel: false, isGroup, inInnerCircle, spam });
+      if (modeDecision.action === "draft") {
+        mutedHold = true;
+        this.logger.info({ handle: row.handle, reason: modeDecision.reason }, "reply mode: contact reply will be drafted for the owner, not auto-sent");
+      }
+    }
+
     // Soft privacy boundary: a NON-owner asking about the owner's family,
     // relationship, home, schedule, or travel. NOT a hard probe — a friendly
     // "you married?" must not page the owner or cold-refuse. We only log it
@@ -7614,7 +7678,7 @@ export class IMessageSession {
           contactText: text,
         });
         try {
-          await this.send(row.handle, escalationRefusalReply("life-threat", ownerName));
+          await this.send(row.handle, escalationRefusalReply("life-threat", ownerName), ALLOW_SAFETY_EXCEPTION);
         } catch (err) {
           this.logger.error({ err }, "life-threat refusal send failed (imessage)");
         }
@@ -7637,7 +7701,7 @@ export class IMessageSession {
           contactText: text,
         });
         try {
-          await this.send(row.handle, escalationRefusalReply("prompt-injection", ownerName));
+          await this.send(row.handle, escalationRefusalReply("prompt-injection", ownerName), this.contactAllow(row.handle));
         } catch (err) {
           this.logger.error({ err }, "prompt-injection refusal send failed (imessage)");
         }
@@ -8247,8 +8311,17 @@ export class IMessageSession {
       // / disabled, or empty when the LLM had nothing usable — a real inbound
       // goes unanswered. One deduped heads-up per contact so a misconfigured
       // LLM key or a control-plane outage isn't an invisible silent failure.
+      // 402 = spend limit: hold for the owner (FYI once/day), never send a canned fallback.
+      if (this.agent.consumeBudgetBlock(row.handle)) {
+        this.logger.warn({ from: row.handle }, "contact reply HELD — control-plane budget limit (402); nothing sent");
+        if (budgetFyiDue(this.budgetFyi, Date.now())) {
+          const owner = this.ownerSelfChatTarget();
+          if (owner) void this.send(owner, `⚠️ ${BUDGET_FYI_TEXT}`).then((r) => { if (r.ok) markBudgetFyi(this.budgetFyi, Date.now()); });
+        }
+        return;
+      }
       if (!isGroup) {
-        const sentGreeting = await this.sendGreetingFallback(row.handle, text, "empty agent draft");
+        const sentGreeting = mutedHold ? false : await this.sendGreetingFallback(row.handle, text, "empty agent draft");
         if (!sentGreeting) {
           this.logger.warn({ from: row.handle, isGroup }, "contact reply empty/failed — operational drop");
           this.notifyOwnerOfDrop(
@@ -8348,7 +8421,7 @@ export class IMessageSession {
         // The classic case: a stranger texts "Hi", the model replies "Hey! How
         // can I help you?", and the customer-service guard suppresses it →
         // silence. For a pure greeting, fall back to a human opener instead.
-        if (!isGroup) await this.sendGreetingFallback(row.handle, text, `bot-tell: ${retryCheck.reason ?? tellCheck.reason}`);
+        if (!isGroup && !mutedHold) await this.sendGreetingFallback(row.handle, text, `bot-tell: ${retryCheck.reason ?? tellCheck.reason}`);
         return;
       }
     }
@@ -8579,7 +8652,7 @@ export class IMessageSession {
         this.lastResolveSuggestions = savedSuggestions;
         if (!mutedHold && isConfidentContactShare({ requesterInnerCircle: isInnerCircle(relationship), isGroup, resolved, askedCount: asked.length, holdReason: commitVerdict.reason, boundToNumber: promiseIsAboutNumber(text, draft) })) {
           const numbers = resolved.map((r) => `${r.name}: ${r.phone}`).join("\n");
-          await this.send(row.handle, numbers);
+          await this.send(row.handle, numbers, this.contactAllow(row.handle));
           this.logger.info({ handle: row.handle, asked, resolved: resolved.map((r) => r.name) }, "COMMITMENT GATE — contact share AUTO-SENT (confident: known requester, unambiguous known people)");
           const owner = this.ownerSelfChatTarget();
           if (owner) void this.send(owner, `📇 shared ${resolved.map((r) => `${r.name}'s`).join(" + ")} number${resolved.length > 1 ? "s" : ""} with ${this.contactLabel(row.handle)} — they asked, everyone's known to you, no ambiguity.`).catch(() => {});
@@ -8617,7 +8690,7 @@ export class IMessageSession {
         // "I'll send you 70k" to the contact precisely when the owner could
         // not be warned. Silence, logged, with a best-effort drop notice.
         this.logger.warn(
-          { jid: row.handle, reason: commitVerdict?.hold ? `commitment:${commitVerdict.reason}` : groundVerdict?.hold ? `grounding:${groundVerdict.reason}` : "non-english-injection" },
+          { jid: row.handle, reason: commitVerdict?.hold ? `commitment:${commitVerdict.reason}` : groundVerdict?.hold ? `grounding:${groundVerdict.reason}` : forceDraftCaution ? "non-english-injection" : "muted-or-reply-mode" },
           "safety hold — owner hand-off FAILED, suppressing auto-reply (never fall through to send)",
         );
         if (commitVerdict?.hold) {
@@ -8731,7 +8804,7 @@ export class IMessageSession {
       const piece = burst[i];
       await new Promise((r) => setTimeout(r, piece.delayBeforeMs));
       await new Promise((r) => setTimeout(r, piece.typingMs));
-      await this.send(sendTarget, piece.text);
+      await this.send(sendTarget, piece.text, this.contactAllow(row.handle, isGroup));
       // Count once per burst for the morning digest.
       if (i === 0) this.repliesSentToday += 1;
     }
@@ -9619,7 +9692,7 @@ export class IMessageSession {
     const reply = greetingReply(inbound);
     if (!reply) return false;
     this.logger.info({ to: target, why }, "greeting fallback — agent draft unusable, sending deterministic opener");
-    const res = await this.send(target, reply);
+    const res = await this.send(target, reply, this.contactAllow(target));
     if (res.ok) this.repliesSentToday += 1;
     return res.ok;
   }
@@ -10189,7 +10262,7 @@ export class IMessageSession {
         return;
       }
 
-      await this.send(recipientHandle, trimmed);
+      await this.send(recipientHandle, trimmed, ALLOW_OWNER_APPROVED);
       // Patch the dislike record with the accepted correction so
       // future prompts can show both shapes (BAD + GOOD) for
       // contextual calibration.
@@ -10249,7 +10322,7 @@ export class IMessageSession {
           if (typeof hints?.untilMs === "number") body.untilMs = hints.untilMs;
           const res = await fetch(`${waBase}/session/${tenantId}/whatsapp/search`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: peerAuthHeaders("whatsapp", { "Content-Type": "application/json" }),
             body: JSON.stringify(body),
             signal: ctrl.signal,
           });
@@ -10272,7 +10345,7 @@ export class IMessageSession {
         try {
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 5000);
-          const res = await fetch(`${waBase}/session/${tenantId}/whatsapp/groups`, { signal: ctrl.signal });
+          const res = await fetch(`${waBase}/session/${tenantId}/whatsapp/groups`, { headers: peerAuthHeaders("whatsapp"), signal: ctrl.signal });
           clearTimeout(t);
           if (!res.ok) return `(WhatsApp groups list unreachable — HTTP ${res.status})`;
           const data = (await res.json()) as { groups?: Array<{ name: string; participants: number; monitored?: boolean }> };
@@ -10751,7 +10824,7 @@ export class IMessageSession {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 5000);
         try {
-          const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/groups`, { signal: ctrl.signal });
+          const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/groups`, { headers: peerAuthHeaders("whatsapp"), signal: ctrl.signal });
           if (!res.ok) return [];
           const data = (await res.json()) as { groups?: Array<{ jid: string; name: string; participants: number }> };
           return (data.groups || []).map((g) => ({ id: g.jid, name: g.name, participantCount: g.participants }));
@@ -10764,7 +10837,7 @@ export class IMessageSession {
         try {
           const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/group`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: peerAuthHeaders("whatsapp", { "Content-Type": "application/json" }),
             body: JSON.stringify({ jid: opts.id, name: opts.name }),
             signal: ctrl.signal,
           });
@@ -11434,7 +11507,7 @@ export class IMessageSession {
         const t = setTimeout(() => ctrl.abort(), 3000);
         await fetch(`${waUrl}/session/${tenantId}/send-self`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: peerAuthHeaders("whatsapp", { "Content-Type": "application/json" }),
           body: JSON.stringify({ message: body }),
           signal: ctrl.signal,
         });

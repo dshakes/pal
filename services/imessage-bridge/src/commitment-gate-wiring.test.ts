@@ -83,13 +83,13 @@ describe("contact sharing goes through the deterministic policy on both bridges"
       const call = src.indexOf("isConfidentContactShare({");
       expect(call).toBeGreaterThan(0);
       // The direct send of the numbers sits inside that decision's block.
-      const sendAfter = src.indexOf(name === "imessage" ? "await this.send(row.handle, numbers)" : "await this.sendMessage(from, numbers)", call);
+      const sendAfter = src.indexOf(name === "imessage" ? "await this.send(row.handle, numbers," : "await this.sendMessage(from, numbers,", call);
       expect(sendAfter).toBeGreaterThan(call);
       expect(sendAfter - call).toBeLessThan(900);
     });
     it(`${name}: the share exit is fed the hold reason and the resolver's own uniqueness proof`, () => {
       expect(src).toMatch(/holdReason: commitVerdict\.reason, boundToNumber: promiseIsAboutNumber\(text, draft\)/);
-      expect(src).toMatch(/requesterInnerCircle: isInnerCircle\(relationship\)/);
+      expect(src).toMatch(name === "whatsapp" ? /requesterInnerCircle: isInnerCircle\(trustedRelationship\)/ : /requesterInnerCircle: isInnerCircle\(relationship\)/);
       expect(src).toMatch(/ambiguous: !r\.unique/);
       expect(src).not.toMatch(/ambiguous: \(this\.lastResolveSuggestions/);
     });
@@ -171,7 +171,7 @@ describe("W2.3 + W1.4 on both bridges", () => {
     });
     it(`${name}: an inferred relationship reaches the persona only, never a security gate`, () => {
       expect(src).toMatch(/relationship: relationship \?\? inferredRelationshipLabel\(inferredRelationship\)/);
-      expect(src).toMatch(/isInnerCircle\(relationship\)/);
+      expect(src).toMatch(name === "whatsapp" ? /isInnerCircle\(trustedRelationship\)/ : /isInnerCircle\(relationship\)/);
       expect(src).not.toMatch(/isInnerCircle\(inferred/);
       expect(src).toMatch(/::relationship`/);
     });

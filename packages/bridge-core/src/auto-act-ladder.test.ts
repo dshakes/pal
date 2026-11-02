@@ -18,7 +18,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   classifyLifeEventSync,
-  autoActDecision,
+  autoActDecision as autoActDecisionRaw,
+  autoActEnabled,
   idempotencyKeyFor,
   eventStartIso,
   type LifeEventPrefs,
@@ -34,6 +35,10 @@ import {
 import { parseNLCommand } from "./nl-commands.ts";
 import { looksLikeUndo, looksLikeRejection } from "./humanize.ts";
 import { isBotSelfMessage } from "./bot-self.ts";
+
+// Auto-act is opt-in (GA PR-1); the ladder tests exercise it switched on.
+const autoActDecision = (e: LifeEvent, p: LifeEventPrefs = {}, o: { enabled?: boolean } = { enabled: true }) =>
+  autoActDecisionRaw(e, p, o);
 
 const NOW = new Date("2026-06-25T12:00:00Z");
 const opts = { now: NOW, channel: "iMessage" as const };
@@ -319,5 +324,37 @@ describe("undo detection + bot-self registration", () => {
     assert.ok(isBotSelfMessage("📦 logged delivery — UPS tomorrow 10:30 am (Deliveries note) · reply 'undo' to remove"));
     assert.ok(isBotSelfMessage("↩️ undone — removed it."));
     assert.ok(isBotSelfMessage("🤖 today i auto-handled 2:"));
+  });
+});
+
+describe("autoAct default is ask-first (GA PR-1)", () => {
+  const e = classifyLifeEventSync("UPS: Your package 1Z999AA10123456784 is out for delivery, arriving tomorrow 10:30 AM - 12:30 PM.", opts);
+  test("no opts / no pref -> suggest, never auto", () => {
+    assert.equal(autoActDecisionRaw(e, {}).mode, "suggest");
+  });
+  test("explicit enabled:true -> auto", () => {
+    assert.equal(autoActDecisionRaw(e, {}, { enabled: true }).mode, "auto");
+  });
+  test("env parsing: only on/1/true enable", () => {
+    assert.equal(autoActEnabled(undefined), false);
+    assert.equal(autoActEnabled(""), false);
+    assert.equal(autoActEnabled("off"), false);
+    assert.equal(autoActEnabled("garbage"), false);
+    assert.equal(autoActEnabled("on"), true);
+    assert.equal(autoActEnabled("TRUE"), true);
+  });
+});
+
+describe("explicit owner opt-in (resume automation) counts", () => {
+  test("opted-in only when the state file says paused:false", async () => {
+    const { isAutoActOptedIn, setAutoActPaused } = await import("./life-events-store.ts");
+    const dir = mkdtempSync(join(tmpdir(), "autoact-"));
+    const f = join(dir, "s.json");
+    assert.equal(isAutoActOptedIn(f), false); // absent => not opted in
+    setAutoActPaused(false, f);
+    assert.equal(isAutoActOptedIn(f), true);
+    setAutoActPaused(true, f);
+    assert.equal(isAutoActOptedIn(f), false);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
