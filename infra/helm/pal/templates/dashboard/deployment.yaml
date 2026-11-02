@@ -26,8 +26,15 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
+            # Server-side (middleware, SSR): in-cluster control-plane Service.
             - name: PAL_API_URL
-              value: "http://{{ include "pal.fullname" . }}-gateway:{{ .Values.gateway.service.port }}"
+              value: "http://{{ include "pal.fullname" . }}-control-plane:{{ .Values.controlPlane.service.httpPort }}"
+            # Browser-side, read by the server at REQUEST time (app/layout.tsx), so one
+            # image works anywhere. Unset -> the dashboard falls back to localhost:8080.
+            {{- with include "pal.publicApiUrl" . }}
+            - name: PAL_PUBLIC_API_URL
+              value: {{ . | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /

@@ -1,7 +1,7 @@
 {
   "name": "@pal-runtime/sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for PAL Runtime, the Personal Agentic Layer platform for production AI agents",
+  "description": "TypeScript SDK for PAL Runtime, the Personalized Agentic Layer platform for production AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

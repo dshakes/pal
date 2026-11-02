@@ -1,6 +1,10 @@
 # build-images — builds, pushes, and cosign-signs the deployable PAL Runtime service images
 # that Helm/Terraform reference (ghcr.io/dshakes/pal/<name>). Runs on push to master
 # and on demand (workflow_dispatch). Each image is tagged with the git SHA and `latest`.
+# A `v*` tag ref (push, or workflow_dispatch --ref vX.Y.Z from release.yml) instead publishes ONLY the semver tags vX.Y.Z and X.Y.Z (what the
+# Helm chart pulls by default: global.image.tag falls back to Chart.appVersion) and first
+# fails unless the chart version/appVersion equal the tag (scripts/check-chart-release.sh).
+# Signing/attestation/verification below are identical for tag builds (same digest flow).
 #
 # Signing is Sigstore KEYLESS (Fulcio short-lived cert + Rekor), identical in trust to
 # sign-images.yml — the signing identity IS this workflow file. We sign INLINE here
@@ -29,6 +33,7 @@ name: "build-images (push + cosign sign)"
 on:
   push:
     branches: [master]
+    tags: ['v*']
   workflow_dispatch:
 
 # Least privilege: read the repo, write packages to ghcr, and mint the OIDC token that
@@ -71,6 +76,18 @@ jobs:
           - image: surface-gateway
             context: .
             file: services/surface-gateway/Dockerfile
+          - image: workflow-engine   # pal-data-plane chart
+            context: .
+            file: services/workflow-engine/Dockerfile
+          - image: data-plane-agent  # pal-data-plane chart
+            context: .
+            file: services/data-plane-agent/Dockerfile
+          - image: billing           # pal-control-plane chart
+            context: .
+            file: services/billing/Dockerfile
+          - image: scheduler         # pal-control-plane chart
+            context: .
+            file: services/scheduler/Dockerfile
           - image: model-router
             context: .
             file: services/model-router/Dockerfile
@@ -82,6 +99,28 @@ jobs:
             file: apps/web/Dockerfile
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Release gate - chart version matches tag
+        if: github.ref_type == 'tag'
+        run: scripts/check-chart-release.sh "$GITHUB_REF_NAME"
+
+      - name: Compute image tags
+        id: tags
+        env:
+          IMG: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+        run: |
+          {
+            echo "list<<EOF"
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              # Semver only: re-pushing :<sha> would repoint it at a tag-signed digest.
+              echo "$IMG:$GITHUB_REF_NAME"
+              echo "$IMG:${GITHUB_REF_NAME#v}"
+            else
+              echo "$IMG:$GITHUB_SHA"
+              echo "$IMG:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
@@ -103,9 +142,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ github.sha }}
-            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
+          tags: ${{ steps.tags.outputs.list }}
           provenance: false
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}

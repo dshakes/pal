@@ -3,7 +3,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-# Baked into the client bundle at build time (kiosk overlay remaps the API port).
+# Build-time FALLBACK only (local dev / kiosk overlay). Deployments set the server env
+# PAL_PUBLIC_API_URL, read per request (app/layout.tsx), so the image is portable.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build

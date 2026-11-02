@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -136,8 +137,11 @@ func TestCORSAllowedOrigins_DefaultIsLocalhost3001(t *testing.T) {
 	if _, ok := m["http://localhost:3001"]; !ok {
 		t.Error("expected http://localhost:3001 in default allowlist")
 	}
-	if len(m) != 1 {
-		t.Errorf("expected exactly 1 default origin, got %d", len(m))
+	if _, ok := m["http://127.0.0.1:3001"]; !ok {
+		t.Error("expected http://127.0.0.1:3001 in default allowlist")
+	}
+	if len(m) != 2 {
+		t.Errorf("expected exactly 2 default origins, got %d", len(m))
 	}
 }
 
@@ -506,6 +510,28 @@ func TestCheckSchedulerAddr_ViaEnv_DevSafe(t *testing.T) {
 	fatal, _ := CheckSchedulerAddr(IsProd(), "")
 	if fatal {
 		t.Error("dev mode with no addr: expected fatal=false")
+	}
+}
+
+// Browser cross-origin API host: Idempotency-Key must be an allowed request header, X-Pal-Truncated
+// must be exposed, and the default dev origins cover both localhost and 127.0.0.1.
+func TestCORS_IdempotencyHeaderExposeAndLoopbackDefault(t *testing.T) {
+	t.Setenv("PAL_CORS_ORIGINS", "")
+	h := CORSMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	for _, origin := range []string{"http://localhost:3001", "http://127.0.0.1:3001"} {
+		req := httptest.NewRequest(http.MethodOptions, "/v1/agents", nil)
+		req.Header.Set("Origin", origin)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+			t.Errorf("origin %s: ACAO=%q", origin, got)
+		}
+		if !strings.Contains(rec.Header().Get("Access-Control-Allow-Headers"), "Idempotency-Key") {
+			t.Errorf("Idempotency-Key not allowed: %q", rec.Header().Get("Access-Control-Allow-Headers"))
+		}
+		if rec.Header().Get("Access-Control-Expose-Headers") != "X-Pal-Truncated" {
+			t.Errorf("X-Pal-Truncated not exposed")
+		}
 	}
 }
 
