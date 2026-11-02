@@ -44,5 +44,8 @@
     "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.8"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
 }
