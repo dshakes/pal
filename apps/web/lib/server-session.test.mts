@@ -13,6 +13,7 @@ const WA = "http://wa.test";
 const IM = "http://im.test";
 const TENANT = "00000000-0000-0000-0000-000000000001";
 const GOOD = "good-token";
+const STRANGER = "11111111-1111-1111-1111-111111111111";
 
 interface Call { url: string; init?: RequestInit }
 let calls: Call[] = [];
@@ -24,6 +25,7 @@ beforeEach(() => {
   process.env.PAL_IMESSAGE_BRIDGE_URL = IM;
   process.env.PAL_BRIDGE_TOKEN = "wa-secret";
   process.env.PAL_IMESSAGE_BRIDGE_TOKEN = "im-secret";
+  delete process.env.PAL_BRIDGE_OWNER_TENANT;
   clearSessionCache();
   calls = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -33,6 +35,12 @@ beforeEach(() => {
       const auth = new Headers(init?.headers).get("authorization");
       if (auth === `Bearer ${GOOD}`) {
         return Response.json({ id: "u1", tenantId: TENANT, role: "owner" });
+      }
+      if (auth === "Bearer member-token") {
+        return Response.json({ id: "u2", tenantId: TENANT, role: "member" });
+      }
+      if (auth === "Bearer stranger-token") {
+        return Response.json({ id: "u3", tenantId: STRANGER, role: "owner" });
       }
       // tenantId present so only the status check can reject it.
       return Response.json({ error: "invalid", tenantId: TENANT }, { status: 401 });
@@ -211,4 +219,43 @@ test("middleware: /api is no longer blanket-public", async () => {
   // Pages still redirect to /login rather than 401.
   const page = await middleware(req("GET", "/agents"));
   assert.equal(page.status, 307);
+});
+
+// The bridges are single-owner appliances: a session for ANY tenant reads the
+// owner's chat.db/Mail and sends from the owner's accounts. Only the owner
+// tenant's owner/admin may drive them.
+test("another tenant's owner (own-tenant path) → 403, bridge never called", async () => {
+  const res = await call("POST", "imessage", ["session", STRANGER, "start"], {
+    token: "stranger-token", headers: JSON_SAME_ORIGIN, body: "{}",
+  });
+  assert.equal(res.status, 403);
+  assert.equal(bridgeCalls().length, 0);
+});
+
+test("member of the owner tenant → 403 (owner/admin only)", async () => {
+  const res = await call("POST", "whatsapp", ["session", TENANT, "send"], {
+    token: "member-token", headers: JSON_SAME_ORIGIN, body: "{}",
+  });
+  assert.equal(res.status, 403);
+  assert.equal(bridgeCalls().length, 0);
+});
+
+test("PAL_BRIDGE_OWNER_TENANT selects the owner tenant", async () => {
+  process.env.PAL_BRIDGE_OWNER_TENANT = STRANGER;
+  const denied = await call("GET", "whatsapp", ["session", TENANT, "bot"], { token: GOOD });
+  assert.equal(denied.status, 403);
+  const allowed = await call("GET", "whatsapp", ["session", STRANGER, "bot"], { token: "stranger-token" });
+  assert.equal(allowed.status, 200);
+});
+
+test("bridge unreachable → fixed 503 message, no error detail leaked", async () => {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url === `${CP}/auth/me`) return Response.json({ id: "u1", tenantId: TENANT, role: "owner" });
+    void init;
+    throw new Error("connect ECONNREFUSED 127.0.0.1:3100 secret-detail");
+  }) as typeof fetch;
+  const res = await call("GET", "whatsapp", ["session", TENANT, "bot"], { token: GOOD });
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: "bridge unreachable" });
 });

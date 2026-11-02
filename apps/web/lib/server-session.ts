@@ -15,6 +15,21 @@ export interface DashboardSession {
   role: string;
 }
 
+// The bridges are single-owner appliances on the owner's Mac: a session started
+// for ANY tenant reads the same chat.db / Mail / contacts and sends from the
+// same accounts. So only the owner tenant's owner/admin may drive them —
+// "same tenant as the path" is not enough.
+const DEV_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+const BRIDGE_ROLES = new Set(["owner", "admin"]);
+
+export function bridgeOwnerTenant(): string {
+  return (process.env.PAL_BRIDGE_OWNER_TENANT || DEV_TENANT_ID).trim();
+}
+
+export function mayDriveBridge(session: DashboardSession): boolean {
+  return session.tenantId === bridgeOwnerTenant() && BRIDGE_ROLES.has(session.role);
+}
+
 export function controlPlaneBaseUrl(): string {
   return (
     process.env.PAL_API_URL ??

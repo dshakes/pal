@@ -21,7 +21,7 @@
 // WhatsApp jid), so this handler must not rely on it.
 
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, getSession, rejectCrossSiteWrite } from "../../../../../lib/server-session.ts";
+import { SESSION_COOKIE, getSession, mayDriveBridge, rejectCrossSiteWrite } from "../../../../../lib/server-session.ts";
 
 type Channel = "whatsapp" | "imessage";
 
@@ -111,8 +111,8 @@ async function proxyToBridge(
   } catch (err) {
     // Bridge unreachable — surface a 503 so the client's
     // bridge_offline state triggers correctly.
-    const msg = err instanceof Error ? err.message : "bridge unreachable";
-    return NextResponse.json({ error: msg }, { status: 503 });
+    void err;
+    return NextResponse.json({ error: "bridge unreachable" }, { status: 503 });
   }
 }
 
@@ -132,6 +132,9 @@ async function handle(req: NextRequest, context: RouteContext): Promise<NextResp
   const csrf = rejectCrossSiteWrite(req);
   if (csrf) {
     return NextResponse.json({ error: csrf }, { status: 403 });
+  }
+  if (!mayDriveBridge(session)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   if (path[0] === "session" && path[1] !== undefined && path[1] !== session.tenantId) {
     return NextResponse.json({ error: "tenant mismatch" }, { status: 403 });
