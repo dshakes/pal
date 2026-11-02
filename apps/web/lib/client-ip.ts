@@ -75,6 +75,13 @@ export function parseCidrs(env: string | undefined): string[] {
   return (env ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+/** The peer stamped by peer-ip.cjs, or null when that preload is not loaded
+ *  in this process: then `x-pal-peer-ip` would be whatever the client sent,
+ *  so it is ignored (fail closed: no client IP is forwarded at all). */
+export function stampedPeer(headers: Headers, preloaded: boolean = (globalThis as { __palPeerIpPreload?: boolean }).__palPeerIpPreload === true): string | null {
+  return preloaded ? headers.get("x-pal-peer-ip") : null;
+}
+
 /** The client IP to forward, or null when the peer is unknown (preload missing):
  *  then the proxy forwards none, and the control plane keys on the dashboard. */
 export function clientIp(peer: string | null, xff: string | null, trusted: readonly string[]): string | null {

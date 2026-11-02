@@ -12,6 +12,11 @@
 // subdomain cannot plant or overwrite a session. Dev keeps `pal_token` (plain
 // http). LEGACY_SESSION_COOKIE is read for one release so existing sessions
 // migrate, and is cleared when seen (sessionToken / the /api/pal proxy).
+// REMOVE the legacy fallback (this constant's reads in sessionToken, the
+// proxy's migrateLegacyCookie, and the middleware's extra delete) after
+// LEGACY_COOKIE_REMOVE_AFTER. By then every legacy cookie has expired anyway:
+// sessions last at most PAL_JWT_TTL (24h max).
+export const LEGACY_COOKIE_REMOVE_AFTER = "2027-02-01";
 export const LEGACY_SESSION_COOKIE = "pal_token";
 export const SESSION_COOKIE = process.env.NODE_ENV === "production" ? "__Host-pal_token" : LEGACY_SESSION_COOKIE;
 

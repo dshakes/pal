@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/dshakes/pal/services/control-plane/internal/secrets"
 	"github.com/dshakes/pal/services/control-plane/internal/server"
 )
 
@@ -46,6 +47,17 @@ func TestRedactConfig(t *testing.T) {
 	nested := out["nested"].(map[string]any)
 	if nested["password"] != RedactedValue || nested["email"] != "a@b.test" {
 		t.Errorf("nested: %v", nested)
+	}
+	// Public url-ish keys still mask credentials carried as userinfo.
+	urls := redactConfig(map[string]any{
+		"baseUrl": "https://user:s3cret@api.example.com/v1", "host": "admin:pw@smtp.example.com",
+		"smtpHost": "smtp.example.com", "domain": "example.com", "email": "a@b.test",
+	})
+	if urls["baseUrl"] != RedactedValue || urls["host"] != RedactedValue {
+		t.Errorf("userinfo leaked: %v", urls)
+	}
+	if urls["smtpHost"] != "smtp.example.com" || urls["domain"] != "example.com" || urls["email"] != "a@b.test" {
+		t.Errorf("plain identifiers masked: %v", urls)
 	}
 	if in["apiKey"] != "sk-live-1" {
 		t.Fatal("redactConfig mutated its input")
@@ -135,6 +147,21 @@ func TestConnectorAndSurfaceConfigNeverReturnsSecrets(t *testing.T) {
 				t.Errorf("%s %s: %d %s", name, label, res.Code, body)
 			}
 		}
+	}
+
+	// Re-installing with the masks the list returned keeps the stored secret.
+	re := authedJSON(conn.InstallConnector, http.MethodPost, "/v1/connectors/install", ownerTok, map[string]any{
+		"connectorId": "twilio", "displayName": "Twilio",
+		"config": map[string]any{"accountSid": "AC-redact-test", "authToken": RedactedValue, "phoneNumber": "+15550199"},
+	}, nil)
+	if re.Code/100 != 2 {
+		t.Fatalf("re-install: %d %s", re.Code, re.Body.String())
+	}
+	var enc []byte
+	_ = h.srv.Pool.QueryRow(context.Background(), `SELECT config FROM connector_installs WHERE id = $1`, installed.ID).Scan(&enc)
+	dec, err := secrets.Decrypt(enc)
+	if err != nil || !strings.Contains(string(dec), "tw-SECRET-123") || !strings.Contains(string(dec), "+15550199") || strings.Contains(string(dec), RedactedValue) {
+		t.Fatalf("stored connector config after masked re-install: %s (%v)", dec, err)
 	}
 
 	surf := NewSurfaceHandler(h.srv, h)
@@ -354,4 +381,43 @@ func TestSessionEventsStream_LogoutTerminates(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("open session SSE stream survived logout")
 	}
+}
+
+// TestMCPAttach_MaskedReattachKeepsSecret: re-attaching with the mask the
+// list returned keeps the stored value; the list never shows it.
+func TestMCPAttach_MaskedReattachKeepsSecret(t *testing.T) {
+	h, _, _, ownerTok := signedUp(t)
+	mcp := NewMCPHandler(h.srv, h)
+	var slug string
+	if err := h.srv.Pool.QueryRow(context.Background(), `SELECT slug FROM mcp_servers ORDER BY slug LIMIT 1`).Scan(&slug); err != nil {
+		t.Skipf("no catalog MCP server seeded: %v", err)
+	}
+	attach := func(cfg map[string]any) *httptest.ResponseRecorder {
+		return authedJSON(mcp.AttachToAgent, http.MethodPost, "/v1/agents/a1/mcp-servers", ownerTok,
+			map[string]any{"serverSlug": slug, "config": cfg}, map[string]string{"name": "a1"})
+	}
+	if rr := attach(map[string]any{"apiToken": "mcp-SECRET-789", "vmId": "vm-1"}); rr.Code/100 != 2 {
+		t.Fatalf("attach: %d %s", rr.Code, rr.Body.String())
+	}
+	list := authedJSON(mcp.ListAttachments, http.MethodGet, "/v1/agents/a1/mcp-servers", ownerTok, nil, map[string]string{"name": "a1"})
+	if strings.Contains(list.Body.String(), "mcp-SECRET-789") || !strings.Contains(list.Body.String(), "vm-1") {
+		t.Fatalf("attachment list: %s", list.Body.String())
+	}
+	if rr := attach(map[string]any{"apiToken": RedactedValue, "vmId": "vm-2"}); rr.Code/100 != 2 {
+		t.Fatalf("re-attach: %d %s", rr.Code, rr.Body.String())
+	}
+	var stored string
+	_ = h.srv.Pool.QueryRow(context.Background(), `SELECT config::text FROM agent_mcp_attachments WHERE agent_name = 'a1' AND tenant_id = (SELECT tenant_id FROM users WHERE id = $1)`, subjectOf(t, h, ownerTok)).Scan(&stored)
+	if !strings.Contains(stored, "mcp-SECRET-789") || !strings.Contains(stored, "vm-2") || strings.Contains(stored, RedactedValue) {
+		t.Fatalf("stored attachment config after masked re-attach: %s", stored)
+	}
+}
+
+func subjectOf(t *testing.T, h *AuthHandler, tok string) string {
+	t.Helper()
+	c, err := h.ValidateToken(context.Background(), tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.Subject
 }

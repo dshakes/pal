@@ -35,7 +35,7 @@ import {
   sessionToken,
   upstreamPath,
 } from "../../../../lib/pal-proxy.ts";
-import { clientIp, parseCidrs } from "../../../../lib/client-ip.ts";
+import { clientIp, parseCidrs, stampedPeer } from "../../../../lib/client-ip.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +55,8 @@ const cookieOptions = (maxAge: number) => ({
 const tooLarge = () => NextResponse.json({ error: "request body too large" }, { status: 413 });
 
 /** One-release migration: a session still under the legacy cookie name is
- *  re-issued under the current one and the legacy cookie cleared. */
+ *  re-issued under the current one and the legacy cookie cleared.
+ *  Remove after LEGACY_COOKIE_REMOVE_AFTER (lib/server-session.ts, 2027-02-01). */
 function migrateLegacyCookie(req: NextRequest, res: { headers: Headers }): void {
   if (SESSION_COOKIE === LEGACY_SESSION_COOKIE) return;
   const legacy = req.cookies.get(LEGACY_SESSION_COOKIE)?.value;
@@ -79,7 +80,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
     const v = req.headers.get(h);
     if (v) headers.set(h, v);
   }
-  const ip = clientIp(req.headers.get("x-pal-peer-ip"), req.headers.get("x-forwarded-for"), parseCidrs(process.env.PAL_DASHBOARD_TRUSTED_PROXIES));
+  const ip = clientIp(stampedPeer(req.headers), req.headers.get("x-forwarded-for"), parseCidrs(process.env.PAL_DASHBOARD_TRUSTED_PROXIES));
   if (ip) headers.set("x-forwarded-for", ip);
   const token = sessionToken(req.cookies);
   if (token) headers.set("authorization", `Bearer ${token}`);

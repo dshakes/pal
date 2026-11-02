@@ -157,6 +157,17 @@ test("route: SSE streams through unbuffered", async (t) => {
 
 test("route: a spoofed X-Forwarded-For from the browser is never forwarded", async (t) => {
   const calls = stubFetch(t, () => new Response("{}", { headers: { "content-type": "application/json" } }));
+  const g = globalThis as { __palPeerIpPreload?: boolean };
+  // Without the peer-ip.cjs preload the stamp header is client-controlled: forward nothing.
+  delete g.__palPeerIpPreload;
+  await route.POST(req("/api/pal/auth/forgot", {
+    method: "POST", body: "{}",
+    headers: { origin: "http://dash.example", "content-type": "application/json", "x-pal-peer-ip": "6.6.6.6", "x-forwarded-for": "7.7.7.7" },
+  }), params("auth", "forgot"));
+  assert.equal(new Headers(calls[0].init.headers).get("x-forwarded-for"), null);
+  calls.length = 0;
+  g.__palPeerIpPreload = true;
+  t.after(() => { delete g.__palPeerIpPreload; });
   delete process.env.PAL_DASHBOARD_TRUSTED_PROXIES;
   await route.POST(req("/api/pal/auth/forgot", {
     method: "POST", body: "{}",

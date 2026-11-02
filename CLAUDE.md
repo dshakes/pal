@@ -197,11 +197,16 @@ carry a nonce'd CSP from `middleware.ts` (`lib/security-headers.ts`); new inline
 `PAL_TRUSTED_PROXIES`. The proxy drops the browser's `X-Forwarded-For`/`X-Real-IP`/`Forwarded`
 and sends one hop it computed (`lib/client-ip.ts`) from the TCP peer stamped by the
 `peer-ip.cjs` preload (`node --require ./peer-ip.cjs …` — Dockerfile, `npm run dev/start`,
-the launchd wrapper and e2e all load it); behind an ingress, list it in
+the launchd wrapper and e2e all load it). The stamp is trusted only when the preload ran
+in that process (`globalThis.__palPeerIpPreload`; else no hop is forwarded — fail
+closed), and in production it is always overwritten, even from loopback; behind an ingress, list it in
 `PAL_DASHBOARD_TRUSTED_PROXIES` (Helm sets it from `controlPlane.trustedProxies`). Bodies
 over 2 MiB → 413. Prod cookie name is `__Host-pal_token` (legacy `pal_token` read once,
-migrated and cleared; `sessionToken()` in `lib/server-session.ts`). OAuth start is a
-top-level navigation to the API host (`lib/oauth-url.ts`), never the proxy.
+migrated and cleared; `sessionToken()` in `lib/server-session.ts`; remove that fallback
+after `LEGACY_COOKIE_REMOVE_AFTER` = 2027-02-01). OAuth start is a top-level navigation
+built by `lib/oauth-url.ts` on the API's public host — the login page calls it directly;
+never build it from the `api` client (its browser base is `/api/pal`). The kiosk compose
+overlay pins the dashboard to 172.30.77.10 and trusts exactly that address.
 
 ### Dashboard UX primitives
 
@@ -720,8 +725,10 @@ refused. No refresh token. SSE handlers wrap their ctx in `auth.guardStream(ctx,
 (closes at `exp`, re-checks `token_version` every 60 s) — a new long-lived stream must too.
 Session-vs-key is decided by provenance (`isUserSession`: Subject set, no `APIKeyID`), never
 by the role string. Connector/surface/MCP-attachment config goes out through
-`redactConfig` (allowlist of identifier keys; everything else `********`) and writes
-merge masks back with `mergeRedacted` — return any new secret-bearing config the same way.
+`redactConfig` (allowlist of identifier keys; everything else `********`; url-ish public
+keys such as `baseUrl`/`host` are masked too when they carry userinfo) and every write that
+accepts config back (surface configure/update, connector install, MCP attach) merges masks
+with `mergeRedacted` — return and accept any new secret-bearing config the same way.
 Connector execute (GET and POST) needs `connectors:write`. Package tests stub the lookup in `TestMain`
 (`stubTokenVersion`); revocation tests call `useRealSessionLookup(t)`.
 

@@ -34,5 +34,9 @@ if (!emit.__palPeerIp) {
   patched.__palPeerIp = true;
   http.Server.prototype.emit = patched;
 }
+// Process-wide marker: the /api/pal proxy trusts x-pal-peer-ip ONLY when this
+// preload ran in its process. Without it the header is whatever the client
+// sent, so the proxy ignores it (lib/client-ip.ts stampedPeer).
+globalThis.__palPeerIpPreload = true;
 
 module.exports = { stampPeer, HEADER };

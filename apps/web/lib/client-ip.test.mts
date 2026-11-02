@@ -31,3 +31,10 @@ test("CIDR matching, v4 and v6", () => {
   assert.ok(!inCidrs("not-an-ip", ["0.0.0.0/0"]));
   assert.deepEqual(parseCidrs(" 10.0.0.0/8 , ,fd00::/8"), ["10.0.0.0/8", "fd00::/8"]);
 });
+
+test("the peer stamp is trusted only when the preload ran in this process", async () => {
+  const { stampedPeer } = await import("./client-ip.ts");
+  const h = new Headers({ "x-pal-peer-ip": "6.6.6.6" });
+  assert.equal(stampedPeer(h, false), null, "no preload: a client-sent header is ignored");
+  assert.equal(stampedPeer(h, true), "6.6.6.6");
+});

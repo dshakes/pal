@@ -25,6 +25,24 @@ var publicConfigKeys = map[string]bool{
 	"name": true, "displayname": true, "mode": true, "allowedorigins": true, "vmid": true,
 }
 
+// urlishConfigKeys are public keys whose value can carry credentials as URL
+// userinfo (https://user:pass@host, user:pass@smtp.example). Their value is
+// masked when it does.
+var urlishConfigKeys = map[string]bool{"baseurl": true, "host": true, "smtphost": true, "domain": true, "allowedorigins": true}
+
+func hasUserinfo(v string) bool {
+	// "user@host" or "scheme://user[:pass]@host" before the first '/' of the
+	// authority; email fields are not url-ish so they never reach this check.
+	rest := v
+	if i := strings.Index(rest, "://"); i >= 0 {
+		rest = rest[i+3:]
+	}
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	return strings.Contains(rest, "@")
+}
+
 func normalizeConfigKey(k string) string {
 	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(k))
 }
@@ -45,7 +63,7 @@ func redactConfig(cfg map[string]any) map[string]any {
 		case nil:
 			out[k] = nil
 		case string:
-			if tv == "" || publicConfigKeys[normalizeConfigKey(k)] {
+			if tv == "" || (publicConfigKeys[normalizeConfigKey(k)] && !(urlishConfigKeys[normalizeConfigKey(k)] && hasUserinfo(tv))) {
 				out[k] = tv
 			} else {
 				out[k] = RedactedValue
