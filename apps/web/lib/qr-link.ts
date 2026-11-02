@@ -7,6 +7,7 @@
 export function buildQRLink(params: {
   type: "whatsapp" | "telegram";
   botUsername?: string;
+  /** The DISPLAY phone number (E.164). Never a Meta Business "phone number ID". */
   phoneNumber?: string;
 }): string | null {
   switch (params.type) {

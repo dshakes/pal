@@ -561,10 +561,17 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store state + PKCE verifier in Redis with 10-minute TTL.
+	// Store state + PKCE verifier in Redis with 10-minute TTL. An optional
+	// invite code (?invite=) rides in the server-side state so an invite-only
+	// deployment can admit a NEW user arriving via OAuth (oauthSignupGate).
+	invite := r.URL.Query().Get("invite")
+	if len(invite) > 512 {
+		invite = ""
+	}
 	stateData, _ := json.Marshal(map[string]string{
 		"provider":      providerName,
 		"pkce_verifier": pkceVerifier,
+		"invite":        invite,
 	})
 	if err := h.srv.Redis.Set(r.Context(), "oauth_login_state:"+stateToken, string(stateData), 10*time.Minute).Err(); err != nil {
 		h.logger().Error("failed to store OAuth state in Redis", zap.Error(err))
@@ -628,6 +635,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	var stateData struct {
 		Provider     string `json:"provider"`
 		PKCEVerifier string `json:"pkce_verifier"`
+		Invite       string `json:"invite"`
 	}
 	if err := json.Unmarshal([]byte(stateDataStr), &stateData); err != nil {
 		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Corrupted state data"), http.StatusFound)
@@ -684,6 +692,13 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	`, email).Scan(&userID, &tenantID, &name, &role)
 
 	if err == pgx.ErrNoRows {
+		// A new user is a sign-up: the same PAL_SIGNUP_MODE + rate-limit
+		// policy as POST /auth/signup applies (existing users sign in above).
+		if reason := h.oauthSignupGate(ctx, remoteIP(r), email, stateData.Invite); reason != "" {
+			h.logger().Info("OAuth sign-up refused", zap.String("provider", providerName), zap.String("reason", reason))
+			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape(reason), http.StatusFound)
+			return
+		}
 		// Create new user + tenant.
 		if displayName == "" {
 			displayName = strings.Split(email, "@")[0]
@@ -787,6 +802,33 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, dashboardURL+"/auth/callback?code="+url.QueryEscape(onetimeCode), http.StatusFound)
+}
+
+// oauthSignupGate applies the password sign-up policy (ADR 0027) to a NEW
+// user arriving via OAuth, so the provider button is not a way around
+// "sign-up closed". Returns "" when allowed, else the user-facing reason.
+//   - closed: refused (existing users still sign in).
+//   - invite: the invite code carried in the OAuth state must be valid for the
+//     provider-verified email.
+//   - open/invite: the per-IP sign-up limit (fails closed in prod).
+//
+// No captcha: the provider round trip (a real Google/GitHub account) is the
+// human check, and a Turnstile token cannot survive the provider redirect.
+func (h *AuthHandler) oauthSignupGate(ctx context.Context, ip, email, invite string) string {
+	mode := signupMode()
+	if mode != signupOpen && mode != signupInvite {
+		return "Sign-up is closed"
+	}
+	switch h.signupRateLimited(ctx, ip) {
+	case http.StatusTooManyRequests:
+		return "Too many sign-up attempts; please try again later"
+	case http.StatusServiceUnavailable:
+		return "Sign-up is temporarily unavailable; please try again later"
+	}
+	if mode == signupInvite && !inviteCodeValid(os.Getenv("PAL_SIGNUP_INVITE_SECRET"), email, invite, time.Now()) {
+		return "A valid invite code is required to sign up"
+	}
+	return ""
 }
 
 // OAuthExchange handles POST /auth/oauth/exchange.

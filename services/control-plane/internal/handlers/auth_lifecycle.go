@@ -436,12 +436,37 @@ func (h *AuthHandler) mailLinkHandler(w http.ResponseWriter, r *http.Request, bu
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "ok", "message": genericMailMessage})
 }
 
+// CheckSignupLimiter refuses to start a prod deployment whose sign-up is open
+// or invite (password or OAuth) without a reachable Redis: the sign-up limiter
+// fails closed in prod, so every sign-up would 503 with nothing but a log line.
+// A Redis outage AFTER boot still fails closed (503), by design.
+func CheckSignupLimiter(ctx context.Context, rl spawnRedisClient, prod bool) (fatal bool, message string) {
+	mode := signupMode()
+	if !prod || (mode != signupOpen && mode != signupInvite) {
+		return false, ""
+	}
+	if rl == nil {
+		return true, "sign-up is " + mode + " in production but Redis is not configured — the sign-up rate limiter fails closed, so every sign-up would be refused; set REDIS_URL"
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	const probe = "auth_rl:startup_probe"
+	if err := rl.Incr(ctx, probe).Err(); err != nil {
+		return true, fmt.Sprintf("sign-up is %s in production but Redis is unreachable (%v) — every sign-up would be refused; fix REDIS_URL", mode, err)
+	}
+	rl.Expire(ctx, probe, time.Minute) //nolint:errcheck
+	return false, ""
+}
+
 // RegisterAccountLifecycleRoutes wires the ADR 0027 routes after checking the
 // sign-up/mailer configuration; an error means the server must not start. The
 // /auth/* routes are pre-auth (the emailed token or the email itself is the
 // input); export is owner-only like the GDPR purge.
 func RegisterAccountLifecycleRoutes(mux *http.ServeMux, auth *AuthHandler, gdpr *GDPRHandler, prod bool) error {
 	if fatal, msg := CheckSignupConfig(prod); fatal {
+		return errors.New(msg)
+	}
+	if fatal, msg := CheckSignupLimiter(context.Background(), auth.rl, prod); fatal {
 		return errors.New(msg)
 	}
 	mux.HandleFunc("POST /auth/verify", auth.VerifyEmail)

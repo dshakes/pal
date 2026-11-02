@@ -19,6 +19,12 @@ Every sign-up on the control plane (`:8080`) creates a **workspace** (a tenant) 
 | `invite` | Needs an `inviteCode` bound to the email, else `403`. Requires `PAL_SIGNUP_INVITE_SECRET`. |
 | `open` | Anyone, subject to the rate limit and captcha. Default in dev. |
 
+The same mode applies to a **new** user who signs in with Google or GitHub. A first OAuth sign-in creates a workspace, which counts as a sign-up. Users who already exist always sign in.
+
+- `closed` refuses new OAuth users. The redirect is `/login?error=Sign-up is closed`.
+- `invite` needs an invite code bound to the email the provider verified. The dashboard sends it with `GET /auth/oauth/{provider}/start?invite=<code>`. The server stores it in the OAuth state and never sends it to the provider.
+- `open` and `invite` apply the per-IP sign-up rate limit, which fails closed in prod. There is no captcha on the OAuth path: completing the provider's sign-in is the human check, and a Turnstile token can't survive the provider redirect.
+
 ## Sign up, verify, log in
 
 <Steps>

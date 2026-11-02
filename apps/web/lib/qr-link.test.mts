@@ -23,3 +23,9 @@ test("no browser-minted pairing token or /pair link remains", () => {
     assert.doesNotMatch(src, /\/pair\?token=\$\{/, f);
   }
 });
+
+// A Meta Business phone-number ID is not a phone number: never wa.me/<id>.
+test("surfaces never builds wa.me from the Meta phone-number ID", () => {
+  const src = readFileSync(new URL("../app/(dashboard)/surfaces/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /phoneNumber:\s*formFields\.phoneNumberId/);
+});

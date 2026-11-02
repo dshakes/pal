@@ -312,7 +312,11 @@ CLOSED (503); login/verify/reset fail open (an outage must not lock owners
 out). The client IP (`remoteIP`, also used by bridge pair) is the TCP peer
 unless that peer is in `PAL_TRUSTED_PROXIES` (CIDRs; set it to the ingress
 range), then `X-Forwarded-For` is walked from the RIGHT and the first
-untrusted hop wins. Never read XFF leftmost: the client controls it. Full reference:
+untrusted hop wins. Never read XFF leftmost: the client controls it.
+A NEW user via Google/GitHub OAuth is a sign-up: `oauthSignupGate` applies the
+same mode (closed → refused; invite → code carried in the server-side OAuth
+state via `/start?invite=`; open/invite → per-IP limit; no captcha). Prod
+open/invite refuses to boot without a reachable Redis (`CheckSignupLimiter`). Full reference:
 `site/src/content/docs/docs/` (accounts page).
 
 **Free tier + starter gallery (W2-S).** New tenants (password `Signup` and first Google login) get a hard-fail tenant-wide cap (`agent_budgets` row `agent_name='*'`) and a `runtime_quotas` row in the sign-up transaction (`handlers/tenant_defaults.go`; `DO NOTHING` on conflict, so owner edits survive; the seeded dev tenant is untouched). Env: `PAL_FREE_TIER_COST_USD_PER_DAY` (default 2.00), `PAL_FREE_TIER_MAX_VMS` (2), `PAL_FREE_TIER_RUNTIME_COST_USD_PER_DAY` (1.00); `off`/`0` skips that cap. `POST /v1/runs` returns `403 {code:"email_unverified"}` for an unverified local user when `requireEmailVerification()` (prod); OAuth users are stored verified. `GET /v1/agents/templates` marks six `gallery` templates (support-desk, pr-triage, incident-responder, daily-digest, data-analyst, telegram-assistant; models `fast`/`balanced`; only gallery templates expose `systemPrompt`) which the onboarding goal step offers as cards. OTel counter `pal.onboarding.step.total{pal.onboarding_step,pal.onboarding_event}` fires on `PUT /v1/onboarding` step transitions.

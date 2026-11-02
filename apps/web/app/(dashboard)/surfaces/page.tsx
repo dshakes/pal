@@ -721,7 +721,8 @@ export default function SurfacesPage() {
 
               {/* QR Code: a real vendor deep link only (no fabricated pairing token). */}
               {configModal.hasQRCode && configModal.qrType && (() => {
-                const link = buildQRLink({ type: configModal.qrType, botUsername: formFields.botUsername, phoneNumber: formFields.phoneNumberId });
+                // WhatsApp: no QR from config — `phoneNumberId` is a Meta ID, not a dialable number.
+                const link = buildQRLink({ type: configModal.qrType, botUsername: formFields.botUsername });
                 return link ? (
                   <div className="rounded-xl border border-zinc-800 bg-surface-0 p-5">
                     <h3 className="text-sm font-medium text-zinc-200 mb-1">Quick Connect via QR Code</h3>

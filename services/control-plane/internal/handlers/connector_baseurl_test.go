@@ -397,3 +397,19 @@ func TestNoTimeoutlessDefaultClient(t *testing.T) {
 		}
 	}
 }
+
+// The connector transport is built fresh: not derived from (or aliasing)
+// http.DefaultTransport, proxy-free, with explicit timeouts.
+func TestNewConnectorTransport_Fresh(t *testing.T) {
+	bt, ok := newConnectorTransport().(baseURLTransport)
+	if !ok {
+		t.Fatal("want baseURLTransport")
+	}
+	tr, ok := bt.next.(*http.Transport)
+	if !ok || bt.next == http.DefaultTransport {
+		t.Fatalf("next = %T, want a fresh *http.Transport", bt.next)
+	}
+	if tr.Proxy != nil || tr.DialContext == nil || tr.TLSHandshakeTimeout <= 0 || tr.ResponseHeaderTimeout <= 0 {
+		t.Fatalf("transport missing guard/timeouts: %+v", tr)
+	}
+}

@@ -191,6 +191,60 @@ func TestCheckSignupConfig(t *testing.T) {
 	}
 }
 
+// TestCheckSignupLimiter: prod open/invite sign-up must not boot without a
+// working limiter (it would 503 every sign-up); closed mode and dev don't care.
+func TestCheckSignupLimiter(t *testing.T) {
+	broken := newFakeRedis()
+	broken.failAll = true
+	cases := []struct {
+		name      string
+		prod      bool
+		mode      string
+		rl        spawnRedisClient
+		wantFatal bool
+	}{
+		{"prod open no redis", true, "open", nil, true},
+		{"prod invite no redis", true, "invite", nil, true},
+		{"prod open unreachable redis", true, "open", broken, true},
+		{"prod open redis ok", true, "open", newFakeRedis(), false},
+		{"prod closed no redis", true, "closed", nil, false},
+		{"dev open no redis", false, "open", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := ""
+			if tc.prod {
+				env = "production"
+			}
+			t.Setenv("PAL_ENV", env)
+			t.Setenv("PAL_SIGNUP_MODE", tc.mode)
+			fatal, msg := CheckSignupLimiter(context.Background(), tc.rl, tc.prod)
+			if fatal != tc.wantFatal {
+				t.Fatalf("fatal=%v (%q), want %v", fatal, msg, tc.wantFatal)
+			}
+		})
+	}
+}
+
+// The guard is wired into route registration: a prod open deployment with no
+// limiter must refuse to start, not boot and 503 every sign-up.
+func TestRegisterAccountLifecycleRoutes_RefusesProdSignupWithoutRedis(t *testing.T) {
+	t.Setenv("PAL_ENV", "production")
+	t.Setenv("PAL_SIGNUP_MODE", "open")
+	t.Setenv("PAL_TURNSTILE_SECRET", "t")
+	t.Setenv("PAL_MAILER", "smtp")
+	t.Setenv("PAL_SMTP_ADDR", "mx.example.test:587")
+	auth := noDBAuthHandler() // no Redis → rl nil
+	err := RegisterAccountLifecycleRoutes(http.NewServeMux(), auth, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "Redis") {
+		t.Fatalf("err = %v, want refusal naming Redis", err)
+	}
+	auth.rl = newFakeRedis()
+	if err := RegisterAccountLifecycleRoutes(http.NewServeMux(), auth, NewGDPRHandler(auth.srv, auth), true); err != nil {
+		t.Fatalf("with a working limiter: %v", err)
+	}
+}
+
 func TestExportRedacted(t *testing.T) {
 	for _, c := range []struct {
 		table, col string

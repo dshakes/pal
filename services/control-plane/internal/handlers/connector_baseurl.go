@@ -128,13 +128,22 @@ var connectorNetDialer = &net.Dialer{
 	},
 }
 
-// newConnectorTransport is http.DefaultTransport with the dial guard and no
-// proxy (a proxy would hide the real destination from the guard).
+// newConnectorTransport builds a fresh transport (never derived from
+// http.DefaultTransport, which llm_baseurl.go wraps at init) with the dial
+// guard, explicit timeouts and no proxy (a proxy would hide the real
+// destination from the guard).
 func newConnectorTransport() http.RoundTripper {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.Proxy = nil
-	t.DialContext = connectorNetDialer.DialContext
-	return baseURLTransport{next: t}
+	return baseURLTransport{next: &http.Transport{
+		Proxy:                 nil,
+		DialContext:           connectorNetDialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   8,
+		IdleConnTimeout:       90 * time.Second,
+	}}
 }
 
 // vendorURL validates a tenant-configured vendor origin: https, no userinfo,
