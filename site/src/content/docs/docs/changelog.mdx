@@ -42,3 +42,9 @@ The product is now **PAL** ([ADR 0032](repo:/blob/master/docs/adr/0032-rename-to
 - **Receipt verification detects an edited payload.** `POST /v1/runs/receipts/verify` used to compare only the signature string.
 - **Fork and restore clone the VM disk copy-on-write** (`FICLONE`) on XFS and btrfs instead of byte-copying it.
 - Workflow `connector` nodes can call Sentry and PagerDuty; a workflow whose JSON held a backslash no longer silently runs as a plain LLM call; the resumed node after an approval park is journaled.
+
+## API keys and first owner
+
+- New API keys start with `pal_live_`. Existing `hlx_live_` keys keep working.
+- API keys record the creating user, accept an optional `expiresAt`, and can be rotated with `POST /v1/api-keys/{id}/rotate`.
+- Self-hosts can create the first owner with `PAL_BOOTSTRAP_OWNER_EMAIL` (see Accounts and teams).

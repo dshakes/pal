@@ -8,3 +8,13 @@ To get started:
   pal init my-agent
   pal deploy
   pal run my-agent --input '{"message": "hello"}'
+
+First login (sign-up is closed in production and there are no users yet):
+{{- if (.Values.controlPlane.env).PAL_BOOTSTRAP_OWNER_EMAIL }}
+  The control plane creates the owner {{ .Values.controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL }} on first start and prints a
+  one-time (1 hour) password link ONCE. Read it with:
+    kubectl logs deploy/{{ include "pal.fullname" . }}-control-plane | grep -A2 "first-owner bootstrap"
+{{- else }}
+  Set controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL=<you@example.com> and upgrade; the control plane then prints a
+  one-time password link in its log. It only works while the instance has zero users.
+{{- end }}

@@ -1025,8 +1025,20 @@ func (h *AuthHandler) ValidateToken(tokenStr string) (*PalClaims, error) {
 	return claims, nil
 }
 
+// apiKeyPrefix is the prefix of newly issued keys; legacyAPIKeyPrefix keys
+// (issued before the PAL rename) keep validating.
+const (
+	apiKeyPrefix       = "pal_live_"
+	legacyAPIKeyPrefix = "hlx_live_"
+)
+
+// isAPIKey reports whether a bearer token has an API-key prefix (vs a JWT).
+func isAPIKey(tok string) bool {
+	return strings.HasPrefix(tok, apiKeyPrefix) || strings.HasPrefix(tok, legacyAPIKeyPrefix)
+}
+
 // validateRequest extracts and validates credentials from the Authorization
-// header. Accepts either a JWT or a long-lived API key (prefix hlx_live_).
+// header. Accepts either a JWT or a long-lived API key (prefix pal_live_, or legacy hlx_live_).
 func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
@@ -1039,7 +1051,7 @@ func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	}
 
 	token := parts[1]
-	if strings.HasPrefix(token, "hlx_live_") {
+	if isAPIKey(token) {
 		return h.validateAPIKey(r.Context(), token)
 	}
 	return h.ValidateToken(token)
