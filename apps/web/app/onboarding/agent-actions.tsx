@@ -53,7 +53,12 @@ const errMsg = (err: unknown) => parseApiError(err).message;
 
 async function probe<T>(channel: "whatsapp" | "imessage", path: string, init?: RequestInit) {
   try {
-    const res = await fetch(`/api/bridge/${channel}${path}`, { cache: "no-store", ...init });
+    const res = await fetch(`/api/bridge/${channel}${path}`, {
+      cache: "no-store",
+      // The proxy refuses non-JSON writes (CSRF); JSON on reads is harmless.
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
     let body: T | undefined;
     try {
       body = (await res.json()) as T;
