@@ -293,7 +293,7 @@ stack to a working AI agent in under a minute.
 Each step performs a real action against the REST API on :8080 and stops
 loudly if something is wrong — no silent failures, no mocked output.
 
-The agent is created agentically: on a terminal, pal asks what you want
+The agent is created agentically: on a terminal, PAL asks what you want
 the agent to do, has the control plane design it (generate-spec, LLM
 reasoning via the model router), shows the proposal, and creates it once you
 confirm. The first run uses the design's own first task. If the design call

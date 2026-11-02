@@ -1,13 +1,13 @@
 ---
 title: Install
-description: Install the prerequisites, clone the repo and build the pal CLI.
+description: Install the prerequisites, clone the repo and build the PAL CLI.
 sidebar:
   order: 5
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
-Every builder path starts from a **checkout of the repo** and the **`pal` CLI**, a Go binary you build once. To look around without installing the CLI, `make demo` needs only Docker ([Try it: the demo](/docs/start/demo/)). To start the local stack, see [Develop locally](/docs/start/local-dev/).
+Every builder path starts from a **checkout of the repo** and the **`pal` CLI**, a Go binary you build once (or install with [Homebrew](#install-with-homebrew)). To look around without installing the CLI, `make demo` needs only Docker ([Try it: the demo](/docs/start/demo/)). To start the local stack, see [Develop locally](/docs/start/local-dev/).
 
 ## Prerequisites
 
@@ -20,6 +20,17 @@ Every builder path starts from a **checkout of the repo** and the **`pal` CLI**,
 | Rust | 1.94, pinned in `rust-toolchain.toml` | Only `make build` and `make test` of the Rust services | `brew install rustup` |
 
 <Aside>Docker must be running before you start the stack. The CLI module itself declares Go 1.25; 1.26 is what the control plane needs when you run it on the host.</Aside>
+
+## Install with Homebrew
+
+If you only need the CLI, install it from the project tap. Homebrew builds `pal` from the latest tagged release, so Go is a build dependency (`brew` installs it for you).
+
+```bash
+brew install dshakes/tap/pal
+pal --version
+```
+
+<Aside type="caution">The formula (`Formula/pal.rb` in this repo) is copied into the `dshakes/homebrew-tap` repository by the release workflow when a version is tagged, and it needs the `HOMEBREW_TAP_PAT` secret to do so. If `brew` answers `No available formula`, the tap has not received it yet. Build from source below instead. The CLI alone is not enough to run the stack: `pal dev`, `pal demo` and the `make` targets run from a checkout.</Aside>
 
 ## Build the CLI
 

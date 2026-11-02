@@ -29,6 +29,7 @@ export const REQUIRED_BOTH = [
   "maybeRunSkills",
   "maybeHandleRecap",
   "proactivePaused",
+  "ownerProfileStore.voice()", // `## Voice` profile → persona pronouns/dialect + gated bot-tells
 ];
 
 /** Intentionally iMessage-only modules. Must stay absent from WhatsApp; if WA adopts one, drop it here. */
@@ -64,5 +65,14 @@ for (const [mod, why] of Object.entries(IMESSAGE_ONLY)) {
 test("commitment auto-close never cites inbound contact threads (both bridges)", () => {
   for (const [name, src] of [["iMessage", IM], ["WhatsApp", WA]] as const) {
     assert.ok(!/\.\.\.ev\.threads/.test(src), `${name} feeds contact threads into commitment evidence`);
+  }
+});
+
+// De-owner (PR-2): the persona and the bot-tell net must both receive the owner's
+// `## Voice`, or the dialect rules / pronouns silently fall back to neutral on one bridge.
+test("both bridges feed the owner Voice to the persona and the bot-tell context", () => {
+  for (const [name, src] of [["iMessage", IM], ["WhatsApp", WA]] as const) {
+    assert.match(src, /botTellCtx = \{\s*voice: this\.ownerProfileStore\.voice\(\)/, `${name} botTellCtx lacks voice`);
+    assert.match(src, /agentPersonaPrompt\([^{]*\{\s*voice: this\.ownerProfileStore\.voice\(\)/, `${name} persona lacks voice`);
   }
 });

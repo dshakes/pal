@@ -76,7 +76,7 @@ export function defaultScoutState(): EventScoutState {
     categories: [...DEFAULT_SCOUT_CATEGORIES],
     location:
       process.env.PAL_EVENT_SCOUT_LOCATION ||
-      "Chantilly, VA 20152 (Loudoun County — Northern Virginia / DC metro)",
+      "Springfield, USA",
     audience:
       process.env.PAL_EVENT_SCOUT_AUDIENCE ||
       "family with a young kid (~4-5 years old); Indian (Telugu) family — Indian community events matter as much as county/state ones",

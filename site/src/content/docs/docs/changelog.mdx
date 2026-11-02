@@ -9,12 +9,20 @@ This page lists what shipped in **PAL Runtime** since the 0.2.0 release, with th
 
 - **Firecracker guests no longer get caller env on the kernel cmdline.** `spawn.json` is the only channel for caller env; the cmdline carries just the manager-owned `PAL_ENV`, `PAL_MANAGER_ADDR` and `PAL_WORKLOAD_UID`. Harness builds that predate `spawn.json` are unsupported for caller env. The old path leaked values, such as an instance token, into console logs.
 
+- **Upgrading to chart 0.3.0.** Ingress is split into an API host and an app host. The chart refuses to render with ingress on unless `controlPlane.trustedProxies` (and `networkPolicy.ingressFrom`, when network policy is on) is set, and in production the control plane refuses to start without `PAL_CALLBACK_SIGNING_SECRET`. `open` and `invite` sign-up need Redis, and OAuth sign-up follows `PAL_SIGNUP_MODE`. Migrations are forward-only. See [Upgrading](/docs/operate/upgrading/).
+
 ## Renamed
 
-The product is now **PAL** ([ADR 0032](repo:/blob/master/docs/adr/0032-rename-to-pal.md)). Docs, dashboard copy, widget and CLI help say PAL, the CLI binary is `pal`, and variables are spelled `PAL_*`. Wire identifiers follow: `x-pal-service-token`, `pal.secret/`, `pal.v1`.
+The product is now **PAL**, the Personalized Agentic Layer, with two products: **PAL** for you and **PAL Runtime** for builders ([ADR 0032](repo:/blob/master/docs/adr/0032-rename-to-pal.md)). Docs, dashboard copy, widget and CLI help say PAL, the CLI binary is `pal`, and variables are spelled `PAL_*`. Wire identifiers follow: `x-pal-service-token`, `pal.secret/`, `pal.v1`.
 
 ## New since 0.2.0
 
+- **[Promotion](/docs/build/promotion/).** Freeze an immutable version, promote it through sandbox, staging and prod behind server-side gates, approve prod as a human, canary it and roll it back (`pal freeze`, `promote`, `approve`, `rollback`).
+- **[Agent identity and policy](/docs/security/agent-policy/).** Every agent is a principal with a signed identity and a default-deny policy enforced at each tool, connector, A2A and sandbox dispatch, with a hash-chained audit (`pal agents policy`).
+- **[Console](/docs/build/console/).** Dashboard v3: Overview, the agent lifecycle tabs, Reliability and SLOs, Incidents, Debug, Promotions and Sandboxes.
+- **[Observability](/docs/observability/) and [debugging](/docs/build/debugging/).** Run trace trees, per-agent SLOs, sampled production evals, anomaly incidents, and debug and support agents whose fixes need your approval.
+- **[A2A v0.3](/docs/build/a2a/) and [MCP](/docs/build/mcp/).** Spec cards and JSON-RPC tasks, an MCP client with OAuth 2.1, and a PAL MCP server for API keys with the `mcp` scope.
+- **[REST API route index](/docs/reference/api/#route-index).** Generated from the code and checked in CI, so the reference lists every route.
 - **[Batches and run callbacks](/docs/runtime/invocation/).** `POST /v1/batches` fans one request out into child runs with a concurrency cap and an `Idempotency-Key`; runs and batches take a signed `callbackUrl`, delivered at most once.
 - **Self-consistency is the default confidence estimator** when the [confidence gate](/docs/build/approvals/#confidence-gate) is on; `PAL_CONFIDENCE_ESTIMATOR=verbalization` opts out.
 - **Billing (off by default).** Stripe plans, checkout, portal and dunning behind `PAL_STRIPE_SECRET_KEY`; a failed payment falls back to free limits after a grace period and never deletes data.

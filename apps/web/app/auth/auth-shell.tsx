@@ -47,7 +47,7 @@ export function AuthFrame({ children }: { children: ReactNode }) {
           <ul className="mt-8 space-y-4 text-sm text-white/90">
             <li className="flex gap-3">
               <MessageCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span><b className="font-semibold">pal</b> answers in your voice on WhatsApp and iMessage, and briefs you on what needs you.</span>
+              <span><b className="font-semibold">PAL</b> answers in your voice on WhatsApp and iMessage, and briefs you on what needs you.</span>
             </li>
             <li className="flex gap-3">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />

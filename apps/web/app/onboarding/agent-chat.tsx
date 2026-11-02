@@ -43,9 +43,9 @@ const COPY: Record<ChatProduct, { title: string; description: string; placeholde
     skip: "/agents",
   },
   pal: {
-    title: "Set up pal",
-    description: "A conversation with pal's setup agent: channels, your voice, what pal may do.",
-    placeholder: "Ask anything, or tell pal what you want it to handle",
+    title: "Set up PAL",
+    description: "A conversation with PAL's setup agent: channels, your voice, what PAL may do.",
+    placeholder: "Ask anything, or tell PAL what you want it to handle",
     mark: "p",
     skip: "/inbox",
   },

@@ -28,8 +28,8 @@ interface ShortcutDef {
 }
 
 const SHORTCUTS: ShortcutDef[] = [
-  { combo: "g t", description: "pal: Today (your Brief)", group: "Navigate", goToKey: "t", href: "/brief" },
-  { combo: "g h", description: "pal: Holds (replies waiting on you)", group: "Navigate", goToKey: "h", href: "/personal/drafts" },
+  { combo: "g t", description: "PAL: Today (your Brief)", group: "Navigate", goToKey: "t", href: "/brief" },
+  { combo: "g h", description: "PAL: Holds (replies waiting on you)", group: "Navigate", goToKey: "h", href: "/personal/drafts" },
   { combo: "g o", description: "Runtime: Overview", group: "Navigate", goToKey: "o", href: "/overview" },
   { combo: "g a", description: "Runtime: Agents", group: "Navigate", goToKey: "a", href: "/agents" },
   { combo: "g r", description: "Runtime: Runs", group: "Navigate", goToKey: "r", href: "/runs" },
