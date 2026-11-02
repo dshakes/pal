@@ -23,7 +23,7 @@ var evRefRe = regexp.MustCompile(`\[ev:[0-9]+\]|\[evidence:truncated\]`)
 // raw key. (A JWT that merely claims role "service" is a session, not a key.)
 func mintScopedKey(t *testing.T, pool *pgxpool.Pool, tenantID string, scopes ...string) string {
 	t.Helper()
-	raw := "hlx_live_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	raw := apiKeyPrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 	sum := sha256.Sum256([]byte(raw))
 	if _, err := pool.Exec(context.Background(), `INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, scopes)
 		VALUES ($1, 'test-key', $2, $3, $4)`, tenantID, hex.EncodeToString(sum[:]), raw[:16], scopes); err != nil {
