@@ -79,15 +79,15 @@ func TestOAuthCallback_SignupPolicy(t *testing.T) {
 		wantOK          bool
 		wantErr         string
 	}{
-		{name: "closed refuses new user", mode: "closed", wantErr: "Sign-up+is+closed"},
-		{name: "prod default (closed) refuses new user", env: "production", wantErr: "Sign-up+is+closed"},
-		{name: "invite without code refused", mode: "invite", wantErr: "invite"},
+		{name: "closed refuses new user", mode: "closed", wantErr: "error=signup_closed"},
+		{name: "prod default (closed) refuses new user", env: "production", wantErr: "error=signup_closed"},
+		{name: "invite without code refused", mode: "invite", wantErr: "error=invite_required"},
 		{name: "invite for another email refused", mode: "invite",
-			invite: func(string) string { return mintInvite("inv", "other@example.test", time.Now().Add(time.Hour)) }, wantErr: "invite"},
+			invite: func(string) string { return mintInvite("inv", "other@example.test", time.Now().Add(time.Hour)) }, wantErr: "error=invite_required"},
 		{name: "invite with valid code admitted", mode: "invite",
 			invite: func(e string) string { return mintInvite("inv", e, time.Now().Add(time.Hour)) }, wantOK: true},
 		{name: "open admitted", mode: "open", wantOK: true},
-		{name: "open over the per-IP limit refused", mode: "open", prefillLimit: true, wantErr: "Too+many"},
+		{name: "open over the per-IP limit refused", mode: "open", prefillLimit: true, wantErr: "error=signup_rate_limited"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -330,7 +330,7 @@ func TestOAuthCallback_RequiresProviderVerifiedEmail(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(loc, "not+verified") || users != 0 {
+			if !strings.Contains(loc, "error=email_unverified&provider="+tc.provider) || users != 0 {
 				t.Fatalf("want unverified refusal and no user, got %q (users=%d)", loc, users)
 			}
 		})
@@ -341,18 +341,26 @@ func TestOAuthCallback_LinkPolicy(t *testing.T) {
 	o := newOAuthFixture(t)
 	ctx := context.Background()
 
+	const (
+		signIn  = "sign in as the existing account"
+		newAcct = "a new account of its own"
+		refused = "refused: link_refused"
+	)
 	cases := []struct {
 		name         string
 		authProvider string // existing account's provider
 		verified     bool   // existing account's email_verified_at set
 		signInWith   string
-		wantOK       bool
+		want         string
 	}{
-		{"unverified password account is not linkable", "local", false, "google", false},
-		{"unverified password account refuses github too", "local", false, "github", false},
-		{"verified password account links (provider-verified email)", "local", true, "google", true},
-		{"same provider signs in", "google", true, "google", true},
-		{"other provider links to verified oauth account", "google", true, "github", true},
+		// Squatting: an unverified password account proves nothing, so it is
+		// skipped — the real owner gets their own account, never the squatter's.
+		{"unverified password account is skipped (google)", "local", false, "google", newAcct},
+		{"unverified password account is skipped (github)", "local", false, "github", newAcct},
+		{"verified password account links (provider-verified email)", "local", true, "google", signIn},
+		{"same provider signs in", "google", true, "google", signIn},
+		{"other provider links to verified oauth account", "google", true, "github", signIn},
+		{"unverified non-password account is not linkable", "github", false, "google", refused},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -379,12 +387,9 @@ func TestOAuthCallback_LinkPolicy(t *testing.T) {
 
 			loc := o.signIn(t, tc.signInWith)
 			users, tenants := o.countRows(t, email)
-			if users != 1 || tenants != 1 {
-				t.Fatalf("OAuth sign-in must never create a second account: users=%d tenants=%d", users, tenants)
-			}
-			if !tc.wantOK {
-				if !strings.Contains(loc, "Sign+in+with+your+password") {
-					t.Fatalf("want link refusal, got %q", loc)
+			if tc.want == refused {
+				if !strings.Contains(loc, "error=link_refused") || users != 1 {
+					t.Fatalf("want link refusal and no new account, got %q (users=%d)", loc, users)
 				}
 				return
 			}
@@ -397,8 +402,18 @@ func TestOAuthCallback_LinkPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			claims, err := o.h.ValidateToken(tok)
-			if err != nil || claims.Subject != userID {
-				t.Fatalf("signed in as %+v (err %v), want existing user %s", claims, err, userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch tc.want {
+			case signIn:
+				if claims.Subject != userID || users != 1 || tenants != 1 {
+					t.Fatalf("signed in as %s (users=%d tenants=%d), want existing user %s and no new account", claims.Subject, users, tenants, userID)
+				}
+			case newAcct:
+				if claims.Subject == userID || users != 2 || tenants != 2 {
+					t.Fatalf("signed in as %s (users=%d tenants=%d), want a NEW account, never the squatter %s", claims.Subject, users, tenants, userID)
+				}
 			}
 		})
 	}
@@ -412,7 +427,7 @@ func TestOAuthCallback_StateBoundToBrowser(t *testing.T) {
 
 	t.Run("missing cookie refused and state not consumed", func(t *testing.T) {
 		s := o.mint(t, "google")
-		if loc := o.callback("google", s, ""); !strings.Contains(loc, "not+started+in+this+browser") {
+		if loc := o.callback("google", s, ""); !strings.Contains(loc, "error=state_invalid") {
 			t.Fatalf("got %q", loc)
 		}
 		if loc := o.callback("google", s, oauthStateDigest(s)); !strings.Contains(loc, oauthOK) {
@@ -422,10 +437,10 @@ func TestOAuthCallback_StateBoundToBrowser(t *testing.T) {
 	t.Run("mismatched cookie refused (login CSRF)", func(t *testing.T) {
 		attacker := o.mint(t, "google")
 		victim := o.mint(t, "google")
-		if loc := o.callback("google", attacker, oauthStateDigest(victim)); !strings.Contains(loc, "not+started+in+this+browser") {
+		if loc := o.callback("google", attacker, oauthStateDigest(victim)); !strings.Contains(loc, "error=state_invalid") {
 			t.Fatalf("got %q", loc)
 		}
-		if loc := o.callback("google", attacker, attacker); !strings.Contains(loc, "not+started+in+this+browser") {
+		if loc := o.callback("google", attacker, attacker); !strings.Contains(loc, "error=state_invalid") {
 			t.Fatalf("raw state as cookie must not match: %q", loc)
 		}
 	})
@@ -434,7 +449,7 @@ func TestOAuthCallback_StateBoundToBrowser(t *testing.T) {
 		if loc := o.callback("google", s, oauthStateDigest(s)); !strings.Contains(loc, oauthOK) {
 			t.Fatalf("first: %q", loc)
 		}
-		if loc := o.callback("google", s, oauthStateDigest(s)); !strings.Contains(loc, "Invalid+or+expired+state") {
+		if loc := o.callback("google", s, oauthStateDigest(s)); !strings.Contains(loc, "error=state_expired") {
 			t.Fatalf("replay: %q", loc)
 		}
 	})
@@ -560,4 +575,28 @@ func TestOAuthStart_SetsBrowserBindingCookie(t *testing.T) {
 			t.Fatalf("got %d %q", rr.Code, rr.Header().Get("Location"))
 		}
 	})
+}
+
+// Login errors are fixed codes: provider-supplied text (?error= from the
+// provider) and unknown provider names never reach the dashboard URL.
+func TestOAuthLoginError_CodesOnly(t *testing.T) {
+	h := noDBAuthHandler()
+	cases := []struct {
+		provider, query string
+		want            string
+	}{
+		{"google", "error=%3Cscript%3Ealert(1)%3C%2Fscript%3E", "/login?error=oauth_denied&provider=google"},
+		{"evil<x>", "error=access_denied", "/login?error=oauth_denied"},
+		{"github", "code=c", "/login?error=state_invalid&provider=github"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/auth/oauth/x/callback?"+tc.query, nil)
+		req.SetPathValue("provider", tc.provider)
+		rr := httptest.NewRecorder()
+		h.OAuthCallback(rr, req)
+		loc := rr.Header().Get("Location")
+		if !strings.HasSuffix(loc, tc.want) {
+			t.Errorf("provider %q query %q: Location %q, want suffix %q", tc.provider, tc.query, loc, tc.want)
+		}
+	}
 }

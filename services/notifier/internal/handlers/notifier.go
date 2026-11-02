@@ -77,7 +77,7 @@ func (s *NotifierService) logger() *zap.Logger {
 
 // setRLSTenantID sets the session variable used by Postgres RLS policies.
 func setRLSTenantID(ctx context.Context, tx pgx.Tx, tenantID string) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL app.tenant_id = '%s'", tenantID))
+	_, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", tenantID) // bound parameter: never interpolate
 	return err
 }
 

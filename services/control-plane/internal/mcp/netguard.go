@@ -58,7 +58,7 @@ func (p DialPolicy) Allowed(ip net.IP) bool {
 		return false
 	case ip.IsLoopback():
 		return p.AllowLoopback
-	case ip.IsPrivate(), cgnat.Contains(ip), nat64.Contains(ip):
+	case ip.IsPrivate(), cgnat.Contains(ip), nat64.Contains(ip), nat64Local.Contains(ip):
 		return p.AllowPrivate
 	}
 	return true
@@ -81,6 +81,9 @@ var (
 	cgnat     = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 	// nat64 (64:ff9b::/96) can reach any IPv4 address, internal ones included.
 	nat64 = &net.IPNet{IP: net.ParseIP("64:ff9b::"), Mask: net.CIDRMask(96, 128)}
+	// Local-use NAT64 (RFC 8215, 64:ff9b:1::/48): an operator-chosen translator,
+	// so it reaches internal IPv4 just the same.
+	nat64Local = &net.IPNet{IP: net.ParseIP("64:ff9b:1::"), Mask: net.CIDRMask(48, 128)}
 )
 
 // CheckURL validates an MCP server / OAuth endpoint URL statically. The

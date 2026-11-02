@@ -82,7 +82,7 @@ func (p dialPolicy) allowed(ip net.IP) bool {
 		return false
 	case ip.IsLoopback():
 		return p.AllowLoopback
-	case ip.IsPrivate(), cgnat.Contains(ip), nat64.Contains(ip):
+	case ip.IsPrivate(), cgnat.Contains(ip), nat64.Contains(ip), nat64Local.Contains(ip):
 		return p.AllowPrivate
 	}
 	return true
@@ -103,6 +103,9 @@ var (
 	teredo    = &net.IPNet{IP: net.ParseIP("2001::"), Mask: net.CIDRMask(32, 128)}
 	cgnat     = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 	nat64     = &net.IPNet{IP: net.ParseIP("64:ff9b::"), Mask: net.CIDRMask(96, 128)}
+	// Local-use NAT64 (RFC 8215, 64:ff9b:1::/48): an operator-chosen translator,
+	// so it reaches internal IPv4 just the same.
+	nat64Local = &net.IPNet{IP: net.ParseIP("64:ff9b:1::"), Mask: net.CIDRMask(48, 128)}
 )
 
 // checkURL validates a delivery URL statically; the address check proper
@@ -129,6 +132,37 @@ func (p dialPolicy) checkURL(raw string) error {
 	}
 	return nil
 }
+
+// checkProviderURL is checkURL for a known provider's incoming-webhook URL:
+// https always, the host must be one of hosts (exact, case-insensitive) and,
+// when set, the path must start with pathPrefix. A tenant cannot point a
+// "Slack" notification at an arbitrary host.
+func (p dialPolicy) checkProviderURL(raw string, hosts []string, pathPrefix string) error {
+	strict := p
+	strict.RequireHTTPS = true
+	if err := strict.checkURL(raw); err != nil {
+		return err
+	}
+	u, _ := url.Parse(raw) // parsed by checkURL
+	if u.Port() != "" && u.Port() != "443" {
+		return fmt.Errorf("notifier: %s webhook URL must not set a port", u.Hostname())
+	}
+	host := strings.ToLower(u.Hostname())
+	for _, h := range hosts {
+		if host == h {
+			if pathPrefix != "" && !strings.HasPrefix(u.EscapedPath(), pathPrefix) {
+				return fmt.Errorf("notifier: webhook URL path must start with %s", pathPrefix)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("notifier: webhook host must be one of %v", hosts)
+}
+
+var (
+	slackWebhookHosts   = []string{"hooks.slack.com"}
+	discordWebhookHosts = []string{"discord.com", "discordapp.com"}
+)
 
 // newHTTPClient checks every dialled IP against p, ignores proxy env vars (a
 // proxy would hide the real destination) and does not follow redirects (a

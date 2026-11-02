@@ -93,6 +93,11 @@ func (s *SlackDeliverer) Deliver(ctx context.Context, n *Notification) (*Deliver
 		return nil, fmt.Errorf("failed to marshal slack payload: %w", err)
 	}
 
+	// SSRF / misdirection: only the provider's own webhook host, over https.
+	if err := deliveryDialPolicy().checkProviderURL(n.Recipient, slackWebhookHosts, ""); err != nil {
+		return &DeliveryResult{Success: false, ErrorMessage: err.Error(), AttemptedAt: time.Now()}, nil
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.Recipient, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create slack request: %w", err)

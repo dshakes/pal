@@ -195,15 +195,52 @@ func TestWebhookDeliver_SSRFGuard(t *testing.T) {
 	})
 }
 
-// Slack and Discord also POST to the tenant-supplied Recipient.
-func TestSlackDiscord_SSRFGuard(t *testing.T) {
-	srv, _ := captureServer(t)
+// Slack and Discord also POST to the tenant-supplied Recipient: only the
+// provider's own webhook host over https is accepted, and nothing is sent
+// anywhere else (even with the dev private override on).
+func TestSlackDiscord_ProviderURLOnly(t *testing.T) {
+	srv, got := captureServer(t)
 	t.Setenv("PAL_ENV", "")
-	t.Setenv("PAL_NOTIFIER_ALLOW_PRIVATE", "")
+	t.Setenv("PAL_NOTIFIER_ALLOW_PRIVATE", "1")
 	for _, d := range []Deliverer{NewSlackDeliverer(zap.NewNop()), NewDiscordDeliverer(zap.NewNop())} {
-		res, err := d.Deliver(context.Background(), &Notification{ID: "n", TenantID: "t", Recipient: srv.URL, Body: "b"})
-		if err == nil && res != nil && res.Success {
-			t.Fatalf("%s delivered to loopback", d.Channel())
+		for _, u := range []string{srv.URL, strings.Replace(srv.URL, "http://", "https://", 1), "https://evil.example/api/webhooks/1/x"} {
+			res, err := d.Deliver(context.Background(), &Notification{ID: "n", TenantID: "t", Recipient: u, Body: "b"})
+			if err != nil || res == nil || res.Success || !strings.Contains(res.ErrorMessage, "notifier:") {
+				t.Fatalf("%s accepted %q: %+v %v", d.Channel(), u, res, err)
+			}
+		}
+	}
+	select {
+	case <-got:
+		t.Fatal("a non-provider URL was reached")
+	default:
+	}
+}
+
+func TestCheckProviderURL(t *testing.T) {
+	cases := []struct {
+		name, url string
+		hosts     []string
+		prefix    string
+		ok        bool
+	}{
+		{"slack ok", "https://hooks.slack.com/services/T/B/x", slackWebhookHosts, "", true},
+		{"slack upper-case host ok", "https://HOOKS.slack.com/services/T/B/x", slackWebhookHosts, "", true},
+		{"slack http refused", "http://hooks.slack.com/services/T/B/x", slackWebhookHosts, "", false},
+		{"slack lookalike refused", "https://hooks.slack.com.evil.example/services/x", slackWebhookHosts, "", false},
+		{"slack subdomain refused", "https://evil.hooks.slack.com/services/x", slackWebhookHosts, "", false},
+		{"slack port refused", "https://hooks.slack.com:8443/services/x", slackWebhookHosts, "", false},
+		{"slack userinfo refused", "https://u:p@hooks.slack.com/services/x", slackWebhookHosts, "", false},
+		{"discord ok", "https://discord.com/api/webhooks/1/tok", discordWebhookHosts, "/api/webhooks/", true},
+		{"discordapp ok", "https://discordapp.com/api/webhooks/1/tok", discordWebhookHosts, "/api/webhooks/", true},
+		{"discord wrong path", "https://discord.com/oauth2/authorize", discordWebhookHosts, "/api/webhooks/", false},
+		{"discord traversal-ish path", "https://discord.com/x/api/webhooks/1", discordWebhookHosts, "/api/webhooks/", false},
+		{"discord other host", "https://example.com/api/webhooks/1/tok", discordWebhookHosts, "/api/webhooks/", false},
+	}
+	for _, tc := range cases {
+		err := dialPolicy{}.checkProviderURL(tc.url, tc.hosts, tc.prefix)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: %q err=%v, want ok=%v", tc.name, tc.url, err, tc.ok)
 		}
 	}
 }
@@ -226,6 +263,8 @@ func TestDialPolicy(t *testing.T) {
 		{strict, "fd00::1", false},
 		{strict, "::1", false},
 		{strict, "64:ff9b::a9fe:a9fe", false},
+		{strict, "64:ff9b:1::a9fe:a9fe", false}, // local-use NAT64 (RFC 8215)
+		{strict, "64:ff9b:2::1", true},
 		{strict, "2002:7f00:1::", false},
 		{strict, "2001:0:4136:e378:8000:63bf:80ff:fffe", false}, // Teredo client 127.0.0.1
 		{strict, "2001:0:4136:e378:8000:63bf:a247:27dd", true},  // Teredo, public both ends

@@ -21,7 +21,7 @@ import { api, type AuthProviders } from "@/lib/api";
 import { visibleOAuthProviders } from "@/lib/auth-providers";
 import { Turnstile, TURNSTILE_SITE_KEY } from "@/components/turnstile";
 import { AuthError, AuthFrame, authInputClass } from "@/app/auth/auth-shell";
-import { describeAuthError, safeNextPath, type AuthErrorView } from "./auth-errors";
+import { describeAuthError, oauthErrorMessage, safeNextPath, type AuthErrorView } from "./auth-errors";
 
 function GoogleIcon() {
   return (
@@ -74,7 +74,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<AuthErrorView | null>(
-    oauthError ? { kind: "other", message: "That sign-in didn't complete. Try again or use email." } : null,
+    oauthErrorMessage(oauthError, searchParams.get("provider")),
   );
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);

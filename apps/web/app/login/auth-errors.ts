@@ -57,3 +57,30 @@ export function safeNextPath(raw: string | null): string {
   if (raw.startsWith("/login")) return "/";
   return raw;
 }
+
+// OAuth callback failures come back as /login?error=<code>[&provider=…]. Only
+// these known codes map to copy; anything else gets the generic line. The raw
+// query text is never rendered (it is attacker-controllable in a crafted link).
+const OAUTH_ERROR_COPY: Record<string, { kind: AuthErrorKind; message: (p: string) => string }> = {
+  email_unverified: { kind: "unverified", message: (p) => `Your ${p} email address isn't verified. Verify it with ${p}, then try again.` },
+  link_refused: { kind: "other", message: () => "An account with this email already exists. Sign in with your password, then connect it in settings." },
+  signup_closed: { kind: "closed", message: () => "Sign-up is closed on this workspace. Ask an admin for an invite." },
+  invite_required: { kind: "closed", message: () => "This workspace is invite-only. Enter your invite code, then sign in again." },
+  signup_rate_limited: { kind: "rate_limited", message: () => "Too many sign-up attempts. Wait a few minutes and try again." },
+  signup_unavailable: { kind: "server", message: () => "Sign-up is temporarily unavailable. Try again shortly." },
+  state_invalid: { kind: "other", message: () => "That sign-in wasn't started in this browser. Start it again from here." },
+  state_expired: { kind: "other", message: () => "That sign-in link expired or was already used. Start it again." },
+  oauth_denied: { kind: "other", message: (p) => `Sign-in with ${p} was cancelled.` },
+  oauth_failed: { kind: "server", message: (p) => `We couldn't complete sign-in with ${p}. Try again or use email.` },
+  internal: { kind: "server", message: () => "Something went wrong on our side. Try again shortly." },
+};
+
+const OAUTH_PROVIDER_NAMES: Record<string, string> = { google: "Google", github: "GitHub" };
+
+export function oauthErrorMessage(code: string | null, provider: string | null): AuthErrorView | null {
+  if (!code) return null;
+  const p = (provider && Object.hasOwn(OAUTH_PROVIDER_NAMES, provider) && OAUTH_PROVIDER_NAMES[provider]) || "your provider";
+  const entry = Object.hasOwn(OAUTH_ERROR_COPY, code) ? OAUTH_ERROR_COPY[code] : null;
+  if (!entry) return { kind: "other", message: "That sign-in didn't complete. Try again or use email." };
+  return { kind: entry.kind, message: entry.message(p) };
+}

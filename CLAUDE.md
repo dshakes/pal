@@ -322,9 +322,12 @@ open/invite refuses to boot without a reachable Redis (`CheckSignupLimiter`). Fu
 **OAuth sign-in hardening.** Only a provider-VERIFIED email identifies a user (Google
 `verified_email`/OIDC `email_verified`; GitHub: always `/user/emails`, primary AND verified —
 the profile email is never trusted); otherwise the callback refuses. Accounts are matched by
-email case-insensitively (oldest first); a provider sign-in may enter an existing account only
-if its `email_verified_at` is set (else "Sign in with your password, then connect <Provider> in
-settings"); no link table — linking = signing in as that user. `GET /auth/oauth/{provider}/start`
+email case-insensitively (oldest first, index `users_email_lower_idx`, migration 0046); an
+UNVERIFIED password account is skipped (anti-squatting: the real owner gets their own account);
+a provider sign-in may enter an existing account only if its `email_verified_at` is set; no link
+table — linking = signing in as that user. Failures redirect to `/login?error=<code>`
+(`oauthErr*` constants: `email_unverified`, `link_refused`, `signup_closed`, `state_invalid`, …);
+the login page maps known codes via `oauthErrorMessage` and never renders query text. `GET /auth/oauth/{provider}/start`
 sets an HttpOnly Lax cookie `pal_oauth_state` (path `/auth/oauth/`, 10 min, Secure in prod) with a
 hash of the state; the callback refuses a state the cookie doesn't match (login CSRF) and redeems
 it with Redis `GETDEL` (no replay / double callback). The dashboard NAVIGATES to
@@ -2417,7 +2420,9 @@ still a trust boundary: it runs the shared service-token interceptor before tena
 deliveries POST to a tenant-supplied URL through an SSRF dial guard (`internal/delivery/netguard.go`,
 a copy of the control-plane `internal/mcp/netguard.go` policy — change both together): loopback,
 private, CGNAT, NAT64, link-local/metadata, 6to4/Teredo-embedded and the always-refused ranges are
-refused at dial time, proxies ignored, redirects not followed, https required in prod;
+refused at dial time (also local-use NAT64 `64:ff9b:1::/48`, in both copies), proxies ignored,
+redirects not followed, https required in prod; Slack only to `hooks.slack.com` and Discord only to
+`discord.com`/`discordapp.com` `/api/webhooks/…`, https always (`checkProviderURL`);
 `PAL_NOTIFIER_ALLOW_PRIVATE=1` lifts private/loopback/fake-IP in dev only. Webhooks are signed
 `X-Pal-Signature: t=<unix>,v1=<hex HMAC-SHA256(key, "<t>.<body>")>` with the per-tenant key
 `HKDF-SHA256(PAL_NOTIFIER_SIGNING_KEY, info "pal-notifier-webhook-v1|<tenant_id>", 32 bytes)`
@@ -2425,6 +2430,11 @@ refused at dial time, proxies ignored, redirects not followed, https required in
 recomputes the HMAC over `<t>.<raw body>`, compares in constant time and rejects a stale `t`
 (±5 min, as for inbound generic hooks). There is no tenant-facing API to read the derived key yet:
 the operator hands it out. (The old signature was keyed by the tenant id — forgeable.)
+
+**Tenant GUC: always a bound parameter.** `app.tenant_id` is set with
+`SELECT set_config('app.tenant_id', $1, true)`, never `fmt.Sprintf("SET LOCAL … '%s'")` — the
+latter was a stacked-statement SQL injection from gRPC metadata in notifier, billing and memory
+(fixed). Those services' tenant interceptors also refuse a non-UUID `tenant_id` (InvalidArgument).
 
 ## Proto workflow
 

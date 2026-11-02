@@ -464,6 +464,9 @@ func TestDialPolicy_FakeIPAndTeredo(t *testing.T) {
 		{"teredo client loopback", DialPolicy{}, "2001:0:4136:e378:8000:63bf:80ff:fffe", false},
 		{"teredo server private", DialPolicy{}, "2001:0:a00:1:8000:63bf:a247:27dd", false},
 		{"teredo client metadata", DialPolicy{}, "2001:0:4136:e378:8000:63bf:5601:5601", false},
+		{"local-use NAT64 refused", DialPolicy{RequireHTTPS: true}, "64:ff9b:1::a9fe:a9fe", false},
+		{"local-use NAT64 upper bound refused", DialPolicy{}, "64:ff9b:1:ffff::1", false},
+		{"just past local-use NAT64 is public", DialPolicy{}, "64:ff9b:2::1", true},
 	}
 	for _, tc := range cases {
 		if got := tc.p.Allowed(net.ParseIP(tc.ip)); got != tc.want {

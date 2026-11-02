@@ -567,7 +567,11 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	navigate := r.URL.Query().Get("redirect") == "1"
 	fail := func(status int, msg string) {
 		if navigate {
-			http.Redirect(w, r, oauthDashboardURL()+"/login?error="+url.QueryEscape(msg), http.StatusFound)
+			code := oauthErrFailed
+			if status == http.StatusInternalServerError {
+				code = oauthErrInternal
+			}
+			oauthLoginError(w, r, code, providerName)
 			return
 		}
 		writeJSON(w, status, map[string]string{"error": msg})
@@ -653,19 +657,18 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	providerName := r.PathValue("provider")
-	dashboardURL := oauthDashboardURL()
 
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	oauthError := r.URL.Query().Get("error")
 
 	if oauthError != "" {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Authorization denied: "+oauthError), http.StatusFound)
+		oauthLoginError(w, r, oauthErrDenied, providerName)
 		return
 	}
 
 	if code == "" || state == "" {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Missing code or state parameter"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 
@@ -675,7 +678,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if c, cerr := r.Cookie(oauthStateCookie); cerr != nil ||
 		subtle.ConstantTimeCompare([]byte(c.Value), []byte(oauthStateDigest(state))) != 1 {
 		h.logger().Warn("OAuth callback state not bound to this browser", zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("This sign-in was not started in this browser. Please try again."), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 	setOAuthStateCookie(w, "", -1)
@@ -683,7 +686,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	stateDataStr, err := h.srv.Redis.GetDel(ctx, "oauth_login_state:"+state).Result()
 	if err != nil {
 		h.logger().Warn("invalid or expired OAuth login state", zap.Error(err))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Invalid or expired state token. Please try again."), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateExpired, providerName)
 		return
 	}
 
@@ -693,19 +696,19 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		Invite       string `json:"invite"`
 	}
 	if err := json.Unmarshal([]byte(stateDataStr), &stateData); err != nil {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Corrupted state data"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 
 	// Verify provider matches.
 	if stateData.Provider != providerName {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("State mismatch"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 
 	provider, ok := oauthLoginProviders[providerName]
 	if !ok {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Unknown provider"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrFailed, providerName)
 		return
 	}
 
@@ -714,7 +717,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	accessToken, err := h.exchangeOAuthLoginCode(ctx, providerName, provider, code, stateData.PKCEVerifier)
 	if err != nil {
 		h.logger().Error("OAuth login token exchange failed", zap.Error(err), zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Token exchange failed"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrFailed, providerName)
 		return
 	}
 
@@ -723,30 +726,29 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	email, displayName, err := h.fetchOAuthUserProfile(ctx, providerName, provider, accessToken)
 	if errors.Is(err, errOAuthEmailUnverified) {
 		h.logger().Info("OAuth sign-in refused: provider email not verified", zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape(fmt.Sprintf(
-			"Your %s email address is not verified. Verify it with %s, then try again.", oauthDisplayName(providerName), oauthDisplayName(providerName))), http.StatusFound)
+		oauthLoginError(w, r, oauthErrEmailUnverified, providerName)
 		return
 	}
 	if err != nil {
 		h.logger().Error("OAuth user profile fetch failed", zap.Error(err), zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Failed to fetch user profile"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrFailed, providerName)
 		return
 	}
 
 	if email == "" {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Could not determine email address from OAuth provider"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrEmailUnverified, providerName)
 		return
 	}
 
 	u, refusal, err := h.resolveOAuthUser(ctx, providerName, email, displayName, remoteIP(r), stateData.Invite)
 	if err != nil {
 		h.logger().Error("OAuth user resolution failed", zap.Error(err), zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
 	if refusal != "" {
 		h.logger().Info("OAuth sign-in refused", zap.String("provider", providerName), zap.String("reason", refusal))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape(refusal), http.StatusFound)
+		oauthLoginError(w, r, refusal, providerName)
 		return
 	}
 	userID, tenantID, name, role := u.id, u.tenantID, u.name, u.role
@@ -769,7 +771,7 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	token, err := h.generateToken(userID, tenantID, email, name, role)
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
 
@@ -781,20 +783,20 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	onetimeCode, codeErr := randomHex(24)
 	if codeErr != nil {
 		h.logger().Error("failed to generate one-time code", zap.Error(codeErr))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
 	if storeErr := h.srv.Redis.Set(ctx, "oauth_code:"+onetimeCode, token, 60*time.Second).Err(); storeErr != nil {
 		h.logger().Error("failed to store one-time code in Redis", zap.Error(storeErr))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
-	http.Redirect(w, r, dashboardURL+"/auth/callback?code="+url.QueryEscape(onetimeCode), http.StatusFound)
+	http.Redirect(w, r, oauthDashboardURL()+"/auth/callback?code="+url.QueryEscape(onetimeCode), http.StatusFound)
 }
 
 // oauthSignupGate applies the password sign-up policy (ADR 0027) to a NEW
 // user arriving via OAuth, so the provider button is not a way around
-// "sign-up closed". Returns "" when allowed, else the user-facing reason.
+// "sign-up closed". Returns "" when allowed, else an oauthErr* code.
 //   - closed: refused (existing users still sign in).
 //   - invite: the invite code carried in the OAuth state must be valid for the
 //     provider-verified email.
@@ -805,28 +807,46 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) oauthSignupGate(ctx context.Context, ip, email, invite string) string {
 	mode := signupMode()
 	if mode != signupOpen && mode != signupInvite {
-		return "Sign-up is closed"
+		return oauthErrSignupClosed
 	}
 	switch h.signupRateLimited(ctx, ip) {
 	case http.StatusTooManyRequests:
-		return "Too many sign-up attempts; please try again later"
+		return oauthErrSignupLimited
 	case http.StatusServiceUnavailable:
-		return "Sign-up is temporarily unavailable; please try again later"
+		return oauthErrSignupUnavailable
 	}
 	if mode == signupInvite && !inviteCodeValid(os.Getenv("PAL_SIGNUP_INVITE_SECRET"), email, invite, time.Now()) {
-		return "A valid invite code is required to sign up"
+		return oauthErrInviteRequired
 	}
 	return ""
 }
 
-func oauthDisplayName(provider string) string {
-	switch provider {
-	case "github":
-		return "GitHub"
-	case "google":
-		return "Google"
+// OAuth login error codes. Failures redirect to /login?error=<code>
+// [&provider=<google|github>] and the dashboard maps the code to copy
+// (apps/web/app/login/auth-errors.ts, oauthErrorMessage). Never free text: the
+// login page must not render query text an attacker can put in a link.
+const (
+	oauthErrDenied            = "oauth_denied"
+	oauthErrFailed            = "oauth_failed"
+	oauthErrStateInvalid      = "state_invalid"
+	oauthErrStateExpired      = "state_expired"
+	oauthErrEmailUnverified   = "email_unverified"
+	oauthErrLinkRefused       = "link_refused"
+	oauthErrSignupClosed      = "signup_closed"
+	oauthErrInviteRequired    = "invite_required"
+	oauthErrSignupLimited     = "signup_rate_limited"
+	oauthErrSignupUnavailable = "signup_unavailable"
+	oauthErrInternal          = "internal"
+)
+
+// oauthLoginError redirects to the dashboard login with an error code. The
+// provider is echoed only when it is a known one.
+func oauthLoginError(w http.ResponseWriter, r *http.Request, code, provider string) {
+	q := url.Values{"error": {code}}
+	if _, ok := oauthLoginProviders[provider]; ok {
+		q.Set("provider", provider)
 	}
-	return provider
+	http.Redirect(w, r, oauthDashboardURL()+"/login?"+q.Encode(), http.StatusFound)
 }
 
 // oauthAccount is the PAL user an OAuth sign-in resolves to.
@@ -839,12 +859,19 @@ type oauthAccount struct {
 
 // findOAuthAccount looks the email up across all tenants (case-insensitive;
 // the oldest account wins when an address exists in several workspaces).
+//
+// An UNVERIFIED password account is skipped: nobody has proven they own that
+// address, so it must not be able to squat it and lock the real owner out of
+// provider sign-in. The owner gets their own account (or the verified one the
+// email already belongs to); the squatter's account stays unverified and
+// unusable where verification is required.
 func findOAuthAccount(ctx context.Context, q credRowQuerier, email string) (oauthAccount, error) {
 	var a oauthAccount
 	var name *string
 	err := q.QueryRow(ctx, `
 		SELECT id, tenant_id, display_name, role, auth_provider, email_verified_at IS NOT NULL
 		FROM users WHERE lower(email) = lower($1)
+		  AND NOT (auth_provider = 'local' AND email_verified_at IS NULL)
 		ORDER BY created_at, id LIMIT 1
 	`, email).Scan(&a.id, &a.tenantID, &name, &a.role, &a.authProvider, &a.emailVerified)
 	if name != nil {
@@ -860,12 +887,14 @@ func findOAuthAccount(ctx context.Context, q credRowQuerier, email string) (oaut
 // second half always holds here — fetchOAuthUserProfile refuses unverified
 // emails — so the account's verification is what decides: an unverified
 // password sign-up never becomes reachable through a provider that happens
-// to know the same address. Returns "" when allowed.
-func oauthLinkRefusal(provider string, a oauthAccount) string {
+// to know the same address (findOAuthAccount already skips unverified
+// password accounts; this guards any other unverified account). Returns ""
+// when allowed, else oauthErrLinkRefused.
+func oauthLinkRefusal(a oauthAccount) string {
 	if a.emailVerified {
 		return ""
 	}
-	return fmt.Sprintf("An account with this email already exists. Sign in with your password, then connect %s in settings.", oauthDisplayName(provider))
+	return oauthErrLinkRefused
 }
 
 // resolveOAuthUser finds or creates the PAL account for a provider-verified
@@ -881,7 +910,7 @@ func (h *AuthHandler) resolveOAuthUser(ctx context.Context, provider, email, dis
 	// verified OAuth email across all tenants; no tenant context exists yet.
 	a, err := findOAuthAccount(ctx, h.srv.Pool, email)
 	if err == nil {
-		return a, oauthLinkRefusal(provider, a), nil
+		return a, oauthLinkRefusal(a), nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return a, "", fmt.Errorf("look up OAuth user: %w", err)
@@ -911,7 +940,7 @@ func (h *AuthHandler) resolveOAuthUser(ctx context.Context, provider, email, dis
 	}
 	// A concurrent callback may have created the account while we waited.
 	if a, err := findOAuthAccount(ctx, tx, email); err == nil {
-		return a, oauthLinkRefusal(provider, a), nil
+		return a, oauthLinkRefusal(a), nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return a, "", fmt.Errorf("re-check OAuth user: %w", err)
 	}
