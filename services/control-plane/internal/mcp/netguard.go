@@ -26,6 +26,17 @@ var ErrBlockedAddress = errors.New("mcp: destination address is not allowed (SSR
 
 // Allowed reports whether ip may be dialled under p.
 func (p DialPolicy) Allowed(ip net.IP) bool {
+	// 6to4 (2002::/16) carries an IPv4 address in bytes 2-5 and reaches it via
+	// a relay: judge the embedded address, so 2002:7f00:1:: is loopback.
+	if ip.To4() == nil && sixToFour.Contains(ip) {
+		b := ip.To16()
+		return p.Allowed(net.IPv4(b[2], b[3], b[4], b[5]))
+	}
+	for _, n := range alwaysRefused {
+		if n.Contains(ip) {
+			return false
+		}
+	}
 	switch {
 	case ip == nil, ip.IsUnspecified(), ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast(),
 		ip.IsInterfaceLocalMulticast(), ip.IsMulticast():
@@ -39,7 +50,18 @@ func (p DialPolicy) Allowed(ip net.IP) bool {
 }
 
 var (
-	cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+	// alwaysRefused are never a legitimate public destination, whatever the
+	// policy: benchmarking (198.18.0.0/15), IETF protocol assignments
+	// (192.0.0.0/24), reserved + broadcast (240.0.0.0/4), and the Azure
+	// wireserver (168.63.129.16, metadata-class: it hands out VM config).
+	alwaysRefused = []*net.IPNet{
+		{IP: net.IPv4(198, 18, 0, 0), Mask: net.CIDRMask(15, 32)},
+		{IP: net.IPv4(192, 0, 0, 0), Mask: net.CIDRMask(24, 32)},
+		{IP: net.IPv4(240, 0, 0, 0), Mask: net.CIDRMask(4, 32)},
+		{IP: net.IPv4(168, 63, 129, 16), Mask: net.CIDRMask(32, 32)},
+	}
+	sixToFour = &net.IPNet{IP: net.ParseIP("2002::"), Mask: net.CIDRMask(16, 128)}
+	cgnat     = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 	// nat64 (64:ff9b::/96) can reach any IPv4 address, internal ones included.
 	nat64 = &net.IPNet{IP: net.ParseIP("64:ff9b::"), Mask: net.CIDRMask(96, 128)}
 )

@@ -15,6 +15,7 @@ import type {
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
 import { parseApiErrorBody } from "./eval-format";
+import { runtimeApiUrl } from "./runtime-config.ts";
 import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
 import {
@@ -475,10 +476,7 @@ class PalAPI {
     // the control-plane directly (docker-compose service name or env var).
     if (typeof window !== "undefined") {
       // Browser: use relative URL so Next.js rewrites proxy to the backend.
-      this.baseUrl =
-        (window as unknown as Record<string, unknown>).__NEXT_PUBLIC_API_URL as string | undefined ??
-        process.env.NEXT_PUBLIC_API_URL ??
-        "http://localhost:8080";
+      this.baseUrl = runtimeApiUrl() ?? "http://localhost:8080";
     } else {
       this.baseUrl =
         process.env.PAL_API_URL ??
@@ -688,8 +686,10 @@ class PalAPI {
     await this.request(`/v1/tenants/${encodeURIComponent(tenantId)}`, { method: "DELETE" });
   }
 
-  async oauthStart(provider: string): Promise<{ redirect_url: string }> {
-    return this.request<{ redirect_url: string }>(`/auth/oauth/${provider}/start`);
+  /** invite: an invite code for invite-only sign-up; the server keeps it in the OAuth state. */
+  async oauthStart(provider: string, invite?: string): Promise<{ redirect_url: string }> {
+    const q = invite ? `?invite=${encodeURIComponent(invite)}` : "";
+    return this.request<{ redirect_url: string }>(`/auth/oauth/${provider}/start${q}`);
   }
 
   /** Exchange the one-time OAuth code (delivered to /auth/callback?code=…) for

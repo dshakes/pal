@@ -11,7 +11,7 @@ global:
   image:
     registry: ghcr.io
     repository: dshakes/pal
-    tag: "0.1.0"
+    tag: ""                 # empty -> Chart.appVersion
     pullPolicy: IfNotPresent
   logLevel: info
   # Bitnami subcharts (postgresql/redis/minio, v1.5.x+ image-verification guard)
@@ -270,7 +270,9 @@ imageVerification:
   keyless:
     # The GitHub Actions workflow OIDC identity that signs the images. Update
     # the org/repo to match your fork before enabling Enforce.
-    subject: "https://github.com/dshakes/pal/.github/workflows/build-images.yml@refs/heads/master"
+    # Regex, not exact: master builds AND release-tag builds (refs/tags/vX.Y.Z) are trusted.
+    # Must land together with a GitHub tag ruleset restricting refs/tags/v* to admins.
+    subjectRegExp: '^https://github\.com/dshakes/pal/\.github/workflows/build-images\.yml@refs/(heads/master|tags/v[0-9]+\.[0-9]+\.[0-9]+)$'
     issuer: "https://token.actions.githubusercontent.com"
     rekorURL: "https://rekor.sigstore.dev"
   # Static cosign public key (PEM). Only used when mode: "key".

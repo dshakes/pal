@@ -4,15 +4,39 @@ import Logo from '../components/Logo.astro';
 import Copy from '../components/Copy.astro';
 import ChatDemo from '../components/landing/ChatDemo.astro';
 import Lifecycle from '../components/landing/Lifecycle.astro';
+import ShipLoop from '../components/landing/ShipLoop.astro';
 import Media from '../components/landing/Media.astro';
 import { u, GH, DEMO } from '../data/site';
 
+// Every claim below maps to shipped code (CLAUDE.md, the linked docs). No metrics,
+// logos or customers: there are none to show yet, and the status section says so.
 const PAL_CAPS = [
-  { m: 'pal-brief', t: 'Brief', h: 'What needs you, ranked.', b: 'Type ? and pal ranks every thread, draft and promise waiting on you, with a reason. React to act: 👍 do it, 👎 skip, ⏰ snooze.' },
+  { m: 'pal-brief', t: 'Brief', h: 'What needs you, ranked.', b: 'Type ? and PAL ranks every thread, draft and promise waiting on you, with a reason. React to act: 👍 do it, 👎 skip, ⏰ snooze.' },
   { m: 'pal-holds', t: 'Holds', h: 'Never says yes for you.', b: 'Money, commitments and claims it can’t check wait for you. A backstop runs even when the model is down.' },
   { m: 'pal-voice', t: 'Voice', h: 'Sounds like you.', b: 'Each draft is scored against messages you really sent. One that drifts is rewritten before it goes out.' },
   { m: 'pal-memory', t: 'Memory', h: 'One memory per person.', b: 'Across iMessage and WhatsApp, so a plan made on one is known on the other.' },
   { m: 'pal-world', t: 'Now', h: 'Knows what’s true today.', b: 'A dated picture of your life from mail, calendar and your own notes, with a source on every line.' },
+] as const;
+// life-event engine, live watch, event scout, skill forge
+const AGENTS = [
+  { i: '🧾', t: 'Bills', b: 'Bills, deliveries, appointments and fraud alerts are recognised as they arrive. For each kind you choose: act, ask first, or off.', say: 'auto · ask · off' },
+  { i: '✈️', t: 'Travel', b: 'Someone mentions a flight that’s in the air. PAL checks it live and follows up once it lands.', say: '“just saw he landed”' },
+  { i: '🎪', t: 'Family events', b: 'A weekly scan for fairs, fireworks, community shows and kids’ events near you. Pick a number and it’s on your calendar.', say: 'book 1,3' },
+  { i: '🗞️', t: 'Digests', b: 'Describe a recurring job in a sentence. PAL drafts it as a skill, and nothing runs until you approve it.', say: 'new skill: every Friday 5pm, recap my week' },
+] as const;
+const TRUST_YOU = [
+  { h: 'Drafts for your OK', b: 'Mute a channel and every reply becomes a draft you approve. Draft-confirm holds uncertain replies too.' },
+  { h: 'Holds what matters', b: 'Money and promises, in any language, and facts it can’t verify are held at the send boundary, even when the model is down.' },
+  { h: 'Quiet hours', b: 'No replies go out overnight (1–6 AM by default). What arrives is queued and answered in the morning.' },
+  { h: 'Kill switch', b: 'Type “kill switch on” in your own chat and PAL ignores everything until you release it.' },
+  { h: 'Raw data stays home', b: 'The bridges run on a Mac you own and read only the folders you allow. The most personal memory is encrypted at rest.' },
+] as const;
+const TRUST_CO = [
+  { h: 'MicroVM isolation', b: 'Agent code never runs in a bare container: Firecracker or Kata, an egress allowlist, secrets by reference.' },
+  { h: 'Default-deny agents', b: 'Every agent is a principal with short-lived tokens. New agents may use no tool, host or secret until policy allows it.' },
+  { h: 'Tenant walls', b: 'Row-level security on every tenant table. Mutual TLS and a service token on every internal gRPC hop.' },
+  { h: 'Signed receipts', b: 'An Ed25519 receipt over the hash of a run’s journal. Change one row and it stops verifying.' },
+  { h: 'Read every line', b: 'Apache-2.0. Go, Rust and TypeScript, with tests and linters gating every change.' },
 ] as const;
 const RT_CAPS = [
   { m: 'runtime-durable', t: 'Durable', h: 'Runs that finish.', b: 'Every step is journaled. After a crash the run resumes where it stopped; finished steps never run again.', href: 'docs/runtime/durable-execution/' },
@@ -20,61 +44,59 @@ const RT_CAPS = [
   { m: 'runtime-guardrails', t: 'Guardrails', h: 'Spend you set.', b: 'Over budget, a run gets HTTP 402 before any model call. Ask for a capability, not a vendor. A regressed eval returns 422.', href: 'docs/build/budgets/' },
   { m: 'runtime-architecture', t: 'Yours', h: 'In your cloud.', b: 'The data plane runs in your VPC and dials out. No inbound ports. Apache-2.0.', href: 'docs/runtime/architecture/' },
 ] as const;
-const TRUST = [
-  { h: 'Asks before it acts', b: 'pal holds money, promises and unverifiable claims at the send boundary. A rule in a prompt is advice; this is a gate in code.' },
-  { h: 'Your Mac, your folders', b: 'pal’s bridges run on a Mac you own and read only the folders you allow. Its most personal memory is encrypted at rest.' },
-  { h: 'MicroVM isolation', b: 'Untrusted agent code never runs in a bare container: Firecracker or Kata, an egress allowlist, secrets by reference.' },
-  { h: 'Tenant walls', b: 'Every row and every internal call carries a tenant. Row-level security policies cover every tenant table and are enforced in production.' },
-  { h: 'Signed receipts', b: 'A run can carry an Ed25519 receipt over the hash of its journal. Change one row and it stops verifying.' },
-  { h: 'Read every line', b: 'Apache-2.0. Go, Rust and TypeScript, with tests and linters gating every change.' },
-];
+const MORE = [
+  { h: 'Multi-LLM routing', b: 'Ask for “reasoning-large”, not a vendor. The router picks the model, fails over and meters the cost.', href: 'docs/build/models/' },
+  { h: 'MCP + A2A', b: 'Use MCP servers, or expose your agents as one; call and serve agents over A2A, all inside the agent’s policy.', href: 'docs/build/mcp/' },
+  { h: 'SLOs + incidents', b: 'Per-agent objectives with burn alerts. Anomalies open incidents that cite their own runs.', href: 'docs/observability/' },
+  { h: 'Debug + support agents', b: 'Root causes that cite the evidence, and fixes proposed as requests you confirm.', href: 'docs/build/debugging/' },
+  { h: 'Triggers + schedules', b: 'Signed webhooks from GitHub, Sentry and PagerDuty, and timezone-aware cron.', href: 'docs/build/triggers/' },
+  { h: 'SDKs + CLI', b: 'TypeScript, Python and Go SDKs, and the pal CLI.', href: 'docs/sdks/' },
+] as const;
+const STATUS = [
+  { h: 'Open source, today', b: 'Apache-2.0. Run the whole stack on your laptop with Docker, or deploy it with Helm.' },
+  { h: 'PAL needs a Mac', b: 'The iMessage and WhatsApp bridges run on a Mac you own. There is no hosted PAL yet.' },
+  { h: 'SDKs from source', b: 'The SDKs aren’t on npm or PyPI yet. Install them from a checkout of the repo.' },
+  { h: 'You run both planes', b: 'There is no managed cloud endpoint yet. You deploy the control plane and the data plane.' },
+] as const;
 ---
-<Page title="PAL — a pal for you, a runtime for your agents" description="PAL is two products on one layer: pal, a personal agent in your iMessage and WhatsApp that asks before it promises anything, and PAL Runtime, the open-source runtime for the agents you build.">
+<Page title="PAL — the Personalized Agentic Layer" description="PAL is the Personalized Agentic Layer: a personal agent in your iMessage and WhatsApp that asks before anything risky, and PAL Runtime, the same runtime for building, testing and governing your company’s agents. Open beta, Apache-2.0.">
   <section class="hero hero-choose" aria-labelledby="hero-h">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="wrap">
-      <p class="eyebrow center" data-reveal>PAL · the <b>Personal Agentic Layer</b></p>
-      <h1 id="hero-h" class="display center hero-title" data-reveal>An agent for your life.<br /><span class="grad">A runtime for yours.</span></h1>
-      <p class="lede center hero-lede" data-reveal>One layer, two ways in. pal looks after your messages and asks before it promises anything. PAL Runtime is the open-source layer it runs on, for the agents you build.</p>
+      <p class="center" data-reveal><span class="beta">Open beta · Apache-2.0</span></p>
+      <p class="eyebrow center hero-eyebrow" data-reveal>PAL · the <b>Personalized Agentic Layer</b></p>
+      <h1 id="hero-h" class="display center hero-title hero-v3" data-reveal><span>Agents personalized to you.</span> <span class="grad">And to your business.</span></h1>
+      <p class="lede center hero-lede" data-reveal>For you, an agent in the chats you already use that drafts, holds and asks before anything risky. For your company, the same runtime to build, test, ship and govern your own agents.</p>
       <div class="choose" data-reveal>
         <a class="choice choice-pal" href={u('pal/')}>
           <span class="choice-k">For you</span>
           <Logo size={26} />
-          <span class="choice-h">A pal in your iMessage and WhatsApp.</span>
-          <span class="choice-b">Replies in your voice, remembers your people, and holds anything risky for your yes.</span>
-          <span class="choice-go">Meet pal</span>
+          <span class="choice-h">Your agent in iMessage and WhatsApp.</span>
+          <span class="choice-b">Replies in your voice, remembers your people, runs the errands you teach it, and holds anything risky for your yes.</span>
+          <span class="mini-chat" aria-hidden="true">
+            <span class="mc-in">can you send the $300 tonight?</span>
+            <span class="mc-hold"><b>Held</b> the reply promised money · send / edit?</span>
+          </span>
+          <span class="choice-go">Meet PAL</span>
         </a>
         <a class="choice choice-rt" href={u('runtime/')}>
-          <span class="choice-k">For builders</span>
+          <span class="choice-k">For your company</span>
           <Logo variant="runtime" size={26} />
-          <span class="choice-h">Agents that finish, stay contained, stay yours.</span>
-          <span class="choice-b">Durable runs, microVM sandboxes, hard budgets and signed receipts, in your own cloud.</span>
+          <span class="choice-h">Agents for your business, governed.</span>
+          <span class="choice-b">Eval gates, promotion with approval and canary, default-deny policy, microVM sandboxes. In your cloud.</span>
+          <span class="mini-loop" aria-hidden="true"><i>build</i><i>eval</i><i>promote</i><i>observe</i></span>
           <span class="choice-go">Explore PAL Runtime</span>
         </a>
       </div>
     </div>
   </section>
 
-  <section class="section" aria-labelledby="problem-h">
-    <div class="wrap">
-      <div class="section-head" data-reveal>
-        <p class="eyebrow">The problem</p>
-        <h2 id="problem-h" class="h2" style="margin-top:12px">Agents that act are easy to start and hard to trust.</h2>
-      </div>
-      <ul class="grid-3 trust">
-        <li class="card" data-reveal><h3 class="h3">A reply can commit you.</h3><p>An agent writing as you can promise money, confirm a date it never checked, or answer bad news in the wrong tone.</p></li>
-        <li class="card" data-reveal><h3 class="h3">A crash spends twice.</h3><p>A process dies mid-run and the run starts over: the model is billed again and the email goes out twice.</p></li>
-        <li class="card" data-reveal><h3 class="h3">Agent code is untrusted code.</h3><p>Tools run code the model chose, reach the internet and hold your keys. A loop with no cap runs until the invoice.</p></li>
-      </ul>
-    </div>
-  </section>
-
   <section class="section band" aria-labelledby="moment-h">
     <div class="wrap split">
       <div data-reveal>
-        <p class="eyebrow"><b class="pal-k">pal</b> · one moment</p>
+        <p class="eyebrow"><b class="pal-k">PAL</b> · watch it work</p>
         <h2 id="moment-h" class="h2" style="margin-top:12px">It brings you what matters. It waits on what’s risky.</h2>
-        <p class="lede" style="margin-top:18px">Ask pal what’s up and you get a short, ranked list. When a reply would spend your money or your word, pal stops and asks you first, in the same chat.</p>
+        <p class="lede" style="margin-top:18px">Ask PAL what’s up and you get a short, ranked list. When a reply would spend your money or your word, PAL stops and asks you first, in the same chat. Try it: press Send or Edit.</p>
         <ul class="checklist">
           <li><span><b>Brief.</b> Threads waiting on you, drafts, things you said you’d do.</span></li>
           <li><span><b>Hold.</b> Money, promises, dates it can’t check, hard news.</span></li>
@@ -85,12 +107,32 @@ const TRUST = [
     </div>
   </section>
 
-  <section class="section" aria-labelledby="palcaps-h">
+  <section class="section" aria-labelledby="agents-h">
     <div class="wrap">
       <div class="section-head" data-reveal>
-        <p class="eyebrow"><b class="pal-k">pal</b> · for you</p>
-        <h2 id="palcaps-h" class="h2" style="margin-top:12px">A personal agent on your own Mac.</h2>
-        <p class="lede">In the chats you already use. It knows your people, your calendar and your mail, and it never says yes on your behalf.</p>
+        <p class="eyebrow"><b class="pal-k">PAL</b> · your agents</p>
+        <h2 id="agents-h" class="h2" style="margin-top:12px">One for every errand you’d rather not run.</h2>
+        <p class="lede">Bills, trips, family plans, the weekly digest. Each runs in your own chat, under the same holds, quiet hours and kill switch.</p>
+      </div>
+      <ul class="agents">
+        {AGENTS.map((a) => (
+          <li class="agent" data-reveal>
+            <span class="agent-i" aria-hidden="true">{a.i}</span>
+            <h3 class="h3">{a.t}</h3>
+            <p>{a.b}</p>
+            <code class="agent-say">{a.say}</code>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="section band" aria-labelledby="palcaps-h">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><b class="pal-k">PAL</b> · personalized</p>
+        <h2 id="palcaps-h" class="h2" style="margin-top:12px">It learns you, not the other way round.</h2>
+        <p class="lede">It knows your people, your calendar and your mail, writes the way you write, and never says yes on your behalf.</p>
       </div>
       <ul class="bento bento-pal">
         {PAL_CAPS.map((c, i) => (
@@ -100,7 +142,68 @@ const TRUST = [
           </li>
         ))}
       </ul>
-      <a class="arrow-link" style="margin-top:24px" href={u('pal/')}>Everything pal does</a>
+      <a class="arrow-link" style="margin-top:24px" href={u('pal/')}>Everything PAL does</a>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="ship-h">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><b class="rt-k">PAL Runtime</b> · for your company</p>
+        <h2 id="ship-h" class="h2" style="margin-top:12px">Ship agents the way you ship software.</h2>
+        <p class="lede">Agents personalized to your business, on the same runtime that powers PAL. Nothing reaches production without passing its evals, and prod needs a person’s yes.</p>
+      </div>
+      <div data-reveal><ShipLoop /></div>
+    </div>
+  </section>
+
+  <section class="section band" aria-labelledby="code-h">
+    <div class="wrap split">
+      <div data-reveal>
+        <p class="eyebrow"><b class="rt-k">PAL Runtime</b> · in code</p>
+        <h2 id="code-h" class="h2" style="margin-top:12px">Cap the spend before the first call.</h2>
+        <p class="lede" style="margin-top:18px">Create an agent, give it a hard budget, forecast a run, then run it. Over the cap, the API answers 402 and no model is called.</p>
+        <a class="arrow-link" style="margin-top:20px" href={u('docs/sdks/')}>SDKs for TypeScript, Python and Go</a>
+      </div>
+      <div class="term" data-reveal>
+        <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>triage.ts</span></div>
+        <pre tabindex="0" aria-label="TypeScript SDK example"><code><span class="k">import</span> {'{'} PalClient {'}'} <span class="k">from</span> <span class="s">"@pal-runtime/sdk"</span>;
+
+<span class="k">const</span> pal = <span class="k">new</span> PalClient({'{'} apiKey: process.env.PAL_API_KEY {'}'});
+
+<span class="k">await</span> pal.agents.create({'{'} name: <span class="s">"triage"</span>, description: <span class="s">"Classifies support email"</span> {'}'});
+<span class="k">await</span> pal.budgets.upsert(<span class="s">"triage"</span>, {'{'}
+  maxCostUsdPerDay: <span class="n">25</span>, maxCostUsdPerRun: <span class="n">0.1</span>,
+  hardFail: <span class="k">true</span>, <span class="c">// over budget → HTTP 402</span>
+{'}'});
+
+<span class="k">const</span> f = <span class="k">await</span> pal.runs.forecast({'{'} agentName: <span class="s">"triage"</span>, input: <span class="s">"invoice is wrong"</span> {'}'});
+<span class="k">if</span> (!f.wouldExceedBudget)
+  <span class="k">await</span> pal.runs.create({'{'} agent: <span class="s">"triage"</span>, input: {'{'} email: <span class="s">"…"</span> {'}'} {'}'});</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="rtcaps-h">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><b class="rt-k">PAL Runtime</b> · enterprise grade</p>
+        <h2 id="rtcaps-h" class="h2" style="margin-top:12px">The parts every production agent needs.</h2>
+        <p class="lede">Write it on your laptop, run the same thing in your cloud.</p>
+      </div>
+      <ul class="bento bento-rt">
+        {RT_CAPS.map((c) => (
+          <li class="tile" data-reveal>
+            <Media name={c.m} />
+            <div class="tile-txt"><p class="tile-k">{c.t}</p><h3 class="h3">{c.h}</h3><p>{c.b}</p><a class="arrow-link" href={u(c.href)}>Read how</a></div>
+          </li>
+        ))}
+      </ul>
+      <ul class="more">
+        {MORE.map((g) => (
+          <li data-reveal><a href={u(g.href)}><h3>{g.h}</h3><p>{g.b}</p></a></li>
+        ))}
+      </ul>
     </div>
   </section>
 
@@ -115,35 +218,37 @@ const TRUST = [
     </div>
   </section>
 
-  <section class="section" aria-labelledby="rtcaps-h">
-    <div class="wrap">
-      <div class="section-head" data-reveal>
-        <p class="eyebrow"><b class="rt-k">PAL Runtime</b> · for builders</p>
-        <h2 id="rtcaps-h" class="h2" style="margin-top:12px">The parts every production agent needs.</h2>
-        <p class="lede">The layer pal runs on, open source, for your own agents. Write it on your laptop, run the same thing in your cloud.</p>
-      </div>
-      <ul class="bento bento-rt">
-        {RT_CAPS.map((c) => (
-          <li class="tile" data-reveal>
-            <Media name={c.m} />
-            <div class="tile-txt"><p class="tile-k">{c.t}</p><h3 class="h3">{c.h}</h3><p>{c.b}</p><a class="arrow-link" href={u(c.href)}>Read how</a></div>
-          </li>
-        ))}
-      </ul>
-      <a class="arrow-link" style="margin-top:24px" href={u('runtime/')}>Everything in PAL Runtime</a>
-    </div>
-  </section>
-
-  <section class="section band" aria-labelledby="trust-h">
+  <section class="section" aria-labelledby="trust-h">
     <div class="wrap">
       <div class="section-head" data-reveal>
         <p class="eyebrow">Trust</p>
         <h2 id="trust-h" class="h2" style="margin-top:12px">Safe by construction, not by promise.</h2>
+        <p class="lede">A rule in a prompt is advice. Everything below is enforced in code, before the side effect.</p>
       </div>
-      <ul class="grid-3 trust">
-        {TRUST.map((t) => <li class="card" data-reveal><h3 class="h3">{t.h}</h3><p>{t.b}</p></li>)}
-      </ul>
+      <div class="trust2">
+        <div class="trust-col trust-you" data-reveal>
+          <p class="trust-k"><b class="pal-k">PAL</b> · for you</p>
+          <ul>{TRUST_YOU.map((t) => <li><h3>{t.h}</h3><p>{t.b}</p></li>)}</ul>
+        </div>
+        <div class="trust-col trust-co" data-reveal>
+          <p class="trust-k"><b class="rt-k">PAL Runtime</b> · for your company</p>
+          <ul>{TRUST_CO.map((t) => <li><h3>{t.h}</h3><p>{t.b}</p></li>)}</ul>
+        </div>
+      </div>
       <a class="arrow-link" style="margin-top:24px" href={u('docs/security/')}>Security model</a>
+    </div>
+  </section>
+
+  <section class="section band" aria-labelledby="status-h">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p><span class="beta">Open beta</span></p>
+        <h2 id="status-h" class="h2" style="margin-top:16px">Where it stands, plainly.</h2>
+        <p class="lede">No customer logos, user counts or invented numbers. This is what you get today.</p>
+      </div>
+      <ul class="grid-4 status">
+        {STATUS.map((s) => <li class="card" data-reveal><h3 class="h3">{s.h}</h3><p>{s.b}</p></li>)}
+      </ul>
     </div>
   </section>
 
@@ -173,10 +278,10 @@ make demo-down</code></pre>
 
   <section class="section closer closer-grad" aria-labelledby="close-h">
     <div class="wrap" data-reveal>
-      <h2 id="close-h" class="h2">pal runs on PAL Runtime.</h2>
-      <p class="lede" style="margin:20px auto 0">The agent that answers for us every day runs on the same open layer you can run your agents on.</p>
+      <h2 id="close-h" class="h2">PAL runs on PAL Runtime.</h2>
+      <p class="lede" style="margin:20px auto 0">The agent that answers for us every day runs on the same open layer you can run your company’s agents on.</p>
       <div class="actions">
-        <a class="btn btn-pal" href={u('pal/')}>Meet pal</a>
+        <a class="btn btn-pal" href={u('pal/')}>Meet PAL</a>
         <a class="btn btn-rt" href={u('runtime/')}>Explore PAL Runtime</a>
       </div>
     </div>

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -341,7 +340,7 @@ func (h *BridgeHandler) Enroll(w http.ResponseWriter, r *http.Request) {
 // {bridgeId, tenantId, token, tokenPrefix, platform, scopes, name}. The token
 // is returned exactly once; only its SHA-256 is stored.
 func (h *BridgeHandler) Pair(w http.ResponseWriter, r *http.Request) {
-	if !h.limiter.allow(clientIP(r), h.now()) {
+	if !h.limiter.allow(remoteIP(r), h.now()) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many pairing attempts; retry in a minute"})
 		return
 	}
@@ -392,7 +391,7 @@ func (h *BridgeHandler) Pair(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, tenant_id, name, platform, scopes, created_by
 	`, sha256Hex(code)).Scan(&codeID, &tenantID, &name, &platform, &scopes, &createdBy)
 	if errors.Is(err, pgx.ErrNoRows) {
-		h.logger().Info("bridge pairing rejected", zap.String("from", clientIP(r)))
+		h.logger().Info("bridge pairing rejected", zap.String("from", remoteIP(r)))
 		invalid()
 		return
 	}
@@ -597,14 +596,4 @@ func (l *pairLimiter) allow(ip string, now time.Time) bool {
 	l.globalN++
 	l.counts[ip]++
 	return true
-}
-
-// clientIP is the TCP peer address. X-Forwarded-For is deliberately ignored —
-// it is client-controlled and would let a guesser mint a fresh bucket per try.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

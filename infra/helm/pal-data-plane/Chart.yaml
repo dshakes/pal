@@ -6,8 +6,8 @@ description: >-
   or bare metal). The data plane agent connects outbound to the PAL Runtime control
   plane via a gRPC tunnel. Agent code and data never leave the customer's VPC.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.3.0
+appVersion: "0.3.0"
 keywords:
   - ai-agents
   - serverless

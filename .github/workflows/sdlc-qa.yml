@@ -26,6 +26,20 @@ jobs:
   qa:
     name: qa               # stable check name — referenced by branch-protection required checks
     runs-on: ubuntu-latest
+    # Real Postgres (pgvector, same image as dev/e2e) + Redis so the tenant-isolation
+    # (RLS) suites RUN instead of skipping. See the "Control-plane tests with a real DB" step.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: pal, POSTGRES_PASSWORD: pal, POSTGRES_DB: pal }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pal" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -91,6 +105,25 @@ jobs:
           echo "log=$log" >> "$GITHUB_OUTPUT"
           tail -60 "$log"
           exit "$rc"
+      # Tenant isolation must be PROVEN, not skipped: the RLS suites t.Skip when DATABASE_URL
+      # is unset/unreachable, which silently turned the whole gate green. Run the control-plane
+      # suite against the Postgres service above (-p 1: packages share one database) and fail
+      # if any RLS / tenant-isolation test reports SKIP. (`make test` above runs without a DB.)
+      - name: Control-plane tests with a real DB (RLS must not skip)
+        env:
+          DATABASE_URL: postgres://pal:pal@localhost:5432/pal?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+        run: |
+          cd services/control-plane
+          rc=0
+          go test -p 1 -count=1 -v ./... >"$RUNNER_TEMP/cp-db.log" 2>&1 || rc=$?
+          grep -E -- '^(--- (FAIL|SKIP)|FAIL|ok )' "$RUNNER_TEMP/cp-db.log" | tail -60 || true
+          [ "$rc" -eq 0 ] || { echo "::error::control-plane tests failed (rc=$rc)"; exit "$rc"; }
+          if grep -E -- '--- SKIP: Test[A-Za-z0-9_/]*(RLS|Rls|Isolation|Tenant|CrossTenant)' "$RUNNER_TEMP/cp-db.log"; then
+            echo "::error::tenant-isolation tests skipped; skip = fail"; exit 1
+          fi
+          grep -qE -- '--- PASS: TestRLSEnforcement_AllTenantTables' "$RUNNER_TEMP/cp-db.log" \
+            || { echo "::error::TestRLSEnforcement_AllTenantTables did not run"; exit 1; }
       # Coverage gate (opt-in): set repo var SDLC_COVERAGE_MIN (e.g. "70") to enforce a
       # minimum total-coverage %. Unset → the step is skipped and nothing changes.
       # Supports the same stacks the test step auto-detects (Go, pytest, npm).

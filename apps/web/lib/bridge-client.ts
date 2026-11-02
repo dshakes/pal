@@ -42,7 +42,8 @@ export function bridgeBaseUrl(channel: BridgeChannel = "whatsapp"): string {
 async function post<T>(channel: BridgeChannel, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${proxyBase(channel)}${path}`, {
     method: "POST",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    // Always JSON, even body-less: the proxy refuses any other write type (CSRF).
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new BridgeError(res.status, await res.text().catch(() => ""));

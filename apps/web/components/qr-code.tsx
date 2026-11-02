@@ -163,38 +163,3 @@ export function QRCode({
     </div>
   );
 }
-
-/**
- * Generates a unique pairing token for QR-based device linking.
- */
-export function generatePairingToken(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < 32; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-}
-
-/**
- * Builds a deep link URL for QR scanning.
- */
-export function buildQRLink(params: {
-  type: "pair" | "whatsapp" | "telegram";
-  token?: string;
-  botUsername?: string;
-  phoneNumber?: string;
-}): string {
-  const base = typeof window !== "undefined" ? window.location.origin : "";
-
-  switch (params.type) {
-    case "pair":
-      return `${base}/pair?token=${params.token ?? generatePairingToken()}`;
-    case "whatsapp":
-      return `https://wa.me/${params.phoneNumber ?? ""}?text=${encodeURIComponent("Connect to PAL")}`;
-    case "telegram":
-      return `https://t.me/${params.botUsername ?? "PalBot"}?start=connect`;
-    default:
-      return `${base}/pair?token=${generatePairingToken()}`;
-  }
-}

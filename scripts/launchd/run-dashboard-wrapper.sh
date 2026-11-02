@@ -52,14 +52,16 @@ fi
 
 # apps/web builds with `output: "standalone"`, which `next start` does NOT serve
 # correctly. The standalone bundle omits static + public assets, so copy them in
-# and run its own server (reads PORT from the launchd env; bind all interfaces
-# so it's reachable over Tailscale too).
+# and run its own server (reads PORT from the launchd env). Binds loopback by
+# default: the dashboard proxies to the owner's bridges, so it must not be
+# reachable from the network unless you opt in, e.g. PAL_DASHBOARD_HOST=0.0.0.0
+# (or a Tailscale IP) in the plist env.
 start_standalone() {
   rm -rf .next/standalone/.next/static .next/standalone/public
   cp -r .next/static .next/standalone/.next/static 2>/dev/null || true
   [[ -d public ]] && cp -r public .next/standalone/public
   echo "[$(date +%T)] starting standalone server on :${PORT:-3001}"
-  exec env HOSTNAME=0.0.0.0 node .next/standalone/server.js
+  exec env HOSTNAME="${PAL_DASHBOARD_HOST:-127.0.0.1}" node .next/standalone/server.js
 }
 
 # Build ONLY when there is no standalone bundle yet (first run, or after a clean).
@@ -72,7 +74,7 @@ if [[ ! -f .next/standalone/server.js ]]; then
   echo "[$(date +%T)] no standalone build present — building (one-time)…"
   if ! npm run build; then
     echo "[$(date +%T)] ⚠ build FAILED and no prior build — falling back to dev mode"
-    exec npm run dev
+    exec npm run dev -- --hostname "${PAL_DASHBOARD_HOST:-127.0.0.1}"
   fi
 fi
 start_standalone

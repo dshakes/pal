@@ -14,7 +14,7 @@ services:
     # come back whenever the daemon does, with no launchd job in the loop.
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: pal
       POSTGRES_USER: pal
@@ -31,7 +31,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -42,8 +42,8 @@ services:
     image: minio/minio:latest
     restart: unless-stopped
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     environment:
       MINIO_ROOT_USER: pal
       MINIO_ROOT_PASSWORD: palsecret
@@ -75,8 +75,8 @@ services:
       context: ../..
       dockerfile: services/control-plane/Dockerfile
     ports:
-      - "50051:50051"
-      - "8080:8080"
+      - "127.0.0.1:50051:50051"
+      - "127.0.0.1:8080:8080"
     environment:
       <<: *common-env
       LISTEN_ADDR: ":50051"
@@ -102,7 +102,7 @@ services:
       context: ../..
       dockerfile: services/workflow-engine/Dockerfile
     ports:
-      - "50052:50052"
+      - "127.0.0.1:50052:50052"
     environment:
       <<: *common-env
       LISTEN_ADDR: ":50052"
@@ -118,7 +118,7 @@ services:
       context: ../..
       dockerfile: services/gateway/Dockerfile
     ports:
-      - "8443:8443"
+      - "127.0.0.1:8443:8443"
     environment:
       <<: *common-env
       LISTEN_ADDR: "0.0.0.0:8443"
@@ -137,7 +137,7 @@ services:
       context: ../..
       dockerfile: services/model-router/Dockerfile
     ports:
-      - "50053:50053"
+      - "127.0.0.1:50053:50053"
     environment:
       <<: *common-env
       LISTEN_ADDR: "0.0.0.0:50053"
@@ -150,7 +150,7 @@ services:
       context: ../../apps/web
       dockerfile: Dockerfile
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       PAL_API_URL: http://control-plane:8080
       NEXT_PUBLIC_API_URL: http://localhost:8080
@@ -177,8 +177,8 @@ services:
       context: ../..
       dockerfile: services/runtime-scheduler/Dockerfile
     ports:
-      - "50055:50055"
-      - "8085:8085"
+      - "127.0.0.1:50055:50055"
+      - "127.0.0.1:8085:8085"
     environment:
       PAL_DEFAULT_MANAGER_ADDR: runtime-manager:50054
       JWT_SECRET: pal-dev-jwt-secret-do-not-use-in-production
@@ -193,7 +193,7 @@ services:
       context: ../..
       dockerfile: services/runtime-manager/Dockerfile
     ports:
-      - "50054:50054"
+      - "127.0.0.1:50054:50054"
     environment:
       LISTEN_ADDR: "0.0.0.0:50054"
       RUNTIME_BACKEND: docker

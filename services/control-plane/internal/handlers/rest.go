@@ -1103,7 +1103,7 @@ func isPublicCORSPath(path string) bool {
 //
 // All other routes reflect the request Origin only when it appears in the
 // allowlist built from PAL_CORS_ORIGINS (comma-separated; default
-// http://localhost:3001). This prevents credential-bearing cross-origin
+// http://localhost:3001 and http://127.0.0.1:3001). This prevents credential-bearing cross-origin
 // requests from arbitrary origins in production.
 func CORSMiddleware(next http.Handler) http.Handler {
 	allowed := corsAllowedOrigins()
@@ -1122,7 +1122,9 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		}
 
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Idempotency-Key")
+		// Lets the browser read the truncation marker on file reads (cross-origin API host).
+		w.Header().Set("Access-Control-Expose-Headers", "X-Pal-Truncated")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		if r.Method == http.MethodOptions {
@@ -2785,9 +2787,11 @@ func (h *RESTHandler) sendEmailViaGmail(tenantID, to, subject, body string) erro
 
 // doGmailSend performs the actual Gmail API send.
 func (h *RESTHandler) doGmailSend(accessToken, to, subject, body string) error {
-	// Build RFC 2822 message.
-	msg := fmt.Sprintf("To: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s", to, subject, body)
-	encoded := base64.URLEncoding.EncodeToString([]byte(msg))
+	msg, err := buildPlainTextMail(to, subject, body)
+	if err != nil {
+		return fmt.Errorf("gmail send: %w", err)
+	}
+	encoded := base64.URLEncoding.EncodeToString(msg)
 
 	reqBody, _ := json.Marshal(map[string]string{"raw": encoded})
 	req, err := http.NewRequest("POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", bytes.NewReader(reqBody))
@@ -2797,7 +2801,7 @@ func (h *RESTHandler) doGmailSend(accessToken, to, subject, body string) error {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("gmail API call: %w", err)
 	}
