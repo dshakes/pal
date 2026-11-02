@@ -51,7 +51,7 @@ x509-parser = "0.16"
 # the `ring` crypto provider to match rustls above (no aws-lc-rs). `x509-parser`
 # feature enables CertificateParams::from_ca_cert_pem for signing leaves off the
 # manager CA.
-rcgen = { version = "0.13", default-features = false, features = ["pem", "ring", "x509-parser"] }
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring", "x509-parser"] }
 # Per-VM cert validity window (rcgen's not_before/not_after use `time` types).
 time = "0.3"
 hyperlocal = { version = "0.9.1", features = ["client"] }
