@@ -27,7 +27,7 @@ jobs:
       GOTOOLCHAIN: go1.26.10  # pinned toolchain (go.mod files carry go1.26.10 or no toolchain line)
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -37,7 +37,7 @@ jobs:
 
       # ---- Go ---------------------------------------------------------------
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: services/control-plane/go.mod
           cache: false   # golangci-lint manages its own cache
@@ -47,37 +47,37 @@ jobs:
       # go1.25), so v1 fails before linting. No .golangci config -> v2 default
       # linters. (v2 dropped the `--timeout` CLI flag; default is generous.)
       - name: golangci-lint (all Go modules)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: services/control-plane
 
       - name: golangci-lint (workflow-engine)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: services/workflow-engine
 
       - name: golangci-lint (runtime-scheduler)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: services/runtime-scheduler
 
       - name: golangci-lint (scheduler)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: services/scheduler
 
       - name: golangci-lint (grpctls)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: packages/grpctls
 
       - name: golangci-lint (agentpolicy)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           working-directory: packages/agentpolicy
@@ -139,7 +139,7 @@ jobs:
       # allowImportingTsExtensions, noEmit — it is consumed as TS source), and the
       # bridges typecheck against it. Parity/regression tests run in the qa job.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -164,7 +164,7 @@ jobs:
       # Credential-free: validate + `terraform test`, whose plans run against
       # mocked providers (tests/plan.tftest.hcl). Nothing is applied.
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.9.8"
           terraform_wrapper: false
