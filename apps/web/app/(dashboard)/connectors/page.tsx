@@ -3,7 +3,7 @@
 import { useCan } from "@/components/role-gate";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Search, Mail, Github, Calendar, FileText, MessageSquare, Phone, CreditCard, BarChart3, Bug, Trello, Database, Globe, X, Loader2, Plug, Eye, EyeOff, AlertCircle, CheckCircle2, RefreshCw, ExternalLink, Plus, Server, Trash2 } from "lucide-react";
+import { Search, Mail, GitBranch, Calendar, FileText, MessageSquare, Phone, CreditCard, BarChart3, Bug, SquareKanban, Database, Globe, X, Loader2, Plug, Eye, EyeOff, AlertCircle, CheckCircle2, RefreshCw, ExternalLink, Plus, Server, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { useToast } from "@/components/toast";
 import { HeaderSkeleton, Skeleton } from "@/components/skeleton";
@@ -48,13 +48,13 @@ const connectors: ConnectorDef[] = [
   goo("google-sheets", "Google Sheets", "Read and write spreadsheet data", "Docs & Storage", FileText, "text-green-400", "bg-green-500/10"),
   d("notion", "Notion", "Access databases and workspace content", "Docs & Storage", FileText, "text-zinc-300", "bg-zinc-500/10",
     [{ key: "integrationToken", label: "Integration Token", placeholder: "secret_...", prefix: "secret_", minLength: 20, helpUrl: "https://www.notion.so/my-integrations", helpText: "Get from notion.so/my-integrations", required: true }]),
-  d("github", "GitHub", "Repositories, issues, pull requests", "Dev Tools", Github, "text-zinc-300", "bg-zinc-500/10",
+  d("github", "GitHub", "Repositories, issues, pull requests", "Dev Tools", GitBranch, "text-zinc-300", "bg-zinc-500/10",
     [{ key: "username", label: "Username", placeholder: "your-github-username", type: "text", minLength: 1, required: true },
      { key: "personalAccessToken", label: "Personal Access Token", placeholder: "ghp_...", prefix: "gh", minLength: 20, helpUrl: "https://github.com/settings/tokens", helpText: "Create at github.com/settings/tokens", required: true }],
     { oauthProvider: "github", oauthLabel: "Sign in with GitHub", manualLabel: "Enter Personal Access Token" }),
-  d("linear", "Linear", "Issue tracking and project management", "Dev Tools", Trello, "text-indigo-400", "bg-indigo-500/10",
+  d("linear", "Linear", "Issue tracking and project management", "Dev Tools", SquareKanban, "text-indigo-400", "bg-indigo-500/10",
     [{ key: "apiKey", label: "API Key", placeholder: "lin_api_...", prefix: "lin_api_", minLength: 20, helpUrl: "https://linear.app/settings/api", helpText: "Get from linear.app/settings/api", required: true }]),
-  d("jira", "Jira", "Issue tracking and agile management", "Dev Tools", Trello, "text-blue-400", "bg-blue-500/10",
+  d("jira", "Jira", "Issue tracking and agile management", "Dev Tools", SquareKanban, "text-blue-400", "bg-blue-500/10",
     [{ key: "email", label: "Email", placeholder: "you@company.com", type: "text", minLength: 5, required: true },
      { key: "apiToken", label: "API Token", placeholder: "Jira API token", minLength: 10, helpUrl: "https://id.atlassian.net/manage-profile/security/api-tokens", helpText: "Get from Atlassian > API Tokens", required: true },
      { key: "domain", label: "Domain", placeholder: "yourcompany.atlassian.net", type: "text", minLength: 5, helpText: "e.g. yourcompany.atlassian.net", required: true }]),
