@@ -1,0 +1,48 @@
+---
+title: Build your own personal agents
+description: "Teach PAL a recurring task in one message, tune what it watches for, and build a full agent of your own on PAL Runtime when a skill is not enough."
+---
+
+import { SkillForge } from '../../../../components/diagrams';
+
+PAL is one agent. You can give it more jobs, and you can build other agents that work only for you. There are three levels, from one message in your own chat to a full agent with tools, a schedule and its own channel. Pick the smallest one that does the job.
+
+| You want | Use | Where |
+| --- | --- | --- |
+| A recurring check or summary, sent to you | A **skill** | Your self-chat |
+| PAL to watch for different things | **Tune** event scout and life events | Your self-chat, the dashboard |
+| Tools, connectors, a schedule, its own channel | A **PAL Runtime agent** | The dashboard or the CLI |
+
+## A skill, in one message
+
+Teach a recurring task in your own chat:
+
+<SkillForge client:visible />
+
+```text
+new skill: every weekday at 8am, check the weather and tell me if I need an umbrella
+```
+
+PAL drafts a skill (name, schedule, prompt) and shows it to you. Nothing runs until you reply `approve skill` within 10 minutes. `skills` lists them; `drop skill 2` removes one.
+
+A skill is a prompt, not code. It can search the web and message you, and nothing else: no shell, no files. Skills run on PAL's background tick, so the kill switch, mute and quiet hours stop them like everything else.
+
+## Tune what PAL watches for
+
+| What | How |
+| --- | --- |
+| Event scout | `events categories` lists what it looks for; `events add <category>`, `events drop <category>` and `events location <place>` change it. `scan events` runs a scan now. |
+| Life events | In the dashboard, **Automations** shows bills, deliveries, appointments and the rest, with `auto`, `ask` or `off` for each kind. You chose these during [setup](/docs/pal/surfaces/); change them any time. |
+| Your facts and people | Tell PAL in your own chat ("remember: our anniversary is June 3 2017"); it saves each fact to your profile. See [Teach it your voice](/docs/pal/voice/#tell-it-facts). |
+
+## A full agent on PAL Runtime
+
+When a job needs a connector (Slack, GitHub, Google Calendar), a cron schedule, approvals or its own chat channel, build it as an agent on PAL Runtime, the platform PAL itself runs on. The control plane you started for PAL already runs it.
+
+1. **Describe it.** `pal onboard`, or `/onboarding` in the dashboard, designs an agent from one sentence and runs it once. See [Your first agent](/docs/start/quickstart/).
+2. **Give it tools.** Connect a [connector](/docs/build/connectors/) or an [MCP server](/docs/build/mcp/). A new agent may use nothing until its [policy](/docs/security/agent-policy/) allows it.
+3. **Run it on your schedule.** A [schedule](/docs/build/scheduling/) runs it on a cron expression in your timezone. The weekday digest to Slack is a worked example.
+4. **Talk to it.** Put it on a [channel](/docs/build/channels/), such as a Telegram bot only you use (`examples/telegram-assistant`).
+5. **Keep a person in the loop.** An [approval](/docs/build/approvals/) node pauses the run until you say yes.
+
+Every run is journaled, budgeted and visible in the dashboard. The rest of the PAL Runtime path starts at [What PAL Runtime is](/docs/runtime/).

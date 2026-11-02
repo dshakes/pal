@@ -59,7 +59,7 @@ pal onboard --yes --provider anthropic --api-key "$KEY" \
 
 Agentic first run for the personal agent: the terminal twin of the dashboard's `/pal/onboarding`. The control plane owns the state and returns the step to resume, so the CLI, the dashboard and the server agree. Steps are `welcome`, `channels`, `voice`, `trust`, `profile` and `done` (your first Brief). Each step advances only on a real result: a live bridge check, a saved setting read back, your explicit confirmation. Consent is never given non-interactively.
 
-Flags: `--yes` / `-y` never prompts; it reports where setup stands and does not change consent. `--apply` writes the setup into this Mac's bridge config: confirmed facts and relationships into the owner profile, and quiet hours and the voice setting into `bridge.env`. Both files are backed up first. Bridge addresses come from `PAL_BRIDGE_URL`, `PAL_IMESSAGE_BRIDGE_URL` and `PAL_DASHBOARD_URL`, and tokens from `PAL_BRIDGE_TOKEN` and `PAL_IMESSAGE_BRIDGE_TOKEN`. See [Connect your channels](/docs/pal/surfaces/).
+Flags: `--yes` / `-y` never prompts; it reports where setup stands and does not change consent. `--apply` writes the setup into this Mac's bridge config: confirmed facts and relationships into the owner profile, and quiet hours and the voice setting into `bridge.env`. Both files are backed up first. Bridge addresses come from `PAL_BRIDGE_URL`, `PAL_IMESSAGE_BRIDGE_URL` and `PAL_DASHBOARD_URL`, and tokens from `PAL_BRIDGE_TOKEN` and `PAL_IMESSAGE_BRIDGE_TOKEN`. See [Set up PAL](/docs/pal/surfaces/).
 
 ```bash
 pal setup           # interactive, resumes where you left off

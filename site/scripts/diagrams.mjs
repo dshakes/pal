@@ -1,4 +1,4 @@
-// Generates the four PAL Runtime diagrams into public/diagrams/:
+// Generates the five PAL Runtime diagrams into public/diagrams/:
 //   <name>-{dark,light}.svg (960 wide) and <name>-portrait-{dark,light}.svg (420 wide).
 // Each diagram is laid out by hand below; this file only shares the drawing
 // primitives and the two palettes, so both themes are always the same picture.
@@ -205,16 +205,16 @@ const B = {
 // C. your-cloud (control plane / data plane)
 const C = {
   title: 'PAL Runtime in your cloud',
-  desc: 'The control plane runs wherever you deploy it. The data plane runs inside your VPC with the microVM sandboxes and the run data. It dials out to the control plane and holds one connection open; run assignments come back down it. There are no inbound ports.',
+  desc: 'The control plane (API, dashboard, model routing and budgets) runs wherever you deploy it. The data plane (workflow engine, runtime scheduler, microVM sandboxes and the run data) runs inside your VPC. It dials out to the control plane over TLS and holds one connection open; run assignments come back down it. There are no inbound ports.',
   land(d, t) {
     d.box(24, 72, 300, 232, { tone: 'line', r: 16 });
     d.text(174, 108, 'control plane', { size: 18, weight: 600, anchor: 'middle', mono: false });
     d.text(174, 132, 'run it anywhere', { size: 14, color: t.text2, anchor: 'middle' , count: false });
-    d.box(48, 156, 252, 52, { tone: 'line', title: 'API · console' });
-    d.box(48, 224, 252, 52, { tone: 'line', title: 'scheduling · routing' });
+    d.box(48, 156, 252, 52, { tone: 'line', title: 'API · dashboard' });
+    d.box(48, 224, 252, 52, { tone: 'line', title: 'model routing · budgets' });
     d.box(504, 32, 432, 312, { tone: 'cool', r: 18, dashed: true, fill: false });
     d.text(528, 62, 'your VPC', { size: 15, color: t.text2 });
-    d.box(536, 84, 368, 92, { tone: 'accent', title: 'data plane', sub: 'runs inside your account' });
+    d.box(536, 84, 368, 92, { tone: 'accent', title: 'data plane', sub: 'workflow engine · scheduler' });
     d.box(536, 196, 176, 116, { tone: 'line', title: 'microVM', sub: 'sandboxes' });
     d.box(728, 196, 176, 116, { tone: 'line', title: 'run data', sub: 'stays here' });
     d.arrow([[536, 116], [324, 116]], { tone: 'accent', w: 2 });
@@ -229,15 +229,15 @@ const C = {
     d.box(x, 24, w, 200, { tone: 'line', r: 16 });
     d.text(210, 58, 'control plane', { size: 18, weight: 600, anchor: 'middle', mono: false });
     d.text(210, 80, 'run it anywhere', { size: 14, color: t.text2, anchor: 'middle' , count: false });
-    d.box(x + 20, 100, w - 40, 44, { tone: 'line', title: 'API · console' });
-    d.box(x + 20, 156, w - 40, 44, { tone: 'line', title: 'scheduling · routing' });
+    d.box(x + 20, 100, w - 40, 44, { tone: 'line', title: 'API · dashboard' });
+    d.box(x + 20, 156, w - 40, 44, { tone: 'line', title: 'model routing · budgets' });
     d.arrow([[150, 304], [150, 224]], { tone: 'accent', w: 2 });
     d.text(140, 262, 'dials out', { size: 14, color: t.accentText, anchor: 'end' });
     d.arrow([[270, 224], [270, 304]], { tone: 'muted', dashed: true });
     d.text(282, 262, 'runs back', { size: 14, color: t.text2 });
     d.box(x, 304, w, 296, { tone: 'cool', r: 18, dashed: true, fill: false });
     d.text(x + 20, 334, 'your VPC', { size: 15, color: t.text2 });
-    d.box(x + 20, 352, w - 40, 76, { tone: 'accent', title: 'data plane', sub: 'inside your account' });
+    d.box(x + 20, 352, w - 40, 76, { tone: 'accent', title: 'data plane', sub: 'workflow engine · scheduler' });
     d.box(x + 20, 444, 158, 92, { tone: 'line', title: 'microVM', sub: 'sandboxes' });
     d.box(x + 194, 444, 158, 92, { tone: 'line', title: 'run data', sub: 'stays here' });
     d.mark(x + w - 24, 304, 'bad', 11); d.text(x + w - 44, 334, 'no inbound ports', { size: 14, color: t.badText, anchor: 'end' });
@@ -280,7 +280,53 @@ const D = {
   portH: 468,
 };
 
-for (const [name, spec] of Object.entries({ 'crash-resume': A, 'sandbox-egress': B, 'your-cloud': C, 'budget-gate': D })) {
+// E. helm-ingress (the all-in-one chart's two ingress hosts)
+const E = {
+  title: 'The Helm chart in one cluster',
+  desc: 'With ingress enabled, the chart serves two hosts. The app host routes to the dashboard. The API host routes /v1, /auth, /.well-known, /mcp and /dl to the control plane on port 8080. The gateway and every internal service stay off the ingress and talk to each other over mutual TLS; /internal and /metrics are never routed.',
+  land(d, t) {
+    d.box(24, 72, 168, 64, { tone: 'line', title: 'browser' });
+    d.box(24, 232, 168, 64, { tone: 'line', title: 'CLI · SDKs' });
+    d.box(232, 56, 216, 96, { tone: 'accent', title: 'app host', sub: 'app.example.com' });
+    d.box(232, 216, 216, 96, { tone: 'accent', title: 'API host', sub: '/v1 /auth /mcp …' });
+    d.arrow([[192, 104], [232, 104]], { tone: 'accent' });
+    d.arrow([[192, 264], [232, 264]], { tone: 'accent' });
+    d.arrow([[108, 136], [108, 184], [300, 184], [300, 216]], { tone: 'muted', dashed: true });
+    d.text(124, 176, 'pages call the API', { size: 14, color: t.text2, count: false });
+    d.box(488, 24, 448, 352, { tone: 'cool', r: 18, dashed: true, fill: false });
+    d.text(508, 52, 'your cluster', { size: 15, color: t.text2 });
+    d.box(512, 72, 196, 64, { tone: 'line', title: 'dashboard', sub: ':3000' });
+    d.box(512, 232, 196, 64, { tone: 'line', strong: true, title: 'control plane', sub: ':8080' });
+    d.arrow([[448, 104], [512, 104]], { tone: 'accent' });
+    d.arrow([[448, 264], [512, 264]], { tone: 'accent' });
+    d.box(736, 72, 176, 224, { tone: 'cool', title: 'internal only', sub: 'gateway · engine', sub2: 'router · runtime' });
+    d.arrow([[708, 264], [736, 264]], { tone: 'cool', dashed: true });
+    d.text(822, 324, 'mutual TLS', { size: 14, color: t.text2, anchor: 'middle', count: false });
+    d.mark(524, 344, 'bad', 10); d.text(542, 349, '/internal · /metrics never routed', { size: 14, color: t.badText });
+  },
+  landH: 400,
+  port(d, t) {
+    const x = 24, w = 372;
+    d.box(x, 24, 178, 56, { tone: 'line', title: 'browser' });
+    d.box(x + 194, 24, 178, 56, { tone: 'line', title: 'CLI · SDKs' });
+    d.arrow([[113, 80], [113, 112]], { tone: 'accent' });
+    d.arrow([[307, 80], [307, 112]], { tone: 'accent' });
+    d.box(x, 112, 178, 80, { tone: 'accent', title: 'app host', sub: 'dashboard' });
+    d.box(x + 194, 112, 178, 80, { tone: 'accent', title: 'API host', sub: '/v1 /auth …' });
+    d.arrow([[113, 192], [113, 252]], { tone: 'accent' });
+    d.arrow([[307, 192], [307, 252]], { tone: 'accent' });
+    d.box(x, 228, w, 324, { tone: 'cool', r: 18, dashed: true, fill: false });
+    d.box(x + 12, 252, 166, 64, { tone: 'line', title: 'dashboard', sub: ':3000' });
+    d.box(x + 194, 252, 166, 64, { tone: 'line', strong: true, title: 'control plane', sub: ':8080' });
+    d.arrow([[307, 316], [307, 348]], { tone: 'cool', dashed: true });
+    d.box(x + 12, 348, w - 24, 96, { tone: 'cool', title: 'internal only · mutual TLS', sub: 'gateway · engine', sub2: 'router · runtime' });
+    d.mark(x + 28, 488, 'bad', 10); d.text(x + 46, 493, '/internal, /metrics', { size: 14, color: t.badText });
+    d.text(x + 46, 517, 'never routed', { size: 14, color: t.badText });
+  },
+  portH: 576,
+};
+
+for (const [name, spec] of Object.entries({ 'crash-resume': A, 'sandbox-egress': B, 'your-cloud': C, 'budget-gate': D, 'helm-ingress': E })) {
   for (const [theme, t] of Object.entries(THEMES)) {
     for (const [suffix, fn, w, h] of [['', spec.land, 960, spec.landH], ['-portrait', spec.port, 420, spec.portH]]) {
       const { api, svg } = make(t, w, h, spec.title, spec.desc);

@@ -414,7 +414,7 @@ Everything else registered in `services/control-plane/cmd/server/main.go`, with 
 | MCP server | `POST /mcp` (stateless Streamable HTTP; accepts only API keys that carry the explicit `mcp` scope), `GET` and `DELETE /mcp` answer 405, `GET /.well-known/oauth-protected-resource[/mcp]` (RFC 9728 metadata) | [MCP](/docs/build/mcp/) |
 | Conversational onboarding | `GET/DELETE /v1/onboarding/agent?product=` (transcript, reset), `POST /v1/onboarding/agent/turn` (`{product, message?, event?, results?}`; `runs:execute`) | [Your first agent](/docs/start/quickstart/) |
 | Agent onboarding | `GET/PUT/DELETE /v1/onboarding`, `POST /v1/onboarding/explain` | [Your first agent](/docs/start/quickstart/) |
-| pal setup | `GET/PUT/DELETE /v1/pal/onboarding`, `GET /v1/pal/onboarding/profile`, `POST /v1/pal/onboarding/{guide,voice,profile/extract,trust/suggest}`. Reads need `read`, state writes `settings:write`, the four POSTs (they call an LLM) `runs:execute` | [Connect your channels](/docs/pal/surfaces/) |
+| pal setup | `GET/PUT/DELETE /v1/pal/onboarding`, `GET /v1/pal/onboarding/profile`, `POST /v1/pal/onboarding/{guide,voice,profile/extract,trust/suggest}`. Reads need `read`, state writes `settings:write`, the four POSTs (they call an LLM) `runs:execute` | [Set up PAL](/docs/pal/surfaces/) |
 | Domain records | `/v1/domain-records` (+ `{id}`), `GET /v1/domains/{domain}/digest`, `POST /v1/assist/explain` | [PAL internals](/docs/architecture/pal/) |
 | Internal | `POST /internal/auth/introspect-key` (gateway, `x-pal-service-token`) | [Security boundaries](/docs/architecture/security-boundaries/) |
 
