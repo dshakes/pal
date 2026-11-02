@@ -24,7 +24,7 @@ export type DocChannel = "imessage" | "whatsapp" | "sms" | "auto";
 
 export interface DocIntent {
   isDocRequest: boolean;
-  document: string; // the requested doc, e.g. "PAN card" ("" when not a request)
+  document: string; // the requested doc, e.g. "passport" ("" when not a request)
   // Owner-direction only (empty / "auto" for inbound): who the owner wants the
   // doc sent TO, and the channel they named. "auto" = unstated → this bridge.
   contact: string;
@@ -86,8 +86,8 @@ export function buildDocIntentPrompt(
       : `${ownerName} just messaged their own assistant. Decide whether ${ownerName} is asking the assistant to SEND one of ${ownerName}'s own personal documents/files to someone.`;
   const shape =
     direction === "owner"
-      ? `{"isDocRequest": true|false, "document": "<the document in 1-4 words, e.g. PAN card, passport, driver licence; empty string if not a doc request>", "contact": "<who to send it TO — the name or number exactly as ${ownerName} wrote it; empty string if no recipient named>", "channel": "imessage|whatsapp|sms|auto"}`
-      : `{"isDocRequest": true|false, "document": "<the document in 1-4 words, e.g. PAN card, passport, driver licence; empty string if not a doc request>"}`;
+      ? `{"isDocRequest": true|false, "document": "<the document in 1-4 words, e.g. passport, driver licence; empty string if not a doc request>", "contact": "<who to send it TO — the name or number exactly as ${ownerName} wrote it; empty string if no recipient named>", "channel": "imessage|whatsapp|sms|auto"}`
+      : `{"isDocRequest": true|false, "document": "<the document in 1-4 words, e.g. passport, driver licence; empty string if not a doc request>"}`;
   const ownerRules =
     direction === "owner"
       ? [
@@ -103,7 +103,7 @@ export function buildDocIntentPrompt(
     "",
     "Rules:",
     "- isDocRequest is TRUE only when the message is a request to DELIVER a document now.",
-    "- FALSE when they are merely confirming receipt (\"did you get my pan card?\"), discussing a document without asking for it, or asking a question about it.",
+    "- FALSE when they are merely confirming receipt (\"did you get my passport?\"), discussing a document without asking for it, or asking a question about it.",
     "- FALSE for anything that is not about sending/receiving a concrete personal document.",
     "- \"document\" must name WHICH document as specifically as the message allows; do not invent one.",
     ...ownerRules,

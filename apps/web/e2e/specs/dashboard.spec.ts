@@ -93,24 +93,24 @@ test("mode switch flips home space, nav and accent", async ({ page }) => {
   const accent = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim());
   await expect(html).toHaveAttribute("data-mode", "pal");
   const palAccent = await accent();
-  await expect(page.getByRole("navigation", { name: "pal navigation" }).getByRole("link", { name: "Holds" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "PAL navigation" }).getByRole("link", { name: "Holds" })).toBeVisible();
 
   // The sidebar header is the workspace + space switcher.
-  const switchSpace = async (name: string) => {
+  const switchSpace = async (name: RegExp) => {
     await page.getByRole("button", { name: /Switch space or workspace/ }).click();
-    await page.getByRole("menuitemradio", { name: new RegExp(`^${name}\\b`) }).click();
+    await page.getByRole("menuitemradio", { name }).click();
   };
-  await switchSpace("Runtime");
+  await switchSpace(/^PAL Runtime\b/);
   await expect(page).toHaveURL(/\/overview/);
   await expect(html).toHaveAttribute("data-mode", "runtime");
   expect(await accent()).not.toBe(palAccent);
-  await expect(page.getByRole("navigation", { name: "Runtime navigation" }).getByRole("link", { name: "Sandboxes" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "PAL Runtime navigation" }).getByRole("link", { name: "Sandboxes" })).toBeVisible();
 
   // Shared routes keep the current mode.
   await page.goto("/settings");
   await expect(html).toHaveAttribute("data-mode", "runtime");
 
-  await switchSpace("pal");
+  await switchSpace(/^PAL(?! Runtime)\b/);
   await expect(page).toHaveURL(/\/brief/);
 });
 

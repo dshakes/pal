@@ -55,8 +55,8 @@ writeFileSync(
 I'm Ada.
 
 ## Relationships
-- Sujith Penchala: brother-in-law | also: +15551234567, +15559876543
-- Madhu: close friend | also: +19998887777
+- Jordan Lee: brother-in-law | also: +15551234567, +15559876543
+- Sam: close friend | also: +19998887777
 `,
   "utf8",
 );
@@ -67,9 +67,9 @@ console.log(`  inbound from new number: ${aliasHandle}`);
 console.log(`    canonicalNameFor → ${store.canonicalNameFor(aliasHandle)}`);
 console.log(`    relationshipFor  → ${store.relationshipFor(aliasHandle)}`);
 console.log(
-  `  (primary "Sujith Penchala" still resolves: ${store.relationshipFor("Sujith Penchala")})`,
+  `  (primary "Jordan Lee" still resolves: ${store.relationshipFor("Jordan Lee")})`,
 );
-console.log(`  Madhu's 2nd number +19998887777 → ${store.canonicalNameFor("+19998887777")}`);
+console.log(`  Sam's 2nd number +19998887777 → ${store.canonicalNameFor("+19998887777")}`);
 
 // ── B7: dormant-VIP nudge ───────────────────────────────────────────────
 console.log("\n\nB7 — dormant-VIP nudge firing:");
@@ -81,7 +81,7 @@ const nudges = computeProactiveNudges({
   dormantContacts: [
     {
       handle: "+15550001111",
-      displayName: "Madhu",
+      displayName: "Sam",
       lastExchangeAt: NOW - 65 * DAY, // ~2 months
       contactSignals: { relationship: "brother", vip: true, messageCount: 40 },
     },

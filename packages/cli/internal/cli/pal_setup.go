@@ -264,13 +264,13 @@ func newPalSetupCommand() *cobra.Command {
 	var yes, apply, steps bool
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Set up pal: connect channels, learn your voice, set trust, capture your people",
-		Long: `Agentic first-run for pal, the terminal twin of the dashboard's /pal/onboarding.
+		Short: "Set up PAL: connect channels, learn your voice, set trust, capture your people",
+		Long: `Agentic first-run for PAL, the terminal twin of the dashboard's /pal/onboarding.
 Resumes where you left off (state is kept server-side). Each step advances only
 on a real result: a live bridge check, a saved setting read back, your explicit
 confirmation. Consent is never given non-interactively.
 
-On a terminal this is a conversation with pal's setup agent (the same agent as
+On a terminal this is a conversation with PAL's setup agent (the same agent as
 the dashboard): talk in your own words; it checks your channels, learns your
 voice (only with your opt-in), proposes trust settings and captures your people,
 asking you to confirm each. --steps keeps the step-by-step wizard; if the agent
@@ -297,7 +297,7 @@ bridge.env. Both files are backed up first.`,
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Never prompt: report where setup stands (and apply with --apply) without changing consent")
 	cmd.Flags().BoolVar(&apply, "apply", false, "Write the setup (profile, quiet hours, voice) into this Mac's bridge config")
-	cmd.Flags().BoolVar(&steps, "steps", false, "Use the step-by-step wizard instead of the conversation with pal's setup agent")
+	cmd.Flags().BoolVar(&steps, "steps", false, "Use the step-by-step wizard instead of the conversation with PAL's setup agent")
 	return cmd
 }
 
@@ -513,10 +513,10 @@ func palGuide(client *internal.RESTClient, step, message, context, fallback stri
 
 const palWelcomeFallback = "I'm pal. I answer your iMessage and WhatsApp in your own voice and keep a short Brief of what needs you. I run on your Mac and use your own model key. Anything that promises money or claims something I can't check is held for you, always."
 
-const palHoldsText = "Holds are always on: pal never sends a reply that promises money or commits you to something, a claim it can't verify (a date, an outcome), or a light reply to bad news. Those come to you as drafts, whatever you set here."
+const palHoldsText = "Holds are always on: PAL never sends a reply that promises money or commits you to something, a claim it can't verify (a date, an outcome), or a light reply to bad news. Those come to you as drafts, whatever you set here."
 
 func palStepWelcome(cfg *palSetupConfig, client *internal.RESTClient, doc *palDoc) error {
-	cfg.printf("\n1. Meet pal\n   %s\n\n", palGuide(client, "welcome", "Introduce yourself to a new owner and explain what you'll touch before asking for consent.", "", palWelcomeFallback))
+	cfg.printf("\n1. Meet PAL\n   %s\n\n", palGuide(client, "welcome", "Introduce yourself to a new owner and explain what you'll touch before asking for consent.", "", palWelcomeFallback))
 	if !cfg.interactive() {
 		return errPalConsentNeedsTTY
 	}
@@ -527,7 +527,7 @@ func palStepWelcome(cfg *palSetupConfig, client *internal.RESTClient, doc *palDo
 		}
 		cfg.printf("   %s\n", palGuide(client, "welcome", q, "", "I couldn't answer that right now; the consent below says exactly what I'll do."))
 	}
-	if !cfg.yesNo("   pal may read your iMessage/WhatsApp on this Mac and reply as you, sending conversation text to your own model provider. Agree?", false) {
+	if !cfg.yesNo("   PAL may read your iMessage/WhatsApp on this Mac and reply as you, sending conversation text to your own model provider. Agree?", false) {
 		cfg.printf("   Nothing was changed. Run `pal setup` when you're ready.\n")
 		return errors.New("setup: consent declined")
 	}

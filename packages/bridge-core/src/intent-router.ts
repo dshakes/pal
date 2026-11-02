@@ -69,7 +69,7 @@ export function buildIntentPrompt(text: string): string {
     '  • "disclosure_deny" — the owner is setting who may (or may NOT) be told WHERE THE OWNER IS / their whereabouts/location. This is PRIVACY-CRITICAL. Covers any phrasing: "don\'t tell Ravi where I am", "keep Priya in the dark about my location", "don\'t let mom know I\'m travelling", and the REVERSE "you can tell Ravi where I am again", "it\'s fine for Sam to know my location". Return also: "target" = the person named, and "deny" = true to HIDE the location from them, false to allow sharing again. If unsure of direction, use deny=true (safer).',
     '  • "recap" — the owner wants a summary of what they missed while away: "what did I miss", "catch me up", "what happened while I was out".',
     '  • "self_context" — the owner is asking about their OWN state/context/what they were doing (not another thread, not location-sharing): "what was I working on", "what\'s on my plate".',
-    '  • "thread_peek" — the owner wants to look at / recall a specific conversation thread with a contact: "what did Raju say", "pull up my thread with mom".',
+    '  • "thread_peek" — the owner wants to look at / recall a specific conversation thread with a contact: "what did Alex say", "pull up my thread with mom".',
     '  • "normal_reply" — anything else. When in doubt, use this.',
     "",
     "Rules: choose the SINGLE best intent. Do not invent intents or actions. Do not add commentary. Location-sharing preferences are disclosure_deny, NOT self_context.",

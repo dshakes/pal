@@ -323,7 +323,7 @@ export default function BriefPage() {
             </section>
 
             <SuggestedSteps
-              page="pal Brief (personal home)"
+              page="PAL Brief (personal home)"
               facts={[
                 `${holdCount} held replies`,
                 `${events.length} suggested automations`,

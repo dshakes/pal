@@ -1,7 +1,7 @@
 import type { FlowDef } from "./FlowDiagram";
 import type { Src } from "./types";
 
-// pal (the personal agent) diagrams for the shared FlowDiagram kit. Facts come
+// PAL (the personal agent) diagrams for the shared FlowDiagram kit. Facts come
 // from CLAUDE.md's bridge sections; module paths are cited per node.
 
 const M = (p: string, l?: number): Src => ({ p, l });
@@ -232,7 +232,7 @@ export const CROSS_CHANNEL_MEMORY: FlowDef = {
 export const WORLD_MODEL: FlowDef = {
   id: "world-model",
   title: "World model refresh",
-  caption: "Every few hours pal re-derives what is true now from your mail, calendar and messages, and drops anything it cannot cite verbatim.",
+  caption: "Every few hours PAL re-derives what is true now from your mail, calendar and messages, and drops anything it cannot cite verbatim.",
   vb: [980, 420],
   nodes: [
     { id: "mail", label: "Mail subjects", sub: "last 7 days", x: 30, y: 20, detail: "Apple Mail's local index, read-only, never logged." },
@@ -284,7 +284,7 @@ export const WORLD_MODEL: FlowDef = {
 export const PROACTIVE_NUDGES: FlowDef = {
   id: "nudges",
   title: "Proactive nudges",
-  caption: "pal watches for the moments you would want a heads-up, ranks them, and checks it has not already told you.",
+  caption: "PAL watches for the moments you would want a heads-up, ranks them, and checks it has not already told you.",
   vb: [980, 360],
   nodes: [
     { id: "cal", label: "Calendar", sub: "starts within 15 min", x: 30, y: 20, detail: "pre-meeting: \"1:1 with Raju starts in 10 min, pulling up the thread\"." },
@@ -337,7 +337,7 @@ export const PROACTIVE_NUDGES: FlowDef = {
 // ---------------------------------------------------------------------------
 export const SKILL_FORGE: FlowDef = {
   id: "skill-forge",
-  title: "Skill forge: teach pal a recurring job",
+  title: "Skill forge: teach PAL a recurring job",
   caption: "A skill is a prompt on a schedule, never code. Nothing activates until you approve it.",
   vb: [1000, 420],
   nodes: [
@@ -398,7 +398,7 @@ export const SKILL_FORGE: FlowDef = {
 export const RECAP: FlowDef = {
   id: "recap",
   title: "Recap: what did I miss",
-  caption: "Ask in self-chat and pal writes a short narrative of what landed while you were away, leading with what matters.",
+  caption: "Ask in self-chat and PAL writes a short narrative of what landed while you were away, leading with what matters.",
   vb: [1040, 330],
   nodes: [
     { id: "ask", label: "what did I miss", sub: "· catch me up", tone: "client", x: 20, y: 140, w: 150 },
@@ -446,13 +446,13 @@ export const RECAP: FlowDef = {
 // Docs landing hero: both products on one picture.
 export const TWO_PRODUCTS: FlowDef = {
   id: "two-products",
-  title: "pal runs on PAL Runtime",
-  caption: "Step through a reply pal sends, one it holds, and a run of your own agent.",
+  title: "PAL runs on PAL Runtime",
+  caption: "Step through a reply PAL sends, one it holds, and a run of your own agent.",
   vb: [560, 410],
   nodes: [
     { id: "you", label: "A contact writes", sub: "iMessage · WhatsApp", tone: "client", x: 10, y: 20, w: 160 },
     { id: "dev", label: "Your agent code", sub: "SDK · CLI · REST", tone: "client", x: 390, y: 20, w: 160 },
-    { id: "bridge", label: "pal bridge", sub: "on your Mac", tone: "pal", x: 10, y: 160, w: 160, detail: "Reads the message, keeps your people and memory, and runs every check on the draft before anything is sent.", src: [M(`${BC}/agent.ts`)] },
+    { id: "bridge", label: "PAL bridge", sub: "on your Mac", tone: "pal", x: 10, y: 160, w: 160, detail: "Reads the message, keeps your people and memory, and runs every check on the draft before anything is sent.", src: [M(`${BC}/agent.ts`)] },
     { id: "cp", label: "PAL Runtime", sub: "sessions · runs · journal", tone: "rt", x: 200, y: 160, w: 160, detail: "The control plane: sessions for pal's turns, runs for your agents, budgets checked before the model call, and a journal of every step.", src: [M("services/control-plane/internal/handlers/sessions.go"), M("services/control-plane/internal/handlers/budgets.go")] },
     { id: "llm", label: "Model call", sub: "your keys · failover", tone: "rt", x: 390, y: 160, w: 160 },
     { id: "gates", label: "Gates", sub: "money · dates · grief", tone: "pal", x: 10, y: 300, w: 160, detail: "The commitment and grounding gates. Each is a model judgment plus a deterministic backstop, so an outage cannot fail open.", src: [M(`${BC}/commitment-gate.ts`), M(`${BC}/grounding-gate.ts`)] },
@@ -472,7 +472,7 @@ export const TWO_PRODUCTS: FlowDef = {
   ],
   scenarios: [
     {
-      id: "reply", label: "pal sends",
+      id: "reply", label: "PAL sends",
       steps: [
         { title: "A contact writes", note: "The bridge on your Mac picks up the message from iMessage or WhatsApp.", edges: ["you>bridge"] },
         { title: "A draft in your voice", note: "The bridge posts the turn to a session on PAL Runtime, which calls your model provider.", edges: ["bridge>cp", "cp>llm"] },
@@ -480,7 +480,7 @@ export const TWO_PRODUCTS: FlowDef = {
       ],
     },
     {
-      id: "held", label: "pal holds",
+      id: "held", label: "PAL holds",
       steps: [
         { title: "A relative asks for money", note: "The draft says \"sending it now\".", edges: ["you>bridge", "bridge>cp", "cp>llm"] },
         { title: "Held, not sent", note: "The commitment gate holds it and pages your self-chat. Your one typed line becomes the reply.", edges: ["bridge>gates", "gates>held"], deny: true },

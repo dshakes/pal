@@ -52,11 +52,11 @@ export const PAL_CONSENT_VERSION = "2026-10";
 export type PalStep = "welcome" | "channels" | "voice" | "trust" | "profile" | "done";
 
 export const PAL_STEPS: ReadonlyArray<{ id: PalStep; label: string; hint: string }> = [
-  { id: "welcome", label: "Meet pal", hint: "What it does, what it touches" },
+  { id: "welcome", label: "Meet PAL", hint: "What it does, what it touches" },
   { id: "channels", label: "Connect channels", hint: "WhatsApp and iMessage, checked live" },
   { id: "voice", label: "Learn your voice", hint: "A draft in your words, for approval" },
-  { id: "trust", label: "Set trust", hint: "What pal may do on its own" },
-  { id: "profile", label: "Your people", hint: "Facts pal must never get wrong" },
+  { id: "trust", label: "Set trust", hint: "What PAL may do on its own" },
+  { id: "profile", label: "Your people", hint: "Facts PAL must never get wrong" },
   { id: "done", label: "First Brief", hint: "What needs you, at a glance" },
 ];
 
@@ -278,9 +278,9 @@ export function imessageFix(r: IMessageReadiness): ChannelFix {
     case "starting":
       return { ok: false, title: "iMessage is starting.", steps: ["Give it a few seconds."], action: "recheck" };
     case "needs_full_disk_access":
-      return { ok: false, title: "Full Disk Access is off, so pal can't read your Messages database.", steps: [FDA_STEP, "Restart the bridge after granting it — macOS applies this permission at launch."], action: "start_imessage" };
+      return { ok: false, title: "Full Disk Access is off, so PAL can't read your Messages database.", steps: [FDA_STEP, "Restart the bridge after granting it — macOS applies this permission at launch."], action: "start_imessage" };
     case "needs_automation":
-      return { ok: false, title: "Full Disk Access works, but Automation for Messages is off, so pal can't send.", steps: [AUTOMATION_STEP], action: "start_imessage" };
+      return { ok: false, title: "Full Disk Access works, but Automation for Messages is off, so PAL can't send.", steps: [AUTOMATION_STEP], action: "start_imessage" };
     case "not_set_up":
       return { ok: false, title: "iMessage isn't set up on this Mac account.", steps: ["Open Messages, sign in with your Apple ID, and turn on iMessage."], action: "start_imessage" };
     case "messages_unavailable":
@@ -469,17 +469,17 @@ export interface PalFix {
 export function suggestPalFix(f: ApiFailure, step: PalStep): PalFix {
   const msg = f.message.toLowerCase();
   if (f.status === undefined && /fetch|network|econnrefused|load failed/.test(msg)) {
-    return { summary: "The pal API isn't reachable. Start it with `pal dev` (or `make run-api`), then try again.", fix: { label: "Try again", action: "check_api" } };
+    return { summary: "The PAL API isn't reachable. Start it with `pal dev` (or `make run-api`), then try again.", fix: { label: "Try again", action: "check_api" } };
   }
   if (f.status === 401) return { summary: "Your session expired. Sign in again to pick up where you left off.", fix: { label: "Sign in", action: "login" } };
   if (f.code === "consent_required") {
-    return { summary: "pal only learns from your messages after you opt in. Review the consent step to turn that on, or skip voice learning.", fix: { label: "Review consent", action: "review_consent" } };
+    return { summary: "PAL only learns from your messages after you opt in. Review the consent step to turn that on, or skip voice learning.", fix: { label: "Review consent", action: "review_consent" } };
   }
   if (f.code === "not_enough_samples") {
-    return { summary: "I couldn't find enough messages you've sent recently to learn your voice. Connect another channel, or skip — pal will learn as you text.", detail: f.message, fix: { label: "Skip for now", action: "skip_voice" } };
+    return { summary: "I couldn't find enough messages you've sent recently to learn your voice. Connect another channel, or skip — PAL will learn as you text.", detail: f.message, fix: { label: "Skip for now", action: "skip_voice" } };
   }
   if (f.code === "no_provider" || /no (llm )?provider|no api key|api key configured/.test(msg)) {
-    return { summary: "pal needs a model key to think. Add an OpenAI or Anthropic key in Settings, then come back — your progress is saved.", fix: { label: "Add a model key", action: "add_key" } };
+    return { summary: "PAL needs a model key to think. Add an OpenAI or Anthropic key in Settings, then come back — your progress is saved.", fix: { label: "Add a model key", action: "add_key" } };
   }
   if (f.code === "llm_failed" || /invalid.*key|incorrect api key|authentication|rejected/.test(msg)) {
     return { summary: "The model provider rejected the call. The key is likely wrong, revoked, or out of credit.", detail: f.message, fix: { label: "Replace the key", action: "add_key" } };

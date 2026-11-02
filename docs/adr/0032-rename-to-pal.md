@@ -65,3 +65,12 @@ prefixes, launchd labels, binaries, package names, the Go module path and the re
 - **Keep the compat layers forever.** Leaves the old name in env readers, wire aliases and SDK
   exports indefinitely; rejected by the owner ("no references anywhere").
 - **Brand-only rename (prose and UI), keeping identifiers.** Rejected for the same reason.
+
+## Amendment (2026-11-01): final expansion and product names
+
+The expansion of PAL is **Personalized Agentic Layer**, not "Personal Agentic Layer". PAL is the umbrella for two products:
+
+- **PAL**: the consumer product. Your personal agent on iMessage and WhatsApp, plus building your own personal agents.
+- **PAL Runtime**: the enterprise product. Build, deploy and govern agents at enterprise grade.
+
+In prose and UI labels the consumer product is written "PAL" (it was lowercase "pal"). Identifiers are unchanged: the `pal` CLI, `PAL_*` env vars, `pal.v1`, routes such as `/pal/onboarding`, and file names. The text above is left as originally decided.
