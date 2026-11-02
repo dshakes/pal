@@ -19,6 +19,7 @@ import { ArrowRight, Eye, EyeOff, KeyRound, Loader2, MailCheck } from "lucide-re
 import { useAuth } from "@/lib/auth";
 import { api, type AuthProviders } from "@/lib/api";
 import { visibleOAuthProviders } from "@/lib/auth-providers";
+import { oauthStartUrl } from "@/lib/oauth-url";
 import { Turnstile, TURNSTILE_SITE_KEY } from "@/components/turnstile";
 import { AuthError, AuthFrame, authInputClass } from "@/app/auth/auth-shell";
 import { describeAuthError, oauthErrorMessage, safeNextPath, type AuthErrorView } from "./auth-errors";
@@ -107,7 +108,9 @@ export default function LoginPage() {
   const handleOAuthLogin = (provider: string) => {
     setError(null);
     setOauthLoading(provider);
-    window.location.href = api.oauthStartUrl(provider, inviteCode.trim() || undefined);
+    // The API's public host, never the /api/pal proxy (it refuses navigations
+    // and drops the Set-Cookie that binds the sign-in to this browser).
+    window.location.href = oauthStartUrl(provider, inviteCode.trim() || undefined);
   };
 
   const handleSubmit = async (e: FormEvent) => {

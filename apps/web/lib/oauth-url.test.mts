@@ -25,15 +25,24 @@ test("default base comes from the injected public API URL", () => {
   }
 });
 
-// api.ts pulls in `@/` aliases the node test runner cannot resolve, so pin the
-// wiring by source: the login page navigates via api.oauthStartUrl, and that
-// must delegate to the API-host builder above, never build from this.baseUrl
-// (= /api/pal in the browser).
-test("the login page's OAuth navigation goes through the API-host builder", async () => {
+// The login page itself is a React client component the node runner cannot
+// render, so pin its wiring by source: it navigates with THIS builder, and no
+// OAuth start URL is built from the api client (whose browser base is /api/pal).
+test("the login page's OAuth start uses the API-host builder, never /api/pal", async () => {
   const { readFileSync } = await import("node:fs");
-  const apiSrc = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
   const login = readFileSync(new URL("../app/login/page.tsx", import.meta.url), "utf8");
-  assert.match(apiSrc, /oauthStartUrl\(provider: string, invite\?: string\): string \{\s*return oauthStartUrl\(provider, invite\);/);
-  assert.doesNotMatch(apiSrc, /\$\{this\.baseUrl\}\/auth\/oauth\//);
-  assert.match(login, /window\.location\.href = api\.oauthStartUrl\(/);
+  const apiSrc = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+  assert.match(login, /import \{ oauthStartUrl \} from "@\/lib\/oauth-url";/);
+  assert.match(login, /window\.location\.href = oauthStartUrl\(/);
+  assert.doesNotMatch(login, /api\.oauthStart/);
+  assert.doesNotMatch(apiSrc, /\/auth\/oauth\/\$\{/);
+  // And what that builder yields in a browser on the dashboard host:
+  (globalThis as Record<string, unknown>).window = { __NEXT_PUBLIC_API_URL: "https://api.acme.example", location: { hostname: "dash.acme.example", origin: "https://dash.acme.example" } };
+  try {
+    const u = new URL(oauthStartUrl("google"));
+    assert.equal(u.origin, "https://api.acme.example");
+    assert.ok(!u.pathname.startsWith("/api/pal"));
+  } finally {
+    delete (globalThis as Record<string, unknown>).window;
+  }
 });

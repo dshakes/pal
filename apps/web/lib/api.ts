@@ -14,7 +14,6 @@ import type {
 // throws. No fabricated rows leak into the UI as fake runs.
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
-import { oauthStartUrl } from "./oauth-url.ts";
 import { parseApiErrorBody } from "./eval-format";
 import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
@@ -605,20 +604,9 @@ class PalAPI {
     await this.request(`/v1/tenants/${encodeURIComponent(tenantId)}`, { method: "DELETE" });
   }
 
-  /**
-   * URL to NAVIGATE the window to (not fetch): the control plane sets a
-   * browser-binding cookie on this response and 302s to the provider, so the
-   * callback can refuse a sign-in this browser did not start (login CSRF).
-   * invite: an invite code for invite-only sign-up; the server keeps it in the
-   * OAuth state.
-   *
-   * Always the API's PUBLIC host (lib/oauth-url.ts), never `this.baseUrl`: in
-   * the browser that is the /api/pal proxy, which refuses navigations and
-   * drops Set-Cookie, so the browser-binding cookie would never be set.
-   */
-  oauthStartUrl(provider: string, invite?: string): string {
-    return oauthStartUrl(provider, invite);
-  }
+  // OAuth sign-in start is NOT an API call: the login page navigates to
+  // lib/oauth-url.ts oauthStartUrl() on the API's public host. It never goes
+  // through this client, whose browser base is the /api/pal proxy.
 
   /** Exchange the one-time OAuth code (delivered to /auth/callback?code=…) for
    *  a session. The proxy sets the HttpOnly cookie from the response; the JWT
