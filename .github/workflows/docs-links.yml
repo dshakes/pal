@@ -27,3 +27,5 @@ jobs:
           fetch-depth: 0
       - name: Check internal documentation links
         run: node scripts/check-docs-links.mjs
+      - name: Check the REST API reference lists every control-plane route
+        run: node scripts/gen-api-routes.mjs --check

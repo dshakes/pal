@@ -2,7 +2,7 @@
 export const PROMISE = [
   {
     kind: 'voice', title: 'Sounds like you.', href: 'docs/pal/',
-    body: 'pal writes the way you write. Every reply is scored against messages you really sent, and a draft that drifts from your voice is rewritten before it goes out.',
+    body: 'PAL writes the way you write. Every reply is scored against messages you really sent, and a draft that drifts from your voice is rewritten before it goes out.',
   },
   {
     kind: 'people', title: 'Remembers your people.', href: 'docs/pal/knowledge/',

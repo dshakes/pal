@@ -220,7 +220,7 @@ function ConsentCard({ action, onReport }: CardProps) {
     <div className="space-y-3 text-sm text-zinc-200">
       <label className="flex items-start gap-2">
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-4 w-4 accent-pal-500" />
-        <span>pal may read my iMessage and WhatsApp on this Mac and reply as me, sending conversation text to my own model provider to write replies. I can mute it or stop it any time.</span>
+        <span>PAL may read my iMessage and WhatsApp on this Mac and reply as me, sending conversation text to my own model provider to write replies. I can mute it or stop it any time.</span>
       </label>
       <label className="flex items-start gap-2">
         <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} className="mt-0.5 h-4 w-4 accent-pal-500" />
@@ -404,7 +404,7 @@ function VoiceCard({ action, onReport }: CardProps) {
           <div className="space-y-2 rounded-lg border border-zinc-800 bg-surface-2 p-3">
             <p className="text-xs text-zinc-500">If a friend sent</p>
             <p className="text-zinc-200">{voice.preview.inbound}</p>
-            <p className="text-xs text-zinc-500">pal would reply, as you</p>
+            <p className="text-xs text-zinc-500">PAL would reply, as you</p>
             <p className="text-zinc-50">{voice.preview.draft}</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -519,7 +519,7 @@ function TrustCard({ action, onReport }: CardProps) {
       <label className="flex items-start gap-2 text-zinc-200">
         <input type="checkbox" checked={holds} onChange={(e) => setHolds(e.target.checked)} className="mt-0.5 h-4 w-4 accent-pal-500" />
         <span>
-          I understand holds are always on: pal never sends a reply that promises money or commits me to something, a claim it can&apos;t verify, or a light
+          I understand holds are always on: PAL never sends a reply that promises money or commits me to something, a claim it can&apos;t verify, or a light
           reply to bad news. Those come to me as drafts.
         </span>
       </label>

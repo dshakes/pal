@@ -1,12 +1,12 @@
 ---
 title: Holds and trust
-description: "pal sends ordinary replies on its own and holds anything that commits you or states something it can't verify."
+description: "PAL sends ordinary replies on its own and holds anything that commits you or states something it can't verify."
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 import { HoldsGates } from '../../../../components/diagrams';
 
-Every reply pal would send to a contact passes eight steps first. Most are about sounding like you. Two are **holds**: the **commitment gate** and the **grounding gate**. A held reply is **not sent**. It comes to your own chat as a draft, and what you type back becomes the reply. A prompt rule is advice; a hold is enforced in code, and it applies whatever your trust settings say.
+Every reply PAL would send to a contact passes eight steps first. Most are about sounding like you. Two are **holds**: the **commitment gate** and the **grounding gate**. A held reply is **not sent**. It comes to your own chat as a draft, and what you type back becomes the reply. A prompt rule is advice; a hold is enforced in code, and it applies whatever your trust settings say.
 
 <HoldsGates client:visible />
 
@@ -14,16 +14,16 @@ Every reply pal would send to a contact passes eight steps first. Most are about
 
 | Gate | Holds a reply that | Example |
 | --- | --- | --- |
-| Commitment gate | Commits you to money or a concrete action, or answers a contact who is asking you for money, in any language pal handles (English, romanized Telugu, Hindi) | "I'll send 70k now" |
+| Commitment gate | Commits you to money or a concrete action, or answers a contact who is asking you for money, in any language PAL handles (English, romanized Telugu, Hindi) | "I'll send 70k now" |
 | Grounding gate | States a specific date or time for something in your life in answer to a timing question; corrects the contact about your own plans; asserts an outcome only you could confirm; or answers death, illness or bad news in a celebratory or jokey tone | "Not today, the big day is the 10th" |
 
-Each gate has two layers, and either can hold: a model judge, and a fixed multilingual backstop that always runs. A model outage therefore cannot let a reply through. A hold forces the draft path even if draft-confirm is off, and pages you with a message starting `⚠️ HELD`. It says whether the contact is asking for money or the draft promises it, or which claim pal can't verify.
+Each gate has two layers, and either can hold: a model judge, and a fixed multilingual backstop that always runs. A model outage therefore cannot let a reply through. A hold forces the draft path even if draft-confirm is off, and pages you with a message starting `⚠️ HELD`. It says whether the contact is asking for money or the draft promises it, or which claim PAL can't verify.
 
-pal does not verify the claim; it holds it. Nothing is checked against your calendar and then sent.
+PAL does not verify the claim; it holds it. Nothing is checked against your calendar and then sent.
 
 ### Sharing a contact's number
 
-When a held draft was a request for someone's number, pal sends the numbers directly, and tells you with a `📇 shared …` note, only if all of these are true: the requester has a relationship on file, each name matches exactly one person, every matched person is in your `## Relationships`, and it is not a group. Otherwise the numbers wait in the hold for your one-word `send`.
+When a held draft was a request for someone's number, PAL sends the numbers directly, and tells you with a `📇 shared …` note, only if all of these are true: the requester has a relationship on file, each name matches exactly one person, every matched person is in your `## Relationships`, and it is not a group. Otherwise the numbers wait in the hold for your one-word `send`.
 
 ## What gets rewritten
 
@@ -34,11 +34,11 @@ The **claim verifier** rewrites a completed-action claim ("I sent him an email")
 | You want | Do this | What happens |
 | --- | --- | --- |
 | Review ordinary low-confidence replies | `PAL_DRAFT_CONFIRM=on` (iMessage) or `PAL_DRAFT_HIGH_STAKES=on` (WhatsApp) | Low-confidence replies wait for your `send`. Off by default: the reply is held briefly, then sent with a heads-up to you. |
-| Stop sending, keep drafting | `mute` | pal still drafts each reply and hands it to you. If the hand-off fails, the reply is dropped, never sent. |
+| Stop sending, keep drafting | `mute` | PAL still drafts each reply and hands it to you. If the hand-off fails, the reply is dropped, never sent. |
 | Stop everything | `kill switch on` | All inbound is ignored until you release it. |
 | Quiet nights | `PAL_QUIET_START` / `PAL_QUIET_END` (default 1 and 6) | Messages queue and are answered in the morning. |
-| Per-kind actions on bills, deliveries and the like | `auto`, `ask` or `off`, set in `pal setup` or the dashboard Automations feed | Controls whether pal acts on that kind of message, with undo. |
+| Per-kind actions on bills, deliveries and the like | `auto`, `ask` or `off`, set in `pal setup` or the dashboard Automations feed | Controls whether PAL acts on that kind of message, with undo. |
 
-Draft-confirm is off by default because turning it on drafted ordinary short messages from family instead of answering, which felt like pal was not responding. Money and unverifiable claims are held either way. Every suppressed reply logs which check stopped it; see [Privacy and control](/docs/pal/privacy/).
+Draft-confirm is off by default because turning it on drafted ordinary short messages from family instead of answering, which felt like PAL was not responding. Money and unverifiable claims are held either way. Every suppressed reply logs which check stopped it; see [Privacy and control](/docs/pal/privacy/).
 
 Agents you build can pause for a person too: see [Approvals](/docs/build/approvals/).

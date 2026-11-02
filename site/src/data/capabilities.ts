@@ -14,17 +14,17 @@ export type Capability = {
 };
 
 export const CAPABILITIES: Capability[] = [
-  // ---- pal
+  // ---- PAL
   { product: 'pal', group: 'Every day', title: 'The Brief', icon: 'list-format', featured: true,
     line: 'One ranked list of what needs you: drafts, promises and threads left waiting.', href: '/docs/pal/daily/', def: P.BRIEF_ATTENTION },
   { product: 'pal', group: 'Trust', title: 'Holds', icon: 'padlock', featured: true,
-    line: 'A reply that promises money or states what pal can’t verify waits for you.', href: '/docs/pal/human-in-the-loop/', def: P.HOLDS_GATES },
+    line: 'A reply that promises money or states what PAL can’t verify waits for you.', href: '/docs/pal/human-in-the-loop/', def: P.HOLDS_GATES },
   { product: 'pal', group: 'Voice', title: 'Sounds like you', icon: 'comment', featured: true,
     line: 'Drafts are checked against your own sent messages before they go out.', href: '/docs/pal/voice/', def: P.VOICE_PIPELINE },
   { product: 'pal', group: 'Memory', title: 'One memory, every channel', icon: 'random',
     line: 'iMessage and WhatsApp share one person graph and timeline.', href: '/docs/pal/surfaces/', def: P.CROSS_CHANNEL_MEMORY },
   { product: 'pal', group: 'Every day', title: 'World model', icon: 'information',
-    line: 'Mail, calendar and your own notes keep what pal knows about your life current.', href: '/docs/pal/daily/#the-world-model', def: P.WORLD_MODEL },
+    line: 'Mail, calendar and your own notes keep what PAL knows about your life current.', href: '/docs/pal/daily/#the-world-model', def: P.WORLD_MODEL },
   { product: 'pal', group: 'Every day', title: 'Nudges', icon: 'clock',
     line: 'A heads-up before a meeting, a date, a reply you owe or a promise still open.', href: '/docs/pal/daily/#nudges', def: P.PROACTIVE_NUDGES },
   { product: 'pal', group: 'Every day', title: 'Skill forge', icon: 'puzzle',

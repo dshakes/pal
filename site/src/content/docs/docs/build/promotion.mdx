@@ -1,0 +1,112 @@
+---
+title: Promotion
+description: "Freeze an agent version, promote it through sandbox, staging and prod with server-side gates, approve prod as a human, canary it and roll it back."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`pal deploy` updates an agent's working copy, and the working copy is what runs. **Promotion** adds immutable versions and environments on top: you freeze a version, move it through `sandbox`, `staging` and `prod`, and every move passes deterministic gates. A prod promotion also needs a human to approve it, and can start as a canary that rolls itself back if it misbehaves. The decision record is [ADR 0054](repo:/blob/master/docs/adr/0054-agent-promotion.md).
+
+The rule behind all of it: **a model or an API key can propose; gates and a human decide.**
+
+## The flow
+
+```bash
+pal freeze support-bot                              # 1. snapshot the working copy as an immutable version
+pal promote support-bot --to sandbox                # 2. sandbox needs no eval
+pal promote support-bot --to staging --run-eval <suite-id>
+pal promote support-bot --to prod --canary 10       # 3. files a request: pending_approval
+pal approve <promotion-id>                          # 4. a human owner or admin
+pal promotions envs support-bot                     # what each environment serves now
+pal rollback support-bot                            # undo, any time
+```
+
+### 1. Freeze
+
+`pal freeze <agent>` snapshots the agent's prompt, model and workflow into a content-addressed version (its digest is the SHA-256 of the canonical snapshot). Freezing identical content returns the existing version, and freezing never changes what serves traffic. `--label` names the version (default `v<N>`). An agent with no system prompt and no workflow cannot be frozen.
+
+Runs and evals execute the **snapshot** of the version they are bound to. A legacy version with no snapshot runs the working copy as before.
+
+### 2. Promote
+
+`pal promote <agent> --to sandbox|staging|prod` asks the control plane (`POST /v1/agents/{name}/promote`) to point an environment at a version. `--version` picks a frozen version; the default is the newest. These gates run server-side and fail closed:
+
+| Gate | Applies to | Passes when |
+| --- | --- | --- |
+| Version exists | all | The frozen version is found |
+| Environment order | staging, prod | The version is already active in the earlier environment (sandbox, then staging, then prod) |
+| Hermetic eval | staging, prod | A **server-run** eval of exactly that content passed every case, is under 24 hours old and has not regressed against the environment's baseline |
+| Budget | all | The agent is within its [budget](/docs/build/budgets/); an unreadable budget fails the gate |
+| Sandbox run | prod, when `PAL_PROMOTE_REQUIRE_SANDBOX_RUN=1` | A successful sandbox microVM run is on record (see [`pal sandbox run`](/docs/reference/cli/#sandbox)) |
+
+Eval evidence is bound to the version by content digest. An eval row you post yourself to `/v1/eval-runs`, or a `agentVersion` you claim, can never satisfy the gate. A blocked attempt is audited and the command exits non-zero. If only the eval gate failed, `--run-eval <suite-id>` runs that suite hermetically (branch = the target environment) and retries once. See [Evaluations](/docs/build/evaluations/).
+
+`--require-approval` asks for human approval on sandbox and staging too. `--reason` is recorded in the audit trail.
+
+### 3. Approve
+
+Prod always needs approval. `pal promote ... --to prod` only files the request, with status `pending_approval`, and prints `waiting for a human: pal approve <id>`.
+
+- Only a **human** owner or admin session can `pal approve` or `pal reject`. API keys and agents are classified from verified claims, never from a header or a body field, so they can propose but not approve.
+- The gates run again at approval time.
+- Approval is idempotent: a replay returns the applied promotion and writes one audit row.
+- There is one open (pending or canary) promotion per agent and environment.
+
+```bash
+pal promotions list --status pending_approval
+pal approve <promotion-id> --note "checked the eval report"
+pal reject  <promotion-id> --note "cost ratio too high"
+```
+
+<Aside type="caution">Approval has no maker/checker split: the person who requested a promotion may approve it, and an owner session driven by a language model counts as human. Give an onboarding or ops agent its own API key, not an owner login.</Aside>
+
+### 4. Canary
+
+`--canary N` (prod only, 1 to 99) sends N% of runs to the new version and the rest to the stable one. The split is the same FNV-1a hash used by [experiments](/docs/build/evaluations/), keyed on the run id, and routed runs carry a `pal.variant` label. The canary completes into a full rollout when it passes; it rolls back on a trip.
+
+Guards are evaluated from real run rows and newer hermetic evals, by `pal canary evaluate <agent>` and by a background loop every 30 seconds:
+
+| Flag | Default | Trips when |
+| --- | --- | --- |
+| `--max-error-rate` | `0.10` | failed / terminal runs of the candidate exceeds it |
+| `--max-cost-ratio` | `1.5` | candidate cost per run exceeds this multiple of the stable version's |
+| `--min-eval-score` | `0` (off) | a newer hermetic eval of the candidate scores below it |
+| `--min-runs` | `20` | not a trip: terminal runs needed before the canary can complete |
+
+A guard cannot trip before 5 terminal runs. Guards are bounded so a proposer cannot configure one that can never trip: error rate at most 0.5, cost ratio at most 10, `--min-runs` at least 5. A trip rolls back automatically and a pass over `--min-runs` completes the rollout.
+
+### 5. Roll back
+
+`pal rollback <agent> [--env prod] [--note ...]` aborts a canary or restores the previous version. Any principal with `agents:write` can do it, because rolling back is the safe direction. It is idempotent: a second call reports `already rolled back` and writes nothing, and concurrent calls produce exactly one audit row.
+
+## Environments
+
+`pal promotions envs <agent>` prints one line per environment with its version, status (`active` or `canary`), canary percentage and previous version. An agent with a `prod` environment is served from it. An agent that never used environments keeps serving its current version unchanged, and the first prod promotion adopts the live version as the stable one.
+
+## Audit
+
+`pal promotions audit [--agent A]` shows `agent_promotion_audit`, an append-only table: a database trigger refuses UPDATE and DELETE (the only exception is GDPR erasure). Each decision is one row written in the same transaction as the state change: `promote_requested`, `promote_blocked`, `approved`, `rejected`, `canary_started`, `canary_passed`, `canary_aborted`, `promoted`, `rolled_back`, `version_frozen` and `sandbox_run`. Details hold identifiers and counts only, never prompts or secrets.
+
+## API
+
+| Endpoint | Does |
+| --- | --- |
+| `POST /v1/agents/{name}/versions` | Freeze |
+| `POST /v1/agents/{name}/promote` | Request a promotion |
+| `GET /v1/agents/{name}/environments` | What each environment serves |
+| `POST /v1/agents/{name}/environments/prod/canary/evaluate` | Run the canary guards now |
+| `POST /v1/agents/{name}/environments/{env}/rollback` | Roll back |
+| `GET /v1/promotions`, `GET /v1/promotions/audit` | List, audit trail |
+| `POST /v1/promotions/{id}/approve`, `.../reject` | Decide (human owner/admin) |
+
+The full list with scopes is in the [REST API reference](/docs/reference/api/). The dashboard shows the same state on **Deployments** and an agent's lifecycle tabs ([Console](/docs/build/console/)).
+
+## Limits worth knowing
+
+- A frozen version pins the prompt, model and workflow. Labels, tools, connectors and MCP attachments still come from the live agent row.
+- Only **runs** are routed by version. Interactive sessions and the bridges read the live agent row, so `pal deploy` changes their behaviour immediately, outside promotion.
+- Workflow agents cannot yet pass the eval gate, because hermetic evals do not support workflows.
+- The sandbox-run evidence is self-reported by the caller (the VM must exist in your tenant). Treat that gate as advisory.
+- Rollback does not re-pin the environment's eval baseline to the restored version.
+- An experiment created by hand does not route runs; only environment canaries do, and a canary's experiment cannot be concluded through `/v1/experiments/{id}/conclude`.
+- Tool-loop agents run in the control plane, not inside the sandbox VM, so `pal sandbox run` exercises the agent's AgentSpec workload.
