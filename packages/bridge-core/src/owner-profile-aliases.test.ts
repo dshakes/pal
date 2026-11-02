@@ -111,3 +111,9 @@ test("declaredRelationshipFor: handle / alias match, display name and first-name
   assert.equal(st.declaredRelationshipFor("+10000000000"), undefined);
   assert.equal(st.relationshipFor("+10000000000", "Shiva"), "friend");
 });
+
+test("untrustedRelationshipNames: name-only entries are listed, numbers and aliased people are not", () => {
+  const st = storeFrom(SAMPLE + "- +15125551234: manager\n");
+  // Sujith + Madhu have `also:` numbers; Shiva is name-only; the bare number is a handle.
+  assert.deepEqual(st.untrustedRelationshipNames(), ["shiva"]);
+});

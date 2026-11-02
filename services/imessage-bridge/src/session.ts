@@ -18,6 +18,7 @@
 //   - Mirror to email when configured
 //   - Persisted state in bridge_state/<tenant>/
 
+import { peerAuthHeaders } from "@pal/bridge-core/bridge-http-guard";
 import { palStateDir } from "@pal/bridge-core/state-dir";
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, chmodSync } from "fs";
 import { readFile as readFileAsync } from "fs/promises";
@@ -5302,7 +5303,7 @@ export class IMessageSession {
       try {
         const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/thread-peek`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: peerAuthHeaders("whatsapp", { "content-type": "application/json" }),
           body: JSON.stringify(canon.length ? { canon } : { name: contactName }),
           signal: ctrl.signal,
         });
@@ -10321,7 +10322,7 @@ export class IMessageSession {
           if (typeof hints?.untilMs === "number") body.untilMs = hints.untilMs;
           const res = await fetch(`${waBase}/session/${tenantId}/whatsapp/search`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: peerAuthHeaders("whatsapp", { "Content-Type": "application/json" }),
             body: JSON.stringify(body),
             signal: ctrl.signal,
           });
@@ -10344,7 +10345,7 @@ export class IMessageSession {
         try {
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 5000);
-          const res = await fetch(`${waBase}/session/${tenantId}/whatsapp/groups`, { signal: ctrl.signal });
+          const res = await fetch(`${waBase}/session/${tenantId}/whatsapp/groups`, { headers: peerAuthHeaders("whatsapp"), signal: ctrl.signal });
           clearTimeout(t);
           if (!res.ok) return `(WhatsApp groups list unreachable — HTTP ${res.status})`;
           const data = (await res.json()) as { groups?: Array<{ name: string; participants: number; monitored?: boolean }> };
@@ -10823,7 +10824,7 @@ export class IMessageSession {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 5000);
         try {
-          const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/groups`, { signal: ctrl.signal });
+          const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/groups`, { headers: peerAuthHeaders("whatsapp"), signal: ctrl.signal });
           if (!res.ok) return [];
           const data = (await res.json()) as { groups?: Array<{ jid: string; name: string; participants: number }> };
           return (data.groups || []).map((g) => ({ id: g.jid, name: g.name, participantCount: g.participants }));
@@ -10836,7 +10837,7 @@ export class IMessageSession {
         try {
           const res = await fetch(`${waBase}/session/${this.tenantId}/whatsapp/group`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: peerAuthHeaders("whatsapp", { "Content-Type": "application/json" }),
             body: JSON.stringify({ jid: opts.id, name: opts.name }),
             signal: ctrl.signal,
           });
@@ -11506,7 +11507,7 @@ export class IMessageSession {
         const t = setTimeout(() => ctrl.abort(), 3000);
         await fetch(`${waUrl}/session/${tenantId}/send-self`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: peerAuthHeaders("whatsapp", { "Content-Type": "application/json" }),
           body: JSON.stringify({ message: body }),
           signal: ctrl.signal,
         });

@@ -1,3 +1,4 @@
+import { peerAuthHeaders } from "@pal/bridge-core/bridge-http-guard";
 import { palStateDir } from "@pal/bridge-core/state-dir";
 import makeWASocket, {
   useMultiFileAuthState,
@@ -476,7 +477,7 @@ export class WhatsAppSession {
           if (typeof hints?.untilMs === "number") body.untilMs = hints.untilMs;
           const res = await fetch(`${imBase}/session/${tenantId}/imessage/search`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: peerAuthHeaders("imessage", { "Content-Type": "application/json" }),
             body: JSON.stringify(body),
             signal: ctrl.signal,
           });
@@ -2540,6 +2541,7 @@ export class WhatsAppSession {
           this.conflictDormant = false;
           this.lastConnectionEventAt = Date.now();
           this.lastError = null;
+          this.checkTrustList();
           // A connection that survives past the storm window is genuinely
           // stable — clear the storm counter so a future isolated conflict
           // starts fresh. Flap cycles (open→440→open every ~60s) re-arm it
@@ -3538,6 +3540,19 @@ export class WhatsAppSession {
     return !!this.ownerProfileStore.declaredRelationshipFor(jid);
   }
 
+  private trustListChecked = false;
+  /** Once per process: WARN + one owner FYI naming `## Relationships` people keyed by name only (they open no trust gate here). */
+  private checkTrustList(): void {
+    if (this.trustListChecked) return;
+    this.trustListChecked = true;
+    const names = this.ownerProfileStore.untrustedRelationshipNames();
+    if (names.length === 0) return;
+    this.logger.warn({ count: names.length, names: names.slice(0, 20) }, "## Relationships entries with no number / `also:` alias cannot open WhatsApp trust gates (spouse agent, number-sharing, ## Now, location)");
+    void this.confirmToSelf(
+      `🧭 ${names.length} ${names.length === 1 ? "person" : "people"} in your ## Relationships ${names.length === 1 ? "has" : "have"} no phone number or "also:" alias, so on WhatsApp I won't auto-share numbers/location or run tasks for ${names.length === 1 ? "them" : "them"}: ${names.slice(0, 12).join(", ")}${names.length > 12 ? ", …" : ""}. Add "| also: +1…" to enable.`,
+    ).catch(() => {});
+  }
+
   private blockedHolds = new Map<string, number>();
   /** A send the boundary refused goes to the owner as a draft — never sent, never silently dropped. */
   private holdBlockedSend(to: string, text: string): void {
@@ -3600,6 +3615,7 @@ export class WhatsAppSession {
     if (this.muted && !this.isOwnerChat(to)) {
       this.mutedBoundaryBlocks++;
       this.logger.warn({ to, textPreview: text.slice(0, 80) }, "MUTED — send BLOCKED at boundary (only the owner is reachable while muted)");
+      if (opts.throwOnBlock) throw new ReplyModeBlockedError(to, "muted");
       return undefined;
     }
     // REPLY-MODE SEND BOUNDARY (GA PR-1), beside the mute check: in drafts /
@@ -3615,6 +3631,7 @@ export class WhatsAppSession {
     if (isBlockedGroupSend(to)) {
       this.blockedGroupSends++;
       this.logger.warn({ to, textPreview: text.slice(0, 80) }, "group send BLOCKED at boundary — group replies disabled (PAL_GROUP_REPLIES=1 to enable)");
+      if (opts.throwOnBlock) throw new ReplyModeBlockedError(to, "group_blocked");
       return undefined;
     }
     // FINAL PASS — verifiable-claims rewriter. Catches false-action
@@ -6507,7 +6524,7 @@ export class WhatsAppSession {
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 5000);
           try {
-            const res = await fetch(`${imBase}/session/${this.tenantId}/imessage/groups`, { signal: ctrl.signal });
+            const res = await fetch(`${imBase}/session/${this.tenantId}/imessage/groups`, { headers: peerAuthHeaders("imessage"), signal: ctrl.signal });
             if (!res.ok) return [];
             const data = (await res.json()) as { groups?: Array<{ chatRowid: number; name: string; participantCount: number }> };
             return (data.groups || []).map((g) => ({ id: String(g.chatRowid), name: g.name, participantCount: g.participantCount }));
@@ -6520,7 +6537,7 @@ export class WhatsAppSession {
           try {
             const res = await fetch(`${imBase}/session/${this.tenantId}/imessage/group`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: peerAuthHeaders("imessage", { "Content-Type": "application/json" }),
               body: JSON.stringify({
                 chatRowid: opts.id ? parseInt(opts.id, 10) || undefined : undefined,
                 name: opts.name,
@@ -8345,7 +8362,7 @@ export class WhatsAppSession {
         const t = setTimeout(() => ctrl.abort(), 3000);
         await fetch(`${imUrl}/session/${tenantId}/send-self`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: peerAuthHeaders("imessage", { "Content-Type": "application/json" }),
           body: JSON.stringify({ message: body }),
           signal: ctrl.signal,
         });
@@ -9501,7 +9518,7 @@ export class WhatsAppSession {
     const lowConfidence =
       !opts.isGroup &&
       ownerSamples.length === 0 &&
-      !relationship &&
+      !trustedRelationship &&
       !displayName &&
       !(await this.personal.factsBlock(from));
     const isVIP = !opts.isGroup && (await this.personal.isVIP(from));
@@ -9586,7 +9603,7 @@ export class WhatsAppSession {
     const tier = classifyConfidence({
       replyText: draft,
       inboundText: text,
-      relationship,
+      relationship: trustedRelationship, // trust gate: never a pushName-matched label
       hasPriorSamples: ownerSamples.length > 0,
       hasPriorDislikes: dislikeEntries.length > 0,
     });
@@ -12484,7 +12501,7 @@ export class WhatsAppSession {
       try {
         const res = await fetch(`${imBase}/session/${this.tenantId}/imessage/thread-peek`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: peerAuthHeaders("imessage", { "content-type": "application/json" }),
           body: JSON.stringify(canon.length ? { canon } : { name: contactName }),
           signal: ctrl.signal,
         });

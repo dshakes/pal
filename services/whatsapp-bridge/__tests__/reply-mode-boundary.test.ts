@@ -141,3 +141,47 @@ describe("WhatsApp: owner-approved REST send + retry + hold keys", () => {
     expect(SRC).toContain("this.pendingDraftEdits.set(`${ownerThread}::${from}`");
   });
 });
+
+describe("bridge HTTP hardening (Host allowlist, fail-closed token, peer tokens)", () => {
+  it("Host allowlist runs before cors/json and guards the websocket upgrade", () => {
+    const host = INDEX.indexOf("isAllowedHost(req.headers.host, ALLOWED_HOSTS)");
+    expect(host).toBeGreaterThan(-1);
+    expect(host).toBeLessThan(INDEX.indexOf("app.use(\n  cors("));
+    expect(INDEX).toMatch(/verifyClient: .*isAllowedHost\(/);
+    expect(INDEX).toContain("res.status(403).json({ error: \"forbidden host\" })");
+  });
+  it("an unset token refuses /session with 403 naming PAL_BRIDGE_TOKEN (never next())", () => {
+    expect(INDEX).toContain('tokenPolicy(BRIDGE_TOKEN, "PAL_BRIDGE_TOKEN", process.env)');
+    const fn = INDEX.slice(INDEX.indexOf("function requireToken("));
+    expect(fn.slice(0, 500)).toMatch(/action === "refuse"[\s\S]*status\(403\)/);
+    // nothing may call next() before the policy checks (open-dev hatch is the only pass-through)
+    expect(fn.slice(0, fn.indexOf('action === "refuse"'))).toMatch(/^[^]*\{\s*if \(TOKEN_POLICY\.action === "open-dev"\) (\{ next\(\); return; \}|return next\(\);)\s*if \(TOKEN_POLICY\.action === "refuse"|^[^]*action === "open-dev"/);
+    expect(fn.slice(0, fn.indexOf('action === "refuse"'))).toContain('TOKEN_POLICY.action === "open-dev"');
+    expect(INDEX).not.toMatch(/if \(!BRIDGE_TOKEN\) return next\(\);/);
+  });
+  it("every call to the iMessage bridge sends PAL_IMESSAGE_BRIDGE_TOKEN (the peer's token, not ours)", () => {
+    const calls = [...SRC.matchAll(/fetch\(`\$\{(imBase|imUrl|peerBase)\}\/session\//g)];
+    expect(calls.length).toBeGreaterThanOrEqual(6);
+    for (const m of calls) {
+      const win = SRC.slice(Math.max(0, m.index! - 700), m.index! + 500);
+      expect(win, `no token near: ${win.slice(0, 80)}`).toMatch(/peerAuthHeaders\("imessage"|Authorization/);
+    }
+    expect(SRC).not.toMatch(/peerAuthHeaders\("whatsapp"/);
+  });
+});
+
+describe("WhatsApp: throwOnBlock covers mute and blocked groups; trust-gate follow-ups", () => {
+  it("mute and blocked-group refusals throw typed errors for REST callers", () => {
+    expect(SRC).toContain('if (opts.throwOnBlock) throw new ReplyModeBlockedError(to, "muted");');
+    expect(SRC).toContain('if (opts.throwOnBlock) throw new ReplyModeBlockedError(to, "group_blocked");');
+  });
+  it("confidence tiering uses the trusted relationship, not the pushName-matched one", () => {
+    expect(SRC).toContain("relationship: trustedRelationship, // trust gate");
+    expect(SRC).toMatch(/ownerSamples\.length === 0 &&\s+!trustedRelationship &&/);
+  });
+  it("startup WARN + one owner FYI (registered 🧭 prefix) lists name-only relationships", () => {
+    expect(SRC).toContain("untrustedRelationshipNames()");
+    expect(SRC).toMatch(/confirmToSelf\(\s*`🧭 \$\{names\.length\}/);
+    expect(SRC).toMatch(/connection === "open"[\s\S]{0,1500}this\.checkTrustList\(\)/);
+  });
+});

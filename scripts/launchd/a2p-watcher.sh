@@ -70,7 +70,9 @@ try:
     urllib.request.urlopen(urllib.request.Request(
         "http://localhost:3100/session/00000000-0000-0000-0000-000000000001/send-self",
         data=json.dumps({"message": msg}).encode(),
-        headers={"Content-Type": "application/json"}, method="POST"), timeout=15)
+        headers={"Content-Type": "application/json",
+                 **({"Authorization": "Bearer " + os.environ["PAL_BRIDGE_TOKEN"]} if os.environ.get("PAL_BRIDGE_TOKEN") else {})},
+        method="POST"), timeout=15)
     print("a2p: APPROVED — switched to SMS + pinged WhatsApp")
 except Exception as e:
     print("a2p: APPROVED, channel switched, but WhatsApp ping failed:", e)

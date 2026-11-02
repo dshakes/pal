@@ -21,7 +21,8 @@
 // JIDs are validated at the boundary — see validateJid. The rest of the
 // service trusts the validated JID shape.
 
-import { ownerApprovedSend, ReplyModeBlockedError } from "@pal/bridge-core/reply-mode";
+import { isAllowedHost, parseAllowedHosts, tokenPolicy } from "@pal/bridge-core/bridge-http-guard";
+import { ownerApprovedSend } from "@pal/bridge-core/reply-mode";
 import express, { type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -94,6 +95,15 @@ if (!isLoopback && !BRIDGE_TOKEN) {
 // ---------------------------------------------------------------------------
 
 const app = express();
+
+// DNS-rebinding defence: serve only loopback Host headers (+ PAL_BRIDGE_ALLOWED_HOSTS).
+// Independent of the token, so it holds even when no token is configured.
+const ALLOWED_HOSTS = parseAllowedHosts(process.env.PAL_BRIDGE_ALLOWED_HOSTS);
+app.use((req, res, next) => {
+  if (isAllowedHost(req.headers.host, ALLOWED_HOSTS)) { next(); return; }
+  logger.warn({ host: req.headers.host, path: req.path }, "request rejected: Host header not allowed (set PAL_BRIDGE_ALLOWED_HOSTS for non-loopback hosts)");
+  res.status(403).json({ error: "forbidden host" });
+});
 app.use(
   cors({
     origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN.split(",").map((s) => s.trim()),
@@ -103,7 +113,11 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  verifyClient: (info: { req: { headers: { host?: string } } }) => isAllowedHost(info.req.headers.host, ALLOWED_HOSTS),
+});
 
 logger.info(
   {
@@ -124,11 +138,18 @@ const sessions = new Map<string, WhatsAppSession>();
 // Auth middleware
 // ---------------------------------------------------------------------------
 
-// requireToken enforces shared-token auth on mutation endpoints. It is a
-// no-op when PAL_BRIDGE_TOKEN is unset (explicitly allowed only on
-// loopback binds; see the boot check above).
+// requireToken enforces shared-token auth on every /session route. FAIL-CLOSED:
+// with PAL_BRIDGE_TOKEN unset it refuses (403) instead of waving requests through,
+// unless the dev-only PAL_BRIDGE_ALLOW_NO_TOKEN=1 hatch is set (ignored in prod).
+const TOKEN_POLICY = tokenPolicy(BRIDGE_TOKEN, "PAL_BRIDGE_TOKEN", process.env);
+if (TOKEN_POLICY.action === "refuse") logger.error(TOKEN_POLICY.message);
+if (TOKEN_POLICY.action === "open-dev") logger.warn(TOKEN_POLICY.warning);
 function requireToken(req: Request, res: Response, next: NextFunction) {
-  if (!BRIDGE_TOKEN) return next();
+  if (TOKEN_POLICY.action === "open-dev") return next();
+  if (TOKEN_POLICY.action === "refuse") {
+    res.status(403).json({ error: "bridge token not configured", hint: "set PAL_BRIDGE_TOKEN" });
+    return;
+  }
   const header = req.get("authorization") || "";
   const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (bearer && timingSafeEqual(bearer, BRIDGE_TOKEN)) return next();
@@ -492,13 +513,8 @@ app.post("/session/:tenantId/send", async (req, res) => {
   // Owner-approved by construction (bearer-guarded; dashboard Approve/Edit and the
   // iMessage owner-confirmed relay land here). A boundary refusal is a 409, never "sent".
   const out = await ownerApprovedSend(async (allow) => {
-    try {
-      await session.sendMessage(to, message, { allow, throwOnBlock: true });
-      return { ok: true };
-    } catch (err) {
-      if (err instanceof ReplyModeBlockedError) return { ok: false, reason: "reply-mode" };
-      return { ok: false, reason: String(err) };
-    }
+    await session.sendMessage(to, message, { allow, throwOnBlock: true }); // throws ReplyModeBlockedError (reply mode / muted / group)
+    return { ok: true };
   });
   res.status(out.status).json(out.body);
 });

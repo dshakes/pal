@@ -31,6 +31,7 @@
 // or launchd — without baking PII into the repo. Node 20.12+/21.7+
 // native loader; no dependency. Looks next to the service dir first,
 // then ~/.pal/imessage.env as a fallback.
+import { isAllowedHost, parseAllowedHosts, tokenPolicy } from "@pal/bridge-core/bridge-http-guard";
 import { ownerApprovedSend } from "@pal/bridge-core/reply-mode";
 import { existsSync as _existsSync } from "node:fs";
 import { join as _join, dirname as _dirname } from "node:path";
@@ -83,9 +84,26 @@ const STATE_DIR = join(__dirname, "..", "bridge_state");
 
 initAuth(logger);
 
+if (!isLoopback && !BRIDGE_TOKEN) {
+  logger.fatal({ bind: BIND }, "refusing to start: bind is non-loopback but PAL_IMESSAGE_BRIDGE_TOKEN is not set");
+  process.exit(1);
+}
+
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+// DNS-rebinding defence: serve only loopback Host headers (+ PAL_BRIDGE_ALLOWED_HOSTS).
+// Independent of the token, so it holds even when no token is configured.
+const ALLOWED_HOSTS = parseAllowedHosts(process.env.PAL_BRIDGE_ALLOWED_HOSTS);
+app.use((req, res, next) => {
+  if (isAllowedHost(req.headers.host, ALLOWED_HOSTS)) { next(); return; }
+  logger.warn({ host: req.headers.host, path: req.path }, "request rejected: Host header not allowed (set PAL_BRIDGE_ALLOWED_HOSTS for non-loopback hosts)");
+  res.status(403).json({ error: "forbidden host" });
+});
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  verifyClient: (info: { req: { headers: { host?: string } } }) => isAllowedHost(info.req.headers.host, ALLOWED_HOSTS),
+});
 
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
@@ -102,8 +120,18 @@ function timingSafeEqual(a: string, b: string): boolean {
   return nodeTimingSafeEqual(ba, bb);
 }
 
+// FAIL-CLOSED: with PAL_IMESSAGE_BRIDGE_TOKEN unset every /session route is refused (403),
+// unless the dev-only PAL_BRIDGE_ALLOW_NO_TOKEN=1 hatch is set (ignored in prod/staging).
+const TOKEN_POLICY = tokenPolicy(BRIDGE_TOKEN, "PAL_IMESSAGE_BRIDGE_TOKEN", process.env);
+if (TOKEN_POLICY.action === "refuse") logger.error(TOKEN_POLICY.message);
+if (TOKEN_POLICY.action === "open-dev") logger.warn(TOKEN_POLICY.warning);
+
 function requireToken(req: express.Request, res: express.Response, next: express.NextFunction): void {
-  if (!BRIDGE_TOKEN) { next(); return; }
+  if (TOKEN_POLICY.action === "open-dev") { next(); return; }
+  if (TOKEN_POLICY.action === "refuse") {
+    res.status(403).json({ error: "bridge token not configured", hint: "set PAL_IMESSAGE_BRIDGE_TOKEN" });
+    return;
+  }
   const header = req.headers["authorization"] || "";
   const bearer = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!bearer || !timingSafeEqual(bearer, BRIDGE_TOKEN)) {

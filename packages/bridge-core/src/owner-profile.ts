@@ -244,6 +244,18 @@ export class OwnerProfileStore {
     return canon ? prof.relationships.get(canon.toLowerCase()) : undefined;
   }
 
+  /** `## Relationships` people who can open NO trust gate: keyed by name only (no number,
+   *  no `also:` alias). Used for the startup WARN / owner FYI so they know who lost trust features. */
+  untrustedRelationshipNames(): string[] {
+    const prof = this.get();
+    if (!prof) return [];
+    const withAlias = new Set([...prof.aliases.values()].map((n) => n.toLowerCase()));
+    const handleLike = (k: string) => /^\+?[\d\s().-]{7,}$/.test(k) || k.includes("@");
+    const out = new Set<string>();
+    for (const k of prof.relationships.keys()) if (!handleLike(k) && !withAlias.has(k)) out.add(k);
+    return [...out].sort();
+  }
+
   /** Re-identification: given any handle (including an alias / second
    *  number declared via "also: …" in the Relationships section), return
    *  the PRIMARY contact's display name as written in the profile, or

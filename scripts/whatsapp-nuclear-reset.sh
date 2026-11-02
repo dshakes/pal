@@ -102,7 +102,7 @@ done
 
 echo
 echo "${BLD}4. Verifying clean state${RST}"
-DIAG=$(curl -sS "http://localhost:3100/session/${TENANT_ID}/diagnostics" -m 2 2>/dev/null || echo '{}')
+DIAG=$(curl -sS ${PAL_BRIDGE_TOKEN:+-H "Authorization: Bearer $PAL_BRIDGE_TOKEN"} "http://localhost:3100/session/${TENANT_ID}/diagnostics" -m 2 2>/dev/null || echo '{}')
 echo "   ${DIM}${DIAG}${RST}"
 
 echo

@@ -128,3 +128,18 @@ describe("ownerApprovedSend (dashboard Approve/Edit REST routes)", () => {
     assert.equal((await ownerApprovedSend(async () => ({ ok: false, reason: "bridge not ready" }))).status, 500);
   });
 });
+
+describe("ownerApprovedSend maps every boundary refusal to 409 + code", () => {
+  test("muted / blocked group / reply-mode, thrown or returned", async () => {
+    for (const [reason, code] of [["muted", "muted"], ["group-blocked", "group_blocked"], ["reply-mode", "reply_mode_blocked"]] as const) {
+      const r = await ownerApprovedSend(async () => ({ ok: false, reason }));
+      assert.equal(r.status, 409);
+      assert.equal(r.body.code, code);
+    }
+    for (const code of ["muted", "group_blocked"] as const) {
+      const r = await ownerApprovedSend(async () => { throw new ReplyModeBlockedError("x", code); });
+      assert.equal(r.status, 409);
+      assert.equal(r.body.code, code);
+    }
+  });
+});
