@@ -91,7 +91,7 @@ func mcpDialPolicyFromEnv() mcp.DialPolicy {
 	if isProd() {
 		return mcp.DialPolicy{AllowPrivate: allowPrivate, RequireHTTPS: true}
 	}
-	return mcp.DialPolicy{AllowPrivate: true, AllowLoopback: true}
+	return mcp.DialPolicy{AllowPrivate: true, AllowLoopback: true, AllowFakeIP: true}
 }
 
 func envTruthy(k string) bool {

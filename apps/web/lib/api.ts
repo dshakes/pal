@@ -688,10 +688,17 @@ class PalAPI {
     await this.request(`/v1/tenants/${encodeURIComponent(tenantId)}`, { method: "DELETE" });
   }
 
-  /** invite: an invite code for invite-only sign-up; the server keeps it in the OAuth state. */
-  async oauthStart(provider: string, invite?: string): Promise<{ redirect_url: string }> {
-    const q = invite ? `?invite=${encodeURIComponent(invite)}` : "";
-    return this.request<{ redirect_url: string }>(`/auth/oauth/${provider}/start${q}`);
+  /**
+   * URL to NAVIGATE the window to (not fetch): the control plane sets a
+   * browser-binding cookie on this response and 302s to the provider, so the
+   * callback can refuse a sign-in this browser did not start (login CSRF).
+   * invite: an invite code for invite-only sign-up; the server keeps it in the
+   * OAuth state.
+   */
+  oauthStartUrl(provider: string, invite?: string): string {
+    const q = new URLSearchParams({ redirect: "1" });
+    if (invite) q.set("invite", invite);
+    return `${this.baseUrl}/auth/oauth/${encodeURIComponent(provider)}/start?${q.toString()}`;
   }
 
   /** Exchange the one-time OAuth code (delivered to /auth/callback?code=…) for

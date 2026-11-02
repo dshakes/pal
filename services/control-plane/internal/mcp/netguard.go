@@ -19,6 +19,10 @@ type DialPolicy struct {
 	AllowPrivate  bool // RFC 1918 / ULA / CGNAT
 	AllowLoopback bool
 	RequireHTTPS  bool
+	// AllowFakeIP lifts the benchmarking range 198.18.0.0/15, where fake-IP
+	// proxies (Clash, Surge) map every hostname on a dev machine. DEV ONLY:
+	// set it only on the non-prod policies; it lifts nothing else.
+	AllowFakeIP bool
 }
 
 // ErrBlockedAddress is returned when a dial targets a refused address.
@@ -31,6 +35,17 @@ func (p DialPolicy) Allowed(ip net.IP) bool {
 	if ip.To4() == nil && sixToFour.Contains(ip) {
 		b := ip.To16()
 		return p.Allowed(net.IPv4(b[2], b[3], b[4], b[5]))
+	}
+	// Teredo (2001::/32) tunnels to an IPv4 server (bytes 4-7) and an
+	// obfuscated IPv4 client (bytes 12-15, XOR 0xff): judge both embedded
+	// addresses, so a Teredo literal cannot smuggle loopback/private/metadata.
+	if ip.To4() == nil && teredo.Contains(ip) {
+		b := ip.To16()
+		return p.Allowed(net.IPv4(b[4], b[5], b[6], b[7])) &&
+			p.Allowed(net.IPv4(^b[12], ^b[13], ^b[14], ^b[15]))
+	}
+	if p.AllowFakeIP && fakeIP.Contains(ip) {
+		return true
 	}
 	for _, n := range alwaysRefused {
 		if n.Contains(ip) {
@@ -60,7 +75,9 @@ var (
 		{IP: net.IPv4(240, 0, 0, 0), Mask: net.CIDRMask(4, 32)},
 		{IP: net.IPv4(168, 63, 129, 16), Mask: net.CIDRMask(32, 32)},
 	}
+	fakeIP    = alwaysRefused[0] // 198.18.0.0/15
 	sixToFour = &net.IPNet{IP: net.ParseIP("2002::"), Mask: net.CIDRMask(16, 128)}
+	teredo    = &net.IPNet{IP: net.ParseIP("2001::"), Mask: net.CIDRMask(32, 128)}
 	cgnat     = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 	// nat64 (64:ff9b::/96) can reach any IPv4 address, internal ones included.
 	nat64 = &net.IPNet{IP: net.ParseIP("64:ff9b::"), Mask: net.CIDRMask(96, 128)}
