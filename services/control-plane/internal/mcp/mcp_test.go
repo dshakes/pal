@@ -442,3 +442,32 @@ func TestStdioRequiresVMAndCapsOutput(t *testing.T) {
 	}
 	_ = io.EOF
 }
+
+// The dev-only fake-IP lift opens 198.18.0.0/15 and nothing else; Teredo is
+// judged by both embedded IPv4 addresses.
+func TestDialPolicy_FakeIPAndTeredo(t *testing.T) {
+	dev := DialPolicy{AllowPrivate: true, AllowLoopback: true, AllowFakeIP: true}
+	prodPrivate := DialPolicy{AllowPrivate: true, RequireHTTPS: true} // PAL_MCP_ALLOW_PRIVATE in prod
+	cases := []struct {
+		name string
+		p    DialPolicy
+		ip   string
+		want bool
+	}{
+		{"dev fake-ip lifted", dev, "198.18.0.7", true},
+		{"dev fake-ip upper", dev, "198.19.255.254", true},
+		{"prod private still refuses fake-ip", prodPrivate, "198.18.0.7", false},
+		{"dev still refuses 192.0.0/24", dev, "192.0.0.8", false},
+		{"dev still refuses wireserver", dev, "168.63.129.16", false},
+		{"dev still refuses metadata", dev, "169.254.169.254", false},
+		{"teredo public server+client", DialPolicy{}, "2001:0:4136:e378:8000:63bf:a247:27dd", true},
+		{"teredo client loopback", DialPolicy{}, "2001:0:4136:e378:8000:63bf:80ff:fffe", false},
+		{"teredo server private", DialPolicy{}, "2001:0:a00:1:8000:63bf:a247:27dd", false},
+		{"teredo client metadata", DialPolicy{}, "2001:0:4136:e378:8000:63bf:5601:5601", false},
+	}
+	for _, tc := range cases {
+		if got := tc.p.Allowed(net.ParseIP(tc.ip)); got != tc.want {
+			t.Errorf("%s: Allowed(%s) = %v, want %v", tc.name, tc.ip, got, tc.want)
+		}
+	}
+}

@@ -319,6 +319,20 @@ state via `/start?invite=`; open/invite → per-IP limit; no captcha). Prod
 open/invite refuses to boot without a reachable Redis (`CheckSignupLimiter`). Full reference:
 `site/src/content/docs/docs/` (accounts page).
 
+**OAuth sign-in hardening.** Only a provider-VERIFIED email identifies a user (Google
+`verified_email`/OIDC `email_verified`; GitHub: always `/user/emails`, primary AND verified —
+the profile email is never trusted); otherwise the callback refuses. Accounts are matched by
+email case-insensitively (oldest first); a provider sign-in may enter an existing account only
+if its `email_verified_at` is set (else "Sign in with your password, then connect <Provider> in
+settings"); no link table — linking = signing in as that user. `GET /auth/oauth/{provider}/start`
+sets an HttpOnly Lax cookie `pal_oauth_state` (path `/auth/oauth/`, 10 min, Secure in prod) with a
+hash of the state; the callback refuses a state the cookie doesn't match (login CSRF) and redeems
+it with Redis `GETDEL` (no replay / double callback). The dashboard NAVIGATES to
+`…/start?redirect=1` (302 to the provider; errors 302 to `/login?error=`); start and
+`OAUTH_REDIRECT_BASE` must share a host. First sign-ins are serialized by a Postgres advisory xact
+lock on `lower(email)` + re-check, so concurrent callbacks make one tenant. `internal/handlers/auth.go`
+(`resolveOAuthUser`, `oauthLinkRefusal`); tests `oauth_signup_test.go`.
+
 **Free tier + starter gallery (W2-S).** New tenants (password `Signup` and first Google login) get a hard-fail tenant-wide cap (`agent_budgets` row `agent_name='*'`) and a `runtime_quotas` row in the sign-up transaction (`handlers/tenant_defaults.go`; `DO NOTHING` on conflict, so owner edits survive; the seeded dev tenant is untouched). Env: `PAL_FREE_TIER_COST_USD_PER_DAY` (default 2.00), `PAL_FREE_TIER_MAX_VMS` (2), `PAL_FREE_TIER_RUNTIME_COST_USD_PER_DAY` (1.00); `off`/`0` skips that cap. `POST /v1/runs` returns `403 {code:"email_unverified"}` for an unverified local user when `requireEmailVerification()` (prod); OAuth users are stored verified. `GET /v1/agents/templates` marks six `gallery` templates (support-desk, pr-triage, incident-responder, daily-digest, data-analyst, telegram-assistant; models `fast`/`balanced`; only gallery templates expose `systemPrompt`) which the onboarding goal step offers as cards. OTel counter `pal.onboarding.step.total{pal.onboarding_step,pal.onboarding_event}` fires on `PUT /v1/onboarding` step transitions.
 
 ### Agents
@@ -2393,6 +2407,24 @@ needs a one-time re-pair; `POST /session/:tenant/reset` wipes creds and
 | `POST` | `/session/:tenantId/reset` (WA bridge)     | Wipe creds (destructive — forces fresh QR pair)                                            |
 
 ---
+
+## Notifier (`services/notifier`)
+
+Not deployed by the Helm chart or compose yet, and `NotifierService` is not registered on its
+gRPC server (only health + reflection), so nothing can reach `Notify` today. The gRPC port is
+still a trust boundary: it runs the shared service-token interceptor before tenant extraction
+(`PAL_GRPC_SERVICE_TOKEN`, fatal in prod when unset; dev warns). Webhook, Slack and Discord
+deliveries POST to a tenant-supplied URL through an SSRF dial guard (`internal/delivery/netguard.go`,
+a copy of the control-plane `internal/mcp/netguard.go` policy — change both together): loopback,
+private, CGNAT, NAT64, link-local/metadata, 6to4/Teredo-embedded and the always-refused ranges are
+refused at dial time, proxies ignored, redirects not followed, https required in prod;
+`PAL_NOTIFIER_ALLOW_PRIVATE=1` lifts private/loopback/fake-IP in dev only. Webhooks are signed
+`X-Pal-Signature: t=<unix>,v1=<hex HMAC-SHA256(key, "<t>.<body>")>` with the per-tenant key
+`HKDF-SHA256(PAL_NOTIFIER_SIGNING_KEY, info "pal-notifier-webhook-v1|<tenant_id>", 32 bytes)`
+(`delivery.WebhookSigningKey`); the root is fatal in prod when unset or < 32 bytes. A receiver
+recomputes the HMAC over `<t>.<raw body>`, compares in constant time and rejects a stale `t`
+(±5 min, as for inbound generic hooks). There is no tenant-facing API to read the derived key yet:
+the operator hands it out. (The old signature was keyed by the tenant id — forgeable.)
 
 ## Proto workflow
 

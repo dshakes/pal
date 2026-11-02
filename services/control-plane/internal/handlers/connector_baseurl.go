@@ -106,7 +106,7 @@ func connectorDialPolicy(ctx context.Context) mcp.DialPolicy {
 		return mcp.DialPolicy{}
 	}
 	if ctx.Value(fixtureDialKey{}) != nil || envOn("PAL_CONNECTOR_ALLOW_PRIVATE") {
-		return mcp.DialPolicy{AllowPrivate: true, AllowLoopback: true}
+		return mcp.DialPolicy{AllowPrivate: true, AllowLoopback: true, AllowFakeIP: true}
 	}
 	return mcp.DialPolicy{}
 }

@@ -113,17 +113,12 @@ export default function LoginPage() {
     setResent(false);
   };
 
-  const handleOAuthLogin = async (provider: string) => {
+  // A top-level navigation, not a fetch: the start response sets the cookie
+  // that binds the sign-in to this browser. Errors come back as /login?error=.
+  const handleOAuthLogin = (provider: string) => {
     setError(null);
     setOauthLoading(provider);
-    try {
-      const data = await api.oauthStart(provider, inviteCode.trim() || undefined);
-      if (data.redirect_url) window.location.href = data.redirect_url;
-      else throw new Error("no redirect");
-    } catch (err) {
-      setError(describeAuthError(err, "signin"));
-      setOauthLoading(null);
-    }
+    window.location.href = api.oauthStartUrl(provider, inviteCode.trim() || undefined);
   };
 
   const handleSubmit = async (e: FormEvent) => {

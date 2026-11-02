@@ -2712,6 +2712,28 @@
   "source": "services/imessage-bridge/src/session.ts:1134"
  },
  {
+  "name": "PAL_NOTIFIER_ALLOW_PRIVATE",
+  "services": [
+   "notifier"
+  ],
+  "group": "Service: notifier",
+  "default": "unset",
+  "description": "`1` lets webhook/Slack/Discord deliveries reach loopback, private and fake-IP (198.18.0.0/15) addresses, for local receivers. Dev only: ignored in prod, where webhook deliveries also require https. Metadata/link-local is refused everywhere.",
+  "prod": false,
+  "source": "services/notifier/internal/delivery/netguard.go:50"
+ },
+ {
+  "name": "PAL_NOTIFIER_SIGNING_KEY",
+  "services": [
+   "notifier"
+  ],
+  "group": "Service: notifier",
+  "default": "unset",
+  "description": "Root secret for notifier webhook signatures. Each tenant's key is HKDF-SHA256(this, info `pal-notifier-webhook-v1|<tenant_id>`, 32 bytes); the header is `X-Pal-Signature: t=<unix>,v1=<hex HMAC-SHA256(key, \"<t>.<body>\")>`. Fatal in prod when unset or shorter than 32 bytes; dev uses a well-known default. **Required in prod.**",
+  "prod": true,
+  "source": "services/notifier/internal/delivery/webhook.go:36"
+ },
+ {
   "name": "PAL_NO_PROXY",
   "services": [
    "harness",
