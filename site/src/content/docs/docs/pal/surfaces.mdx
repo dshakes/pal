@@ -1,6 +1,6 @@
 ---
-title: Connect your channels
-description: "Link PAL to your iMessage and WhatsApp with `pal setup`, and see which other channels an agent can answer on."
+title: Set up PAL
+description: "Install the bridges, run `pal setup` to give consent, connect iMessage and WhatsApp, set your trust levels and get your first Brief."
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
@@ -26,7 +26,7 @@ PAL reaches your messages through two small programs on your Mac, the **channel 
    pal setup
    ```
 
-   Progress is saved on the server. If you stop, running `pal setup` again resumes at the right step. The dashboard has the same flow at `/pal/onboarding`, with the same saved progress.
+   Setup is a conversation with PAL's setup agent: answer in your own words and it does each step with real checks. `pal setup --steps` gives you the step-by-step wizard instead, and it takes over on its own if the agent cannot reach your model. Progress is saved on the server. If you stop, running `pal setup` again resumes at the right step. The dashboard has the same flow at `/pal/onboarding`, with the same saved progress.
 
 4. **Apply it to this Mac.** At the end, setup offers to write your answers into the bridge config. You can do it later:
 

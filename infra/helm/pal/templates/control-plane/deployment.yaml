@@ -127,6 +127,11 @@ spec:
               value: {{ .Values.controlPlane.env.PAL_RLS_ENFORCE | default "" | quote }}
             - name: PAL_AUTHZ_ENFORCE
               value: {{ .Values.controlPlane.env.PAL_AUTHZ_ENFORCE | default "" | quote }}
+            {{- with .Values.controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL }}
+            # First owner on a fresh install (sign-up is closed in prod); NOTES.txt reads the same key.
+            - name: PAL_BOOTSTRAP_OWNER_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
             - name: PAL_APP_DB_PASSWORD
               valueFrom:
                 secretKeyRef:

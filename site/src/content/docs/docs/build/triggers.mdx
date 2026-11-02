@@ -234,6 +234,6 @@ pal hooks create my-agent --provider github \
 
 The route takes no token, and the trigger's tenant comes from its row, never from the request. The secret is stored AES-256-GCM encrypted when `PAL_CREDENTIAL_KEY` is set (plaintext otherwise), and is never logged. Trigger CRUD runs under row-level security, so another tenant's trigger returns 404.
 
-Other ways to start a run: `POST /v1/runs`, a [schedule](/docs/build/scheduling/), a channel message ([Connect your channels](/docs/pal/surfaces/)), or an A2A call ([Marketplace](/docs/build/marketplace/)).
+Other ways to start a run: `POST /v1/runs`, a [schedule](/docs/build/scheduling/), a channel message ([Set up PAL](/docs/pal/surfaces/)), or an A2A call ([Marketplace](/docs/build/marketplace/)).
 
 Next: [Scheduling](/docs/build/scheduling/).

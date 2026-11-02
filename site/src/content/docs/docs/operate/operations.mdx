@@ -72,18 +72,9 @@ The drill restores with `ON_ERROR_STOP`, so a corrupt gzip fails, and requires t
 
 For a real restore, stop writes (scale the control plane to 0), restore into a new database, re-point the release, and scale back up. A dump contains no roles: recreate `pal_app` and its password, then run `DATABASE_URL=... scripts/check-app-grants.sh` before you rely on RLS enforcement. The full procedure for both topologies is [db-restore.md](repo:/blob/master/docs/runbooks/db-restore.md).
 
-## Upgrading from the Bitnami-based chart
+## Upgrading
 
-<Aside type="caution" title="Not an in-place upgrade">
-Postgres (pgvector) and the S3-compatible store (SeaweedFS) are now first-party templates instead of Bitnami subcharts. Their StatefulSet selectors differ, so `helm upgrade` from the old chart cannot adopt the existing volumes. Redis is still a Bitnami subchart, pinned by `Chart.lock`.
-</Aside>
-
-1. Take a dump from the old release and keep it off the cluster (`pg_dump`, or the backup CronJob if it was on).
-2. Copy any objects you need out of the old object store.
-3. `helm uninstall` the old release, then `helm install` the new chart.
-4. Restore the dump into the new database, recreate `pal_app`, and verify with the drill above.
-
-This does not apply to production values: `values-prod.yaml` uses external Postgres and S3, which the chart never owned. Plan the cutover for the in-cluster stores only.
+Version upgrades, the 0.3.0 requirements, rollback and the move off the Bitnami-based Postgres and object store: [Upgrading](/docs/operate/upgrading/).
 
 ## Kiosk and demo deployments
 
