@@ -15,5 +15,5 @@ tracing = "0.1"
 x509-parser = "0.16"
 
 [dev-dependencies]
-rcgen = "0.13"
+rcgen = "0.14"
 rustls-pemfile = "2"
