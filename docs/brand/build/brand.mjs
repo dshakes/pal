@@ -5,7 +5,7 @@
 //   curl -sSfLO https://cdn.jsdelivr.net/fontsource/fonts/inter-tight@latest/latin-{500,600}-normal.woff
 //   NODE_PATH=<scratch>/node_modules node docs/brand/build/brand.mjs <scratch>
 //
-// Secondary words ("Runtime", "Personal Agentic Layer") are Inter Tight outlined
+// Secondary words ("Runtime", "Personalized Agentic Layer") are Inter Tight outlined
 // to paths so the files render identically everywhere (README, Figma, email).
 import { createRequire } from 'node:module';
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -71,19 +71,19 @@ for (const [sfx, stroke, dot] of variants) {
   files[`lockup${sfx}.svg`] = svg(WVB, wordBody(stroke, dot), 'pal', 342);
   files[`runtime-mark${sfx}.svg`] = svg('8 5.5 49 56', markBody(stroke, dot, RT, true), 'PAL Runtime');
 
-  // Horizontal descriptor lockup: pal | Personal Agentic Layer (descriptor x-height aligned to the bowls).
+  // Horizontal descriptor lockup: pal | Personalized Agentic Layer (descriptor x-height aligned to the bowls).
   const sub = stroke === INK ? '#45474e' : '#b9bac0';
   const subFill = dot === 'grad' ? sub : stroke;
-  const [pd, pw] = words('Personal Agentic Layer', 500, 26, 140, 43);
+  const [pd, pw] = words('Personalized Agentic Layer', 500, 26, 140, 43);
   files[`lockup-horizontal${sfx}.svg`] = svg(`0 -11 ${Math.ceil(140 + pw + 2)} 80`,
-    `${wordBody(stroke, dot, PAL, 'hg')}<path d="M124 6 V50" stroke="${stroke}" stroke-opacity=".18" stroke-width="2"/><path d="${pd}" fill="${subFill}"/>`, 'pal, Personal Agentic Layer', 600);
+    `${wordBody(stroke, dot, PAL, 'hg')}<path d="M124 6 V50" stroke="${stroke}" stroke-opacity=".18" stroke-width="2"/><path d="${pd}" fill="${subFill}"/>`, 'pal, Personalized Agentic Layer', 600);
 
   // Stacked: wordmark over descriptor, centred.
-  const [sd, sw] = words('Personal Agentic Layer', 500, 14, 0, 0);
+  const [sd, sw] = words('Personalized Agentic Layer', 500, 14, 0, 0);
   const sx = (114 - sw) / 2;
-  const [sd2] = words('Personal Agentic Layer', 500, 14, sx, 96);
+  const [sd2] = words('Personalized Agentic Layer', 500, 14, sx, 96);
   files[`lockup-stacked${sfx}.svg`] = svg(`${Math.min(0, Math.floor(sx)) - 2} -11 ${Math.ceil(Math.max(114, sw)) + 4} 114`,
-    `${wordBody(stroke, dot, PAL, 'sg')}<path d="${sd2}" fill="${subFill}"/>`, 'pal, Personal Agentic Layer', 300);
+    `${wordBody(stroke, dot, PAL, 'sg')}<path d="${sd2}" fill="${subFill}"/>`, 'pal, Personalized Agentic Layer', 300);
   void sd;
 
   // Runtime lockup: pal (electric dot) + Runtime.

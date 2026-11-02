@@ -1,0 +1,97 @@
+---
+// PAL Runtime's agent lifecycle as one loop: build -> eval -> promote -> observe.
+// Every command is real CLI (packages/cli/internal/cli: promote_cmd.go, eval_cmd.go,
+// debug_cmd.go); the output lines are illustrative, and the caption says so.
+// Auto-advances while on screen; any click/focus/hover stops it. Reduced motion or
+// no JS: no auto-advance, and without JS every stage is listed in full.
+const STAGES = [
+  {
+    id: 'build', label: 'Build', h: 'Freeze what you built.',
+    b: 'Define the agent in an agent.yaml or with the TypeScript SDK. Freezing snapshots the prompt, model and workflow into an immutable version, and that snapshot is what runs.',
+    cmd: 'pal freeze support', out: ['frozen support@v7', 'runs and evals use this snapshot, not your working copy'],
+  },
+  {
+    id: 'eval', label: 'Eval', h: 'Gate it on evidence.',
+    b: 'Suites run on the server with mocked tools and an LLM judge that is never the model under test. A regression against the baseline fails the run.',
+    cmd: 'pal eval run --agent=support --suite=core --samples=3', out: ['hermetic · mocked tools · judge ≠ maker', 'regressed vs baseline → exit 1 (API: 422)'],
+  },
+  {
+    id: 'promote', label: 'Promote', h: 'A human says yes to prod.',
+    b: 'Promotion checks the earlier environment, a fresh eval and the budget. Prod waits for an owner. A canary takes a slice of runs and rolls back on its own if a guard trips.',
+    cmd: 'pal promote support --to prod --canary 10', out: ['pending_approval', 'waiting for a human: pal approve <id>', 'canary guards: error rate · cost ratio · eval floor'],
+  },
+  {
+    id: 'observe', label: 'Observe', h: 'Know when it drifts, and why.',
+    b: 'Every run has a trace of its steps, model calls and tool calls. SLO burn and anomalies open incidents, and the debug agent explains a failure from the run’s own evidence.',
+    cmd: 'pal debug run <run-id>', out: ['trace: steps · LLM calls · tool calls (redacted)', 'root cause cites run:<id> · ev:<seq> · trace · diff'],
+  },
+] as const;
+---
+<div class="ship" data-ship data-stage="build">
+  <div class="ship-track" role="group" aria-label="Agent lifecycle stages">
+    <svg class="ship-line" viewBox="0 0 400 8" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="4" x2="400" y2="4" /><line class="ship-line-on" x1="0" y1="4" x2="400" y2="4" /></svg>
+    {STAGES.map((s, i) => (
+      <button type="button" class="ship-step" data-go={s.id} aria-pressed={i === 0 ? 'true' : 'false'} aria-controls={`ship-${s.id}`}>
+        <span class="ship-n">{String(i + 1).padStart(2, '0')}</span><span class="ship-l">{s.label}</span>
+      </button>
+    ))}
+  </div>
+  <div class="ship-panels">
+    {STAGES.map((s, i) => (
+      <div class="ship-panel" id={`ship-${s.id}`} data-panel={s.id} data-on={i === 0 ? '' : undefined}>
+        <div class="ship-copy">
+          <p class="ship-k">{String(i + 1).padStart(2, '0')} · {s.label}</p>
+          <h3 class="h3">{s.h}</h3>
+          <p>{s.b}</p>
+        </div>
+        <div class="term ship-term">
+          <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>pal</span></div>
+          <pre tabindex="0" aria-label={`${s.label} command`}><code><span class="p">$ </span>{s.cmd}
+{s.out.map((l) => <span class="c">{l}{'\n'}</span>)}</code></pre>
+        </div>
+      </div>
+    ))}
+  </div>
+  <p class="ship-note">Commands are the real <code>pal</code> CLI; output is abridged and illustrative.</p>
+</div>
+
+<script>
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  for (const root of document.querySelectorAll<HTMLElement>('[data-ship]')) {
+    root.classList.add('live');
+    const btns = [...root.querySelectorAll<HTMLButtonElement>('[data-go]')];
+    const panels = [...root.querySelectorAll<HTMLElement>('[data-panel]')];
+    const ids = btns.map((b) => b.dataset.go!);
+    const set = (id: string) => {
+      root.dataset.stage = id;
+      root.style.setProperty('--ship-i', String(ids.indexOf(id)));
+      btns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.go === id)));
+      panels.forEach((p) => p.toggleAttribute('data-on', p.dataset.panel === id));
+    };
+    let timer = 0;
+    const stop = () => { clearInterval(timer); timer = 0; root.classList.add('held'); };
+    btns.forEach((b) => b.addEventListener('click', () => { stop(); set(b.dataset.go!); }));
+    // Arrow keys move between stages, like a toolbar.
+    root.querySelector('.ship-track')!.addEventListener('keydown', (e) => {
+      const k = (e as KeyboardEvent).key;
+      if (k !== 'ArrowRight' && k !== 'ArrowLeft') return;
+      const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+      if (i < 0) return;
+      e.preventDefault();
+      const n = btns[(i + (k === 'ArrowRight' ? 1 : btns.length - 1)) % btns.length];
+      n.focus(); n.click();
+    });
+    if (reduce) continue;
+    // Hover pauses; a click or keyboard focus stops it for good.
+    let vis = false, hover = false;
+    const tick = () => {
+      const run = vis && !hover && !root.classList.contains('held');
+      if (run && !timer) timer = window.setInterval(() => set(ids[(ids.indexOf(root.dataset.stage!) + 1) % ids.length]), 3800);
+      else if (!run && timer) { clearInterval(timer); timer = 0; }
+    };
+    root.addEventListener('pointerenter', () => { hover = true; tick(); });
+    root.addEventListener('pointerleave', () => { hover = false; tick(); });
+    root.addEventListener('focusin', stop, { once: true });
+    new IntersectionObserver((es) => { vis = es.some((e) => e.isIntersecting); tick(); }, { threshold: 0.4 }).observe(root);
+  }
+</script>
