@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { SESSION_COOKIE, fetchSession } from "./lib/server-session.ts";
+import { LEGACY_SESSION_COOKIE, SESSION_COOKIE, fetchSession, sessionToken } from "./lib/server-session.ts";
 import { buildCsp } from "./lib/security-headers.ts";
 
 const PUBLIC_PREFIXES = ["/login", "/onboarding", "/auth", "/kiosk"];
@@ -27,6 +27,7 @@ function redirectToLogin(request: NextRequest): NextResponse {
   loginUrl.searchParams.set("from", pathname);
   const res = NextResponse.redirect(loginUrl);
   res.cookies.delete(SESSION_COOKIE);
+  res.cookies.delete(LEGACY_SESSION_COOKIE);
   return res;
 }
 
@@ -51,7 +52,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
   const isApi = pathname === "/api" || pathname.startsWith("/api/");
 
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  const token = sessionToken(request.cookies);
 
   // Presence is necessary but NOT sufficient — a non-empty cookie used to be
   // enough to authenticate, which let a garbage value (or a client-minted

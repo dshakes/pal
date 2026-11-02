@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { cookieMaxAge, mintsSession, proxyRefusal, upstreamPath } from "./pal-proxy.ts";
+import { MAX_REQUEST_BODY_BYTES, cookieMaxAge, mintsSession, proxyRefusal, upstreamPath } from "./pal-proxy.ts";
 import { buildCsp, CODE_RUNNER_WORKER_CSP } from "./security-headers.ts";
 import * as route from "../app/api/pal/[...path]/route.ts";
 
@@ -153,6 +153,48 @@ test("route: SSE streams through unbuffered", async (t) => {
   const { value } = await reader.read();
   assert.match(new TextDecoder().decode(value), /step_started/);
   await reader.cancel();
+});
+
+test("route: a spoofed X-Forwarded-For from the browser is never forwarded", async (t) => {
+  const calls = stubFetch(t, () => new Response("{}", { headers: { "content-type": "application/json" } }));
+  delete process.env.PAL_DASHBOARD_TRUSTED_PROXIES;
+  await route.POST(req("/api/pal/auth/forgot", {
+    method: "POST", body: "{}",
+    headers: {
+      origin: "http://dash.example", "sec-fetch-site": "same-origin", "content-type": "application/json",
+      "x-pal-peer-ip": "203.0.113.9", "x-forwarded-for": "1.2.3.4", "x-real-ip": "5.6.7.8", forwarded: "for=9.9.9.9",
+    },
+  }), params("auth", "forgot"));
+  const h = new Headers(calls[0].init.headers);
+  assert.equal(h.get("x-forwarded-for"), "203.0.113.9");
+  assert.equal(h.get("x-real-ip"), null);
+  assert.equal(h.get("forwarded"), null);
+  // Behind a configured ingress, the client comes from the ingress's hop.
+  process.env.PAL_DASHBOARD_TRUSTED_PROXIES = "10.0.0.0/8";
+  await route.POST(req("/api/pal/auth/forgot", {
+    method: "POST", body: "{}",
+    headers: { origin: "http://dash.example", "content-type": "application/json", "x-pal-peer-ip": "10.0.0.5", "x-forwarded-for": "6.6.6.6, 198.51.100.7" },
+  }), params("auth", "forgot"));
+  assert.equal(new Headers(calls[1].init.headers).get("x-forwarded-for"), "198.51.100.7");
+  delete process.env.PAL_DASHBOARD_TRUSTED_PROXIES;
+});
+
+test("route: bodies over the cap are refused (413) before anything is forwarded", async (t) => {
+  const calls = stubFetch(t, () => new Response("{}"));
+  const base = { origin: "http://dash.example", "content-type": "application/json" };
+  const declared = await route.POST(req("/api/pal/auth/signup", {
+    method: "POST", body: "{}", headers: { ...base, "content-length": String(MAX_REQUEST_BODY_BYTES + 1) },
+  }), params("auth", "signup"));
+  assert.equal(declared.status, 413);
+  // No (or a lying) Content-Length: the streamed read is cut off at the cap.
+  const big = "x".repeat(MAX_REQUEST_BODY_BYTES + 10);
+  const streamed = await route.POST(new NextRequest("http://dash.example/api/pal/auth/signup", {
+    method: "POST", headers: { host: "dash.example", ...base }, body: new Blob([big]).stream(), duplex: "half",
+  } as RequestInit & { duplex: "half" }), params("auth", "signup"));
+  assert.equal(streamed.status, 413);
+  assert.equal(calls.length, 0);
+  const ok = await route.POST(req("/api/pal/auth/signup", { method: "POST", body: "{\"a\":1}", headers: base }), params("auth", "signup"));
+  assert.notEqual(ok.status, 413);
 });
 
 test("route: /internal is never proxied", async (t) => {

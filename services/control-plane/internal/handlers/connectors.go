@@ -115,7 +115,7 @@ func (h *ConnectorHandler) InstallConnector(w http.ResponseWriter, r *http.Reque
 		"connectorId": body.ConnectorID,
 		"displayName": body.DisplayName,
 		"status":      "connected",
-		"config":      body.Config,
+		"config":      redactConfig(body.Config),
 		"scopes":      body.Scopes,
 		"installedAt": time.Now().UTC(),
 	})
@@ -179,7 +179,8 @@ func (h *ConnectorHandler) ListConnectors(w http.ResponseWriter, r *http.Request
 				"connectorId": connectorID,
 				"displayName": displayName,
 				"status":      status,
-				"config":      configMap,
+				// Tenant-wide credentials: never returned, only whether a field is set.
+				"config":      redactConfig(configMap),
 				"scopes":      scopes,
 				"installedAt": installedAt,
 				"updatedAt":   updatedAt,
@@ -287,8 +288,12 @@ func (h *ConnectorHandler) GetConnector(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Decrypt like ListConnectors (unmarshalling the stored envelope directly
+	// yielded nil when encryption is on, and the plaintext when it is off).
 	var configMap map[string]any
-	json.Unmarshal(config, &configMap) //nolint:errcheck
+	if dec, decErr := secrets.Decrypt(config); decErr == nil {
+		json.Unmarshal(dec, &configMap) //nolint:errcheck
+	}
 
 	entry := map[string]any{
 		"id":          id,
@@ -296,7 +301,7 @@ func (h *ConnectorHandler) GetConnector(w http.ResponseWriter, r *http.Request) 
 		"connectorId": connectorID,
 		"displayName": displayName,
 		"status":      status,
-		"config":      configMap,
+		"config":      redactConfig(configMap),
 		"scopes":      scopes,
 		"installedAt": installedAt,
 		"updatedAt":   updatedAt,

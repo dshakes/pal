@@ -7,7 +7,18 @@
 // A session is the HttpOnly `pal_token` cookie. We hold no JWT secret here, so
 // the control-plane's GET /auth/me is the only authority on it.
 
-export const SESSION_COOKIE = "pal_token";
+// Production uses the `__Host-` prefix: the browser then only accepts the
+// cookie when it is Secure, Path=/ and host-only (no Domain), so a sibling
+// subdomain cannot plant or overwrite a session. Dev keeps `pal_token` (plain
+// http). LEGACY_SESSION_COOKIE is read for one release so existing sessions
+// migrate, and is cleared when seen (sessionToken / the /api/pal proxy).
+export const LEGACY_SESSION_COOKIE = "pal_token";
+export const SESSION_COOKIE = process.env.NODE_ENV === "production" ? "__Host-pal_token" : LEGACY_SESSION_COOKIE;
+
+/** The session token: the current cookie name, else the legacy one. */
+export function sessionToken(cookies: { get(name: string): { value: string } | undefined }): string | undefined {
+  return cookies.get(SESSION_COOKIE)?.value || cookies.get(LEGACY_SESSION_COOKIE)?.value || undefined;
+}
 
 export interface DashboardSession {
   userId: string;

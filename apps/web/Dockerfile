@@ -13,5 +13,7 @@ FROM node:22-alpine
 WORKDIR /app
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# peer-ip.cjs stamps the TCP peer for the /api/pal proxy's client-IP logic.
+COPY --from=builder /app/peer-ip.cjs ./peer-ip.cjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["node", "--require", "./peer-ip.cjs", "server.js"]

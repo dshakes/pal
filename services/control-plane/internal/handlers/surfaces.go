@@ -73,10 +73,18 @@ func (h *SurfaceHandler) ConfigureSurface(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	configJSON, _ := json.Marshal(body.Config)
-
 	var id string
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
+		// A form prefilled from the (redacted) list sends masks back for the
+		// secrets it did not change: keep the stored values for those.
+		var storedJSON []byte
+		if qErr := tx.QueryRow(ctx, `SELECT config FROM surface_configs WHERE tenant_id = $1 AND surface_id = $2`,
+			tenantID, body.SurfaceID).Scan(&storedJSON); qErr != nil && qErr != pgx.ErrNoRows {
+			return qErr
+		}
+		var stored map[string]any
+		_ = json.Unmarshal(storedJSON, &stored)
+		configJSON, _ := json.Marshal(mergeRedacted(body.Config, stored))
 		return tx.QueryRow(ctx, `
 			INSERT INTO surface_configs (tenant_id, surface_id, display_name, status, config, webhook_url, connected_at)
 			VALUES ($1, $2, $3, 'connected', $4::jsonb, $5, now())
@@ -102,7 +110,7 @@ func (h *SurfaceHandler) ConfigureSurface(w http.ResponseWriter, r *http.Request
 		"surfaceId":   body.SurfaceID,
 		"displayName": body.DisplayName,
 		"status":      "connected",
-		"config":      body.Config,
+		"config":      redactConfig(body.Config),
 		"webhookUrl":  body.WebhookURL,
 		"connectedAt": time.Now().UTC(),
 	})
@@ -152,8 +160,9 @@ func (h *SurfaceHandler) ListSurfaces(w http.ResponseWriter, r *http.Request) {
 				"surfaceId":   surfaceID,
 				"displayName": displayName,
 				"status":      status,
-				"config":      configMap,
-				"updatedAt":   updatedAt,
+				// Bot tokens, signing secrets, SMTP passwords: masked for every reader.
+				"config":    redactConfig(configMap),
+				"updatedAt": updatedAt,
 			}
 			if webhookURL != nil {
 				entry["webhookUrl"] = *webhookURL
@@ -200,10 +209,16 @@ func (h *SurfaceHandler) UpdateSurface(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	configJSON, _ := json.Marshal(body.Config)
-
 	var surfaceID, displayName, status string
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
+		var storedJSON []byte
+		if qErr := tx.QueryRow(ctx, `SELECT config FROM surface_configs WHERE id = $1 AND tenant_id = $2`,
+			id, tenantID).Scan(&storedJSON); qErr != nil {
+			return qErr // ErrNoRows → 404 below
+		}
+		var stored map[string]any
+		_ = json.Unmarshal(storedJSON, &stored)
+		configJSON, _ := json.Marshal(mergeRedacted(body.Config, stored))
 		return tx.QueryRow(ctx, `
 			UPDATE surface_configs
 			SET display_name = COALESCE(NULLIF($3, ''), display_name),
@@ -230,7 +245,7 @@ func (h *SurfaceHandler) UpdateSurface(w http.ResponseWriter, r *http.Request) {
 		"surfaceId":   surfaceID,
 		"displayName": displayName,
 		"status":      status,
-		"config":      body.Config,
+		"config":      redactConfig(body.Config),
 		"webhookUrl":  body.WebhookURL,
 		"updatedAt":   time.Now().UTC(),
 	})

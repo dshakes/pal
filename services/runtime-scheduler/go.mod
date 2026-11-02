@@ -6,7 +6,6 @@ toolchain go1.26.10
 
 require (
 	github.com/dshakes/pal/gen/go v0.0.0
-	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/prometheus/client_golang v1.25.0

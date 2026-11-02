@@ -1260,9 +1260,13 @@ func sessionScopes(role string) []Scope {
 }
 
 // isUserSession reports whether claims came from an interactive user JWT
-// (not an API key, not a kiosk visitor).
+// (not an API key, not a kiosk visitor). Decided by provenance, not by the
+// role string: API-key claims carry APIKeyID, internal dispatch claims
+// (webhook triggers) carry no Subject, and every session JWT has one. A JWT
+// that merely CLAIMS role "service" is still a session and, being an unknown
+// role, gets viewer scopes — never the unrestricted service path.
 func isUserSession(c *PalClaims) bool {
-	return c.Role != "service" && c.Role != kioskRole
+	return c.APIKeyID == "" && c.Subject != "" && c.Role != kioskRole
 }
 
 // HasScope returns true when the claims allow the requested scope.
@@ -1278,7 +1282,7 @@ func HasScope(claims *PalClaims, required Scope) bool {
 	case isUserSession(claims):
 		held = sessionScopes(claims.Role)
 	case claims.Role != kioskRole && len(claims.Scopes) == 0:
-		return true
+		return true // API key or internal dispatch with no scope list: unrestricted (legacy)
 	}
 	for _, s := range held {
 		if Scope(s) == required || scopeImplies(Scope(s), required) {

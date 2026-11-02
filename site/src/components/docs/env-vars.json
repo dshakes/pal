@@ -686,6 +686,17 @@
   "source": "services/control-plane/internal/handlers/session_revocation.go:70"
  },
  {
+  "name": "PAL_DASHBOARD_TRUSTED_PROXIES",
+  "services": [
+   "web"
+  ],
+  "group": "Dashboard (Next.js)",
+  "default": "empty",
+  "description": "Comma-separated CIDRs of the ingress in front of the dashboard. Only from these peers does the `/api/pal` proxy read the client from `X-Forwarded-For`; otherwise the TCP peer is the client. Either way it sends the control plane one hop and never the browser's header. Helm sets it from `controlPlane.trustedProxies`.",
+  "prod": false,
+  "source": "apps/web/app/api/pal/[...path]/route.ts"
+ },
+ {
   "name": "PAL_BATCH_MAX_ITEMS",
   "services": [
    "control-plane"

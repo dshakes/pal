@@ -317,6 +317,8 @@ pal whoami                       # show current authenticated user
 pal logout                       # clear stored credentials
 ```
 
+A `pal login` session is a dashboard session JWT: it lasts `PAL_JWT_TTL` (12 hours by default) with no refresh, and it ends early when that user signs out anywhere (`POST /auth/logout` revokes all of the user's sessions) or their password or role changes. `pal logout` only clears the locally stored credentials. **For automation (CI, cron, scripts), use an API key** (`--api-key` / `PAL_API_KEY`, created under **Settings > API keys** with only the scopes the job needs): keys do not expire every 12 hours and are revoked individually.
+
 ## Global flags
 
 ```text

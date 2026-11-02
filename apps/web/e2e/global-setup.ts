@@ -129,6 +129,7 @@ export default async function globalSetup() {
     start("web", "npx", ["next", "dev", "--port", String(WEB_PORT)], WEB_DIR, {
       NEXT_PUBLIC_API_URL: API_URL,
       PAL_API_URL: API_URL,
+      NODE_OPTIONS: "--require ./peer-ip.cjs",
       NEXT_TELEMETRY_DISABLED: "1",
     }, path.join(RUN_DIR, "web.log"));
     await waitFor(`${WEB_URL}/login`, "next dev");

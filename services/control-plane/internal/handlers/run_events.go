@@ -75,7 +75,10 @@ func (h *RESTHandler) GetRunEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
+	// The stream ends when the session token expires or is revoked (logout,
+	// password/role change), not only when the client goes away.
+	ctx, stopStream := h.auth.guardStream(r.Context(), claims)
+	defer stopStream()
 
 	// Ownership check — also fetch current run status so we know when to stop.
 	var runStatus string

@@ -29,18 +29,19 @@ import (
 type RESTHandler struct {
 	Service *SchedulerService
 	Store   cluster.ClusterStore
-	Secret  []byte
-	Logger  *zap.Logger
-	Metrics *metrics.Registry
+	// ServiceToken authenticates REST callers (middleware.ResolveTenantHTTP).
+	ServiceToken string
+	Logger       *zap.Logger
+	Metrics      *metrics.Registry
 }
 
 // NewRESTHandler constructs the gateway.
-func NewRESTHandler(svc *SchedulerService, store cluster.ClusterStore, secret []byte, logger *zap.Logger) *RESTHandler {
+func NewRESTHandler(svc *SchedulerService, store cluster.ClusterStore, serviceToken string, logger *zap.Logger) *RESTHandler {
 	return &RESTHandler{
-		Service: svc,
-		Store:   store,
-		Secret:  secret,
-		Logger:  logger.Named("rest"),
+		Service:      svc,
+		Store:        store,
+		ServiceToken: serviceToken,
+		Logger:       logger.Named("rest"),
 	}
 }
 
@@ -64,11 +65,10 @@ func SchedulableNodeCount(store cluster.ClusterStore) int {
 	return n
 }
 
-// authedContext validates the bearer token and returns a context with
-// the tenant_id injected (so the gRPC handlers can pull it out via the
-// shared middleware helper).
+// authedContext authenticates the in-cluster caller (service token) and
+// returns the tenant it acts for.
 func (h *RESTHandler) authedContext(r *http.Request) (string, error) {
-	return middleware.ResolveTenantHTTP(r, h.Secret)
+	return middleware.ResolveTenantHTTP(r, h.ServiceToken)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/dshakes/pal/services/control-plane/internal/handlers"
 )
 
@@ -61,6 +63,8 @@ var roleSpec = map[string][]string{
 	"DELETE /v1/budgets/tenant":                   ownerAdmin,
 	"PUT /v1/agents/{name}/budget":                ownerAdmin,
 	"PUT /v1/agents/{name}/policy":                ownerAdmin,
+	"POST /v1/connectors/{connectorId}/execute":   ownerAdmin,
+	"GET /v1/connectors/{connectorId}/execute":    ownerAdmin,
 	"POST /v1/connectors/install":                 ownerAdmin, // tenant-wide credentials
 	"DELETE /v1/connectors/{id}":                  ownerAdmin,
 	"PUT /v1/mcp/credentials/{slug}":              ownerAdmin,
@@ -123,7 +127,7 @@ func TestRouteRolesMatchSpec(t *testing.T) {
 		}
 		var got []string
 		for _, role := range everyone {
-			pass := handlers.HasScope(&handlers.PalClaims{Role: role}, r.scope)
+			pass := handlers.HasScope(&handlers.PalClaims{RegisteredClaims: jwt.RegisteredClaims{Subject: "u"}, Role: role}, r.scope)
 			if r.adminOnly {
 				pass = pass && slices.Contains(handlers.AdminRoles, role)
 			}
@@ -142,7 +146,7 @@ func TestOwnerOnlyHandlers(t *testing.T) {
 	want := map[string]string{
 		"../../internal/handlers/gdpr.go":    `if claims.Role != "owner" {`,
 		"../../internal/handlers/billing.go": "func canManageBilling(c *PalClaims) bool {\n\tswitch c.Role {\n\tcase \"owner\":\n\t\treturn true\n\tcase \"service\":",
-		"../../internal/handlers/runtime.go": `if isUserSession(claims) && claims.Role != "owner" {`,
+		"../../internal/handlers/runtime.go": `if claims.Role != "service" && claims.Role != "owner" {`,
 	}
 	for file, needle := range want {
 		b, err := os.ReadFile(file)

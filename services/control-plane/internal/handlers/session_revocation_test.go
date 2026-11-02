@@ -51,6 +51,11 @@ func signClaims(t *testing.T, c PalClaims) string {
 	return s
 }
 
+// sess builds user-session claims (a Subject, no APIKeyID) for a role.
+func sess(role string) *PalClaims {
+	return &PalClaims{RegisteredClaims: jwt.RegisteredClaims{Subject: "u-" + role}, Role: role}
+}
+
 func sessionClaims(role string, lifetime time.Duration) PalClaims {
 	now := time.Now()
 	return PalClaims{
@@ -130,14 +135,14 @@ func TestValidateToken_LifetimeCappedByTTL(t *testing.T) {
 func TestSessionCache_ExpiresAndDrops(t *testing.T) {
 	var c sessionCache
 	now := time.Now()
-	c.put("u", 3, now)
+	c.put("u", 3, now, c.currentEpoch())
 	if tv, ok := c.get("u", now.Add(sessionCacheTTL-time.Second)); !ok || tv != 3 {
 		t.Fatalf("fresh entry: got %d %v", tv, ok)
 	}
 	if _, ok := c.get("u", now.Add(sessionCacheTTL)); ok {
 		t.Fatal("entry served past sessionCacheTTL")
 	}
-	c.put("u", 3, now)
+	c.put("u", 3, now, c.currentEpoch())
 	c.drop("u")
 	if _, ok := c.get("u", now); ok {
 		t.Fatal("dropped entry still served")
@@ -163,7 +168,7 @@ func TestHasScope_Roles(t *testing.T) {
 			for _, w := range want {
 				exp = exp || w == s
 			}
-			if got := HasScope(&PalClaims{Role: role}, s); got != exp {
+			if got := HasScope(sess(role), s); got != exp {
 				t.Errorf("role %s scope %s: got %v, want %v", role, s, got, exp)
 			}
 		}
@@ -235,7 +240,7 @@ func TestRoleScopesMatchDashboardMatrix(t *testing.T) {
 	shared := []Scope{ScopeAgentsRead, ScopeAgentsWrite, ScopeRunsExecute, ScopeBudgetsRead,
 		ScopeBudgetsWrite, ScopeSettingsWrite, ScopeConnectorsWrite, ScopeWrite}
 	for role, caps := range matrix {
-		c := &PalClaims{Role: role}
+		c := sess(role)
 		if role == kioskRole {
 			c.Scopes = kioskScopes
 		}
@@ -260,10 +265,10 @@ func TestRequireSessionRole(t *testing.T) {
 		c    *PalClaims
 		want int
 	}{
-		{&PalClaims{Role: "owner"}, http.StatusTeapot},
-		{&PalClaims{Role: "admin"}, http.StatusTeapot},
-		{&PalClaims{Role: "member"}, http.StatusForbidden},
-		{&PalClaims{Role: "viewer"}, http.StatusForbidden},
+		{sess("owner"), http.StatusTeapot},
+		{sess("admin"), http.StatusTeapot},
+		{sess("member"), http.StatusForbidden},
+		{sess("viewer"), http.StatusForbidden},
 		{&PalClaims{Role: "service", Scopes: []string{ScopeAgentsWrite}}, http.StatusTeapot},
 	} {
 		rr := httptest.NewRecorder()

@@ -258,6 +258,7 @@ func (h *MCPHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 			}
 			a.AttachedAt = attachedAt.UTC().Format(time.RFC3339)
 			_ = json.Unmarshal(configJSON, &a.Config)
+			a.Config = redactConfig(a.Config)
 			out = append(out, a)
 		}
 		return rows.Err()

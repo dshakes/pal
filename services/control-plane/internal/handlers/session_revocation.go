@@ -81,6 +81,16 @@ type sessionEntry struct {
 type sessionCache struct {
 	mu sync.Mutex
 	m  map[string]sessionEntry
+	// epoch increases on every drop. A lookup records it before reading the
+	// database and stores its result only if no drop happened meanwhile, so a
+	// read that raced a logout cannot re-cache the pre-logout version.
+	epoch uint64
+}
+
+func (c *sessionCache) currentEpoch() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.epoch
 }
 
 func (c *sessionCache) get(userID string, now time.Time) (int, bool) {
@@ -93,9 +103,12 @@ func (c *sessionCache) get(userID string, now time.Time) (int, bool) {
 	return e.tv, true
 }
 
-func (c *sessionCache) put(userID string, tv int, now time.Time) {
+func (c *sessionCache) put(userID string, tv int, now time.Time, epoch uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if epoch != c.epoch {
+		return // a drop happened while this value was being read
+	}
 	if c.m == nil {
 		c.m = map[string]sessionEntry{}
 	}
@@ -112,6 +125,7 @@ func (c *sessionCache) put(userID string, tv int, now time.Time) {
 func (c *sessionCache) drop(userIDs ...string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.epoch++
 	for _, id := range userIDs {
 		delete(c.m, id)
 	}
@@ -130,11 +144,12 @@ func (h *AuthHandler) checkSession(ctx context.Context, c *PalClaims) error {
 	// refuse a valid session. An OLDER token is refused straight from the
 	// cache, so replaying a revoked token costs no query.
 	if !ok || c.TokenVersion > tv {
+		epoch := h.sessions.currentEpoch()
 		var err error
 		if tv, err = tokenVersionLookup(ctx, h, c.Subject); err != nil {
 			return err
 		}
-		h.sessions.put(c.Subject, tv, now)
+		h.sessions.put(c.Subject, tv, now, epoch)
 	}
 	if tv != c.TokenVersion {
 		return errSessionRevoked
@@ -177,7 +192,9 @@ func (h *AuthHandler) ForgetSessions(userIDs ...string) { h.sessions.drop(userID
 // DELETE /v1/api-keys/{id}; they cannot log out.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	claims := claimsFromCtx(r.Context())
-	if claims == nil || claims.Subject == "" || claims.Role == "service" {
+	// Any session (kiosk included) may revoke itself; API keys and internal
+	// dispatch claims have no user row to bump.
+	if claims == nil || claims.APIKeyID != "" || claims.Subject == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "logout needs a user session; revoke API keys instead"})
 		return
 	}
@@ -192,4 +209,49 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	h.sessions.drop(claims.Subject)
 	h.logger().Info("sessions revoked by logout", zap.String("user_id", claims.Subject), zap.String("tenant_id", claims.TenantID))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// streamRecheckInterval is how often a long-lived stream (SSE) re-checks the
+// session it was opened with. A var so tests can shorten it.
+var streamRecheckInterval = 60 * time.Second
+
+// guardStream derives a context for a long-lived response (SSE) that is
+// cancelled when the session token expires or is revoked. Auth is otherwise
+// checked once, at connect, so an open stream would outlive a logout. The
+// re-check reads users.token_version directly (not the cache), so a revoked
+// stream closes within streamRecheckInterval on every replica. API-key callers
+// only get the expiry bound (keys have their own revocation). Callers must
+// call the returned cancel (defer) so the watcher goroutine exits.
+func (h *AuthHandler) guardStream(parent context.Context, c *PalClaims) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	var expiry <-chan time.Time
+	if c.ExpiresAt != nil {
+		t := time.NewTimer(time.Until(c.ExpiresAt.Time))
+		expiry = t.C
+		context.AfterFunc(ctx, func() { t.Stop() })
+	}
+	session := c.Subject != "" && c.APIKeyID == ""
+	go func() {
+		tick := time.NewTicker(streamRecheckInterval)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-expiry:
+				cancel()
+				return
+			case <-tick.C:
+				if !session {
+					continue
+				}
+				tv, err := tokenVersionLookup(ctx, h, c.Subject)
+				if err != nil || tv != c.TokenVersion {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx, cancel
 }

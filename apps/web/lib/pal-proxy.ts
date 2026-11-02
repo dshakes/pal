@@ -19,7 +19,7 @@
 
 import { rejectCrossSiteWrite } from "./server-session.ts";
 
-export { SESSION_COOKIE } from "./server-session.ts";
+export { LEGACY_SESSION_COOKIE, SESSION_COOKIE, sessionToken } from "./server-session.ts";
 
 /** Why the proxy must refuse this request, or null when it may forward it. */
 export function proxyRefusal(req: { method: string; headers: Headers }): string | null {
@@ -69,7 +69,39 @@ export function cookieMaxAge(jwt: string, nowSec: number = Math.floor(Date.now()
 
 /** Request headers worth forwarding upstream. Authorization is NEVER taken
  *  from the browser: the proxy sets it from the cookie. */
-export const FORWARD_REQUEST_HEADERS = ["content-type", "accept", "idempotency-key", "last-event-id", "x-forwarded-for", "x-request-id"];
+// X-Forwarded-For / X-Real-IP / Forwarded from the browser are NEVER forwarded:
+// the proxy sends exactly one hop it determined itself (lib/client-ip.ts).
+export const FORWARD_REQUEST_HEADERS = ["content-type", "accept", "idempotency-key", "last-event-id", "x-request-id"];
+
+/** Request bodies above this are refused (413): the proxy is reachable
+ *  before sign-in, and the dashboard never sends more (largest: a 1 MiB file write). */
+export const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024;
+
+/** Read at most `limit` bytes of `body`; null when it is larger. Streams, so an
+ *  oversized (or lying Content-Length) body is cut off without buffering it. */
+export async function readCapped(body: ReadableStream<Uint8Array> | null, limit: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!body) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
+}
 
 /** Response headers never copied back (hop-by-hop, re-encoded by fetch, or cookies). */
 export const DROP_RESPONSE_HEADERS = new Set(["set-cookie", "content-encoding", "content-length", "transfer-encoding", "connection", "keep-alive"]);

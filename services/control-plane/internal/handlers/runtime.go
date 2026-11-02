@@ -2561,7 +2561,9 @@ func (h *RuntimeHandler) UpsertQuota(w http.ResponseWriter, r *http.Request) {
 	if !h.requireRuntimeScope(w, claims, ScopeRuntimeAdmin) {
 		return
 	}
-	if isUserSession(claims) && claims.Role != "owner" {
+	// Same principal model as authorizeRuntimeScope: "service" (API key) is
+	// governed by runtime:admin above; any human session must be the owner.
+	if claims.Role != "service" && claims.Role != "owner" {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required", "code": "role_forbidden"})
 		return
 	}

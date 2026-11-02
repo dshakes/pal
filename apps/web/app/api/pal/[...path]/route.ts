@@ -12,20 +12,30 @@
 //   - POST /auth/logout revokes every session server-side, then clears the
 //     cookie whatever the upstream said.
 //
-// Deploy note: the control plane rate-limits sign-in per client IP. It sees
-// this server as the peer, so the dashboard must be inside PAL_TRUSTED_PROXIES
-// (it forwards X-Forwarded-For); otherwise every sign-in shares one bucket.
+//   - Exactly one X-Forwarded-For hop is sent: the client IP this server
+//     determined (lib/client-ip.ts, from the peer stamped by peer-ip.cjs).
+//     Anything the browser sent as X-Forwarded-For / X-Real-IP / Forwarded is
+//     dropped. The control plane honours it only from PAL_TRUSTED_PROXIES, so
+//     list the dashboard pods there; behind an ingress, list the ingress in
+//     PAL_DASHBOARD_TRUSTED_PROXIES.
+//   - Request bodies are capped at MAX_REQUEST_BODY_BYTES (413); this route is
+//     reachable before sign-in.
 
 import { NextRequest, NextResponse } from "next/server";
 import {
   DROP_RESPONSE_HEADERS,
   FORWARD_REQUEST_HEADERS,
+  LEGACY_SESSION_COOKIE,
+  MAX_REQUEST_BODY_BYTES,
   SESSION_COOKIE,
   cookieMaxAge,
   mintsSession,
   proxyRefusal,
+  readCapped,
+  sessionToken,
   upstreamPath,
 } from "../../../../lib/pal-proxy.ts";
+import { clientIp, parseCidrs } from "../../../../lib/client-ip.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +52,21 @@ const cookieOptions = (maxAge: number) => ({
   maxAge,
 });
 
+const tooLarge = () => NextResponse.json({ error: "request body too large" }, { status: 413 });
+
+/** One-release migration: a session still under the legacy cookie name is
+ *  re-issued under the current one and the legacy cookie cleared. */
+function migrateLegacyCookie(req: NextRequest, res: { headers: Headers }): void {
+  if (SESSION_COOKIE === LEGACY_SESSION_COOKIE) return;
+  const legacy = req.cookies.get(LEGACY_SESSION_COOKIE)?.value;
+  if (!legacy) return;
+  const fresh = NextResponse.next();
+  fresh.cookies.set(LEGACY_SESSION_COOKIE, "", { path: "/", maxAge: 0 });
+  const maxAge = cookieMaxAge(legacy);
+  if (!req.cookies.get(SESSION_COOKIE)?.value && maxAge) fresh.cookies.set(SESSION_COOKIE, legacy, cookieOptions(maxAge));
+  for (const c of fresh.headers.getSetCookie()) res.headers.append("set-cookie", c);
+}
+
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {
   const refusal = proxyRefusal(req);
   if (refusal) return NextResponse.json({ error: "forbidden", reason: refusal }, { status: 403 });
@@ -54,17 +79,26 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
     const v = req.headers.get(h);
     if (v) headers.set(h, v);
   }
-  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  const ip = clientIp(req.headers.get("x-pal-peer-ip"), req.headers.get("x-forwarded-for"), parseCidrs(process.env.PAL_DASHBOARD_TRUSTED_PROXIES));
+  if (ip) headers.set("x-forwarded-for", ip);
+  const token = sessionToken(req.cookies);
   if (token) headers.set("authorization", `Bearer ${token}`);
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  let body: Uint8Array<ArrayBuffer> | undefined;
+  if (hasBody) {
+    const declared = Number(req.headers.get("content-length") ?? "0");
+    if (declared > MAX_REQUEST_BODY_BYTES) return tooLarge();
+    const read = await readCapped(req.body, MAX_REQUEST_BODY_BYTES);
+    if (read === null) return tooLarge();
+    body = read;
+  }
   let upstream: Response;
   try {
     upstream = await fetch(`${apiBase()}${path}${req.nextUrl.search}`, {
       method: req.method,
       headers,
-      // Request bodies are small JSON/file payloads; buffering them is fine.
-      body: hasBody ? await req.arrayBuffer() : undefined,
+      body,
       cache: "no-store",
       redirect: "manual",
       signal: req.signal,
@@ -82,6 +116,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   if (path === "/auth/logout" && req.method === "POST") {
     const res = new NextResponse(upstream.status === 204 ? null : await upstream.text(), { status: upstream.status, headers: outHeaders });
     res.cookies.set(SESSION_COOKIE, "", cookieOptions(0));
+    if (SESSION_COOKIE !== LEGACY_SESSION_COOKIE) res.cookies.set(LEGACY_SESSION_COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   }
 
@@ -96,6 +131,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   }
 
   // Stream through untouched (SSE, file contents, JSON).
+  migrateLegacyCookie(req, { headers: outHeaders });
   return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
 }
 

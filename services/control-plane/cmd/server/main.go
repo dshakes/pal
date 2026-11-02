@@ -539,7 +539,10 @@ func main() {
 	// Both GET (?action= style) and POST can invoke write-capable connector
 	// actions (send message, create event, etc.) so both require connectors:write.
 	httpMux.HandleFunc("GET /v1/connectors/{connectorId}/execute", authHandler.WithScopeOrAgent(handlers.ScopeConnectorsWrite, connectorExecutor.Execute))
-	httpMux.HandleFunc("POST /v1/connectors/{connectorId}/execute", authHandler.WithScopeOrAgent(handlers.ScopeRunsExecute, connectorExecutor.Execute))
+	// Executing a connector action spends tenant-wide credentials: connectors:write
+	// for users and keys on BOTH methods (it was runs:execute on POST, which let a
+	// public widget key fire Slack/SMS actions). Agents are governed by their policy.
+	httpMux.HandleFunc("POST /v1/connectors/{connectorId}/execute", authHandler.WithScopeOrAgent(handlers.ScopeConnectorsWrite, connectorExecutor.Execute))
 	// Twilio webhooks — owner's private agent channel. NO auth
 	// middleware (Twilio HMAC verification is done inside the handler).
 	httpMux.HandleFunc("POST /v1/sms/twilio/webhook", smsHandler.SMSWebhook)

@@ -194,7 +194,14 @@ Origin) are pure in `lib/pal-proxy.ts`; only `/v1/*` and `/auth/*` are proxied. 
 carry a nonce'd CSP from `middleware.ts` (`lib/security-headers.ts`); new inline
 `<script>` needs `nonce={nonce}`. The snippet runner's worker
 (`public/code-runner-worker.js`) has its own no-network CSP. The dashboard must be in
-`PAL_TRUSTED_PROXIES` (it forwards `X-Forwarded-For` for the sign-in rate limit).
+`PAL_TRUSTED_PROXIES`. The proxy drops the browser's `X-Forwarded-For`/`X-Real-IP`/`Forwarded`
+and sends one hop it computed (`lib/client-ip.ts`) from the TCP peer stamped by the
+`peer-ip.cjs` preload (`node --require ./peer-ip.cjs …` — Dockerfile, `npm run dev/start`,
+the launchd wrapper and e2e all load it); behind an ingress, list it in
+`PAL_DASHBOARD_TRUSTED_PROXIES` (Helm sets it from `controlPlane.trustedProxies`). Bodies
+over 2 MiB → 413. Prod cookie name is `__Host-pal_token` (legacy `pal_token` read once,
+migrated and cleared; `sessionToken()` in `lib/server-session.ts`). OAuth start is a
+top-level navigation to the API host (`lib/oauth-url.ts`), never the proxy.
 
 ### Dashboard UX primitives
 
@@ -692,7 +699,13 @@ pins the S-5 route list. Sessions carry `tv` = `users.token_version` (migration 
 replica that handled the bump refuses at once; a newer token always forces a re-read).
 Bumped by `POST /auth/logout` and by a trigger on any `password_hash`/`role` change.
 `PAL_JWT_TTL` (default 12h, 5m..24h, fatal if invalid); tokens longer-lived than it are
-refused. No refresh token. Package tests stub the lookup in `TestMain`
+refused. No refresh token. SSE handlers wrap their ctx in `auth.guardStream(ctx, claims)`
+(closes at `exp`, re-checks `token_version` every 60 s) — a new long-lived stream must too.
+Session-vs-key is decided by provenance (`isUserSession`: Subject set, no `APIKeyID`), never
+by the role string. Connector/surface/MCP-attachment config goes out through
+`redactConfig` (allowlist of identifier keys; everything else `********`) and writes
+merge masks back with `mergeRedacted` — return any new secret-bearing config the same way.
+Connector execute (GET and POST) needs `connectors:write`. Package tests stub the lookup in `TestMain`
 (`stubTokenVersion`); revocation tests call `useRealSessionLookup(t)`.
 
 Unannotated routes are intentional exemptions documented in `TestEveryGetRouteHasScope`
@@ -1700,7 +1713,9 @@ agents in `examples/headless-agents/{01-hello,02-web-scraper,03-stateful-researc
   check (cross-tenant run-control / microVM-compute takeover). Both run the
   service-auth interceptor before tenant extraction, fail-closed in prod, and the
   control-plane caller (`internal/handlers/runtime.go`) attaches the token as
-  `PerRPCCredentials`. Set `PAL_GRPC_SERVICE_TOKEN` to the **same value** on
+  `PerRPCCredentials`. The scheduler's REST port (`:8085`) follows the same rule: the
+  tenant routes take `x-pal-service-token` + `X-Pal-Tenant-Id` and no longer accept JWTs
+  (they could not check session revocation); with no token set they are refused. Set `PAL_GRPC_SERVICE_TOKEN` to the **same value** on
   control-plane, gateway, workflow-engine, runtime-scheduler, **model-router
   (`:50053`, which carries tenant provider keys; fail-closed in prod)**, and
   **runtime-manager (`:50054`)**. The manager adds per-call authz (ADR 0025): a
