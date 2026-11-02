@@ -46,4 +46,4 @@ rustls-pki-types = "1"
 
 [dev-dependencies]
 # rcgen generates self-signed certs at test-time (never in production code)
-rcgen = "0.13"
+rcgen = "0.14"
