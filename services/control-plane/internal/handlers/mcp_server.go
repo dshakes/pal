@@ -126,7 +126,7 @@ func (h *MCPHandler) mcpCaller(r *http.Request) (*PalClaims, string, string) {
 		return nil, "", ""
 	}
 	scheme, tok, ok := strings.Cut(authz, " ")
-	if !ok || !strings.EqualFold(scheme, "bearer") || !strings.HasPrefix(strings.TrimSpace(tok), "hlx_live_") {
+	if !ok || !strings.EqualFold(scheme, "bearer") || !isAPIKey(strings.TrimSpace(tok)) {
 		return nil, "invalid_token", "only PAL API keys with the mcp scope are accepted"
 	}
 	c, err := h.auth.validateAPIKey(r.Context(), strings.TrimSpace(tok))

@@ -167,10 +167,6 @@ func (h *MCPHandler) AttachToAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	configJSON, _ := json.Marshal(body.Config)
-	if body.Config == nil {
-		configJSON = []byte("{}")
-	}
 	var serverID string
 	// rls-exempt: mcp_servers is a global curated catalog (no tenant_id).
 	catalogErr := h.srv.Pool.QueryRow(ctx,
@@ -180,6 +176,22 @@ func (h *MCPHandler) AttachToAgent(w http.ResponseWriter, r *http.Request) {
 	// (catalog slugs are reserved, see CreateTenantServer).
 	found := catalogErr == nil
 	err = h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
+		// Keep stored values for fields sent back masked (config_redact.go).
+		var storedJSON []byte
+		if qErr := tx.QueryRow(ctx, `
+			SELECT a.config FROM agent_mcp_attachments a
+			LEFT JOIN mcp_tenant_servers t ON t.id = a.tenant_server_id
+			WHERE a.tenant_id = $1 AND a.agent_name = $2
+			  AND (a.mcp_server_id::text = $3 OR (a.tenant_server_id IS NOT NULL AND t.slug = $4))`,
+			tenantID, agentName, serverID, body.ServerSlug).Scan(&storedJSON); qErr != nil && !errors.Is(qErr, pgx.ErrNoRows) {
+			return qErr
+		}
+		var stored map[string]any
+		_ = json.Unmarshal(storedJSON, &stored)
+		configJSON, _ := json.Marshal(mergeRedacted(body.Config, stored))
+		if body.Config == nil {
+			configJSON = []byte("{}")
+		}
 		if found {
 			_, e := tx.Exec(ctx, `
 				INSERT INTO agent_mcp_attachments (tenant_id, agent_name, mcp_server_id, config)
@@ -258,6 +270,7 @@ func (h *MCPHandler) ListAttachments(w http.ResponseWriter, r *http.Request) {
 			}
 			a.AttachedAt = attachedAt.UTC().Format(time.RFC3339)
 			_ = json.Unmarshal(configJSON, &a.Config)
+			a.Config = redactConfig(a.Config)
 			out = append(out, a)
 		}
 		return rows.Err()

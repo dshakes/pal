@@ -182,8 +182,31 @@ Keyboard: `⌘K` Ask PAL · `g t` Today · `g h` Holds · `g o` Overview · `g a
 `g r` Runs · `g v` Sandboxes · `g s` Settings · `?` cheat sheet.
 
 Sign-in (`app/login`) shows only what `GET /auth/providers` says is configured
-(OAuth buttons, sign-up open/invite/closed). The cookie write is awaited before
-any gated navigation (login, sign-up, OAuth callback, logout) — see the auth-loop fix.
+(OAuth buttons, sign-up open/invite/closed).
+
+**Session = HttpOnly cookie only (S-3).** The JWT never reaches page JS (no
+`localStorage`). The browser calls `/api/pal/*` (`app/api/pal/[...path]/route.ts`),
+which adds `Authorization: Bearer` from the `pal_token` cookie server-side, streams
+responses (SSE) unbuffered, and on login/sign-up/OAuth exchange/kiosk moves the
+returned `token` into the cookie (so the cookie exists when the call resolves — the
+old cookie-sync/auth-loop machinery is gone). CSRF rules (Sec-Fetch-Site/-Dest +
+Origin) are pure in `lib/pal-proxy.ts`; only `/v1/*` and `/auth/*` are proxied. Pages
+carry a nonce'd CSP from `middleware.ts` (`lib/security-headers.ts`); new inline
+`<script>` needs `nonce={nonce}`. The snippet runner's worker
+(`public/code-runner-worker.js`) has its own no-network CSP. The dashboard must be in
+`PAL_TRUSTED_PROXIES`. The proxy drops the browser's `X-Forwarded-For`/`X-Real-IP`/`Forwarded`
+and sends one hop it computed (`lib/client-ip.ts`) from the TCP peer stamped by the
+`peer-ip.cjs` preload (`node --require ./peer-ip.cjs …` — Dockerfile, `npm run dev/start`,
+the launchd wrapper and e2e all load it). The stamp is trusted only when the preload ran
+in that process (`globalThis.__palPeerIpPreload`; else no hop is forwarded — fail
+closed), and in production it is always overwritten, even from loopback; behind an ingress, list it in
+`PAL_DASHBOARD_TRUSTED_PROXIES` (Helm sets it from `controlPlane.trustedProxies`). Bodies
+over 2 MiB → 413. Prod cookie name is `__Host-pal_token` (legacy `pal_token` read once,
+migrated and cleared; `sessionToken()` in `lib/server-session.ts`; remove that fallback
+after `LEGACY_COOKIE_REMOVE_AFTER` = 2027-02-01). OAuth start is a top-level navigation
+built by `lib/oauth-url.ts` on the API's public host — the login page calls it directly;
+never build it from the `api` client (its browser base is `/api/pal`). The kiosk compose
+overlay pins the dashboard to 172.30.77.10 and trusts exactly that address.
 
 ### Dashboard UX primitives
 
@@ -294,6 +317,7 @@ The control-plane exposes REST on `:8080`. All authenticated endpoints require a
 | `POST` | `/auth/signup`           | Register new user (gated by `PAL_SIGNUP_MODE`) |
 | `POST` | `/auth/login`            | Email+password login |
 | `GET`  | `/auth/me`               | Current user info    |
+| `POST` | `/auth/logout`           | Revoke ALL of the caller's sessions (bumps `users.token_version`); `204` |
 | `GET`  | `/auth/oauth/google/...` | Google OAuth flow    |
 | `GET`  | `/auth/providers`        | Public: which sign-in methods are configured `{oauth:{google,github}, signup, passwordReset, emailVerification}` (booleans/enum only) |
 | `POST` | `/auth/verify`, `/auth/verify/resend` | Email verification (token / re-send) |
@@ -318,6 +342,23 @@ same mode (closed → refused; invite → code carried in the server-side OAuth
 state via `/start?invite=`; open/invite → per-IP limit; no captcha). Prod
 open/invite refuses to boot without a reachable Redis (`CheckSignupLimiter`). Full reference:
 `site/src/content/docs/docs/` (accounts page).
+
+**OAuth sign-in hardening.** Only a provider-VERIFIED email identifies a user (Google
+`verified_email`/OIDC `email_verified`; GitHub: always `/user/emails`, primary AND verified —
+the profile email is never trusted); otherwise the callback refuses. Accounts are matched by
+email case-insensitively (oldest first, index `users_email_lower_idx`, migration 0046); an
+UNVERIFIED password account is skipped (anti-squatting: the real owner gets their own account);
+a provider sign-in may enter an existing account only if its `email_verified_at` is set; no link
+table — linking = signing in as that user. Failures redirect to `/login?error=<code>`
+(`oauthErr*` constants: `email_unverified`, `link_refused`, `signup_closed`, `state_invalid`, …);
+the login page maps known codes via `oauthErrorMessage` and never renders query text. `GET /auth/oauth/{provider}/start`
+sets an HttpOnly Lax cookie `pal_oauth_state` (path `/auth/oauth/`, 10 min, Secure in prod) with a
+hash of the state; the callback refuses a state the cookie doesn't match (login CSRF) and redeems
+it with Redis `GETDEL` (no replay / double callback). The dashboard NAVIGATES to
+`…/start?redirect=1` (302 to the provider; errors 302 to `/login?error=`); start and
+`OAUTH_REDIRECT_BASE` must share a host. First sign-ins are serialized by a Postgres advisory xact
+lock on `lower(email)` + re-check, so concurrent callbacks make one tenant. `internal/handlers/auth.go`
+(`resolveOAuthUser`, `oauthLinkRefusal`); tests `oauth_signup_test.go`.
 
 **Free tier + starter gallery (W2-S).** New tenants (password `Signup` and first Google login) get a hard-fail tenant-wide cap (`agent_budgets` row `agent_name='*'`) and a `runtime_quotas` row in the sign-up transaction (`handlers/tenant_defaults.go`; `DO NOTHING` on conflict, so owner edits survive; the seeded dev tenant is untouched). Env: `PAL_FREE_TIER_COST_USD_PER_DAY` (default 2.00), `PAL_FREE_TIER_MAX_VMS` (2), `PAL_FREE_TIER_RUNTIME_COST_USD_PER_DAY` (1.00); `off`/`0` skips that cap. `POST /v1/runs` returns `403 {code:"email_unverified"}` for an unverified local user when `requireEmailVerification()` (prod); OAuth users are stored verified. `GET /v1/agents/templates` marks six `gallery` templates (support-desk, pr-triage, incident-responder, daily-digest, data-analyst, telegram-assistant; models `fast`/`balanced`; only gallery templates expose `systemPrompt`) which the onboarding goal step offers as cards. OTel counter `pal.onboarding.step.total{pal.onboarding_step,pal.onboarding_event}` fires on `PUT /v1/onboarding` step transitions.
 
@@ -638,11 +679,15 @@ error and the transport ignores overrides regardless.
 | ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST` | `/internal/auth/introspect-key` | Validate a raw API key for the gateway. Body `{"key":"..."}`, header `x-pal-service-token` (= `PAL_GRPC_SERVICE_TOKEN`). 200 `{tenantId, scopes}` or 401; 403 fail-closed in prod when the token env is unset. |
 
-The gateway's `X-API-Key` hot path calls this endpoint (60s in-memory cache
-keyed by SHA-256 of the key; fail-closed on any error). Gateway env:
-`PAL_CONTROL_PLANE_URL` (introspection base URL) +
-`PAL_GRPC_SERVICE_TOKEN` (same shared token as the gRPC trust boundary).
-Unset → API-key auth stays fail-closed-disabled; JWT auth is unaffected.
+The gateway accepts **API keys only** (`X-API-Key` or `Authorization: Bearer <key>`),
+each checked through this endpoint (60s in-memory cache keyed by SHA-256 of the key;
+fail-closed on any error). It no longer decodes JWTs: its local HS256 path used a
+claim shape (`user_id`, `scopes`) the control plane never mints, so it accepted only
+tokens forged with `JWT_SECRET` and could not honour session revocation (`tv`) or
+`PAL_JWT_TTL`. Dashboard sessions reach the control plane via the `/api/pal` proxy.
+Gateway env: `PAL_CONTROL_PLANE_URL` (introspection base URL) +
+`PAL_GRPC_SERVICE_TOKEN` (same shared token as the gRPC trust boundary); the gateway
+no longer reads `JWT_SECRET`. Unset → every gateway request is refused (fail-closed).
 
 #### Per-endpoint scope authorization (`PAL_AUTHZ_ENFORCE`, default ON in prod — ADR 0042)
 
@@ -660,8 +705,32 @@ a new auth surface.
 **Secure default in production (ADR 0042).** `PAL_AUTHZ_ENFORCE` is ON by default
 when `PAL_ENV=prod/production/staging`; dev defaults remain OFF. Explicit `=0` disables
 enforcement with a loud startup WARN (alert on `enforced=false` field). A key missing the
-required scope returns `403`. JWT owner/admin sessions keep full access. The control-plane
-logs `authz: API-key scope enforcement {enforced}` at boot.
+required scope returns `403`. The control-plane logs `authz: API-key scope enforcement
+{enforced}` at boot.
+
+**Sessions are role-scoped and revocable (S-2/S-4).** A user JWT holds its role's
+scopes (`roleScopes` in `auth.go`: owner/admin → `admin`; member → `read`,
+`agents:write`, `runs:execute`; viewer/unknown → `read`), ALWAYS enforced (not gated by
+`PAL_AUTHZ_ENFORCE`) → `403 role_forbidden`. Owner-only stays explicit in handlers (GDPR
+erase/export, billing checkout/portal, runtime quota PUT); `RequireSessionRole(AdminRoles, …)`
+narrows agents:write routes that are owner|admin for sessions (agent policy PUT, identity
+rotate/revoke) without touching API keys. `apps/web/lib/rbac.ts` MATRIX is the single
+source — `TestRoleScopesMatchDashboardMatrix` parses it; `cmd/server/routes_role_test.go`
+pins the S-5 route list. Sessions carry `tv` = `users.token_version` (migration 0047);
+`validateRequest` refuses a stale `tv` or a missing user (60 s per-replica cache; the
+replica that handled the bump refuses at once; a newer token always forces a re-read).
+Bumped by `POST /auth/logout` and by a trigger on any `password_hash`/`role` change.
+`PAL_JWT_TTL` (default 12h, 5m..24h, fatal if invalid); tokens longer-lived than it are
+refused. No refresh token. SSE handlers wrap their ctx in `auth.guardStream(ctx, claims)`
+(closes at `exp`, re-checks `token_version` every 60 s) — a new long-lived stream must too.
+Session-vs-key is decided by provenance (`isUserSession`: Subject set, no `APIKeyID`), never
+by the role string. Connector/surface/MCP-attachment config goes out through
+`redactConfig` (allowlist of identifier keys; everything else `********`; url-ish public
+keys such as `baseUrl`/`host` are masked too when they carry userinfo) and every write that
+accepts config back (surface configure/update, connector install, MCP attach) merges masks
+with `mergeRedacted` — return and accept any new secret-bearing config the same way.
+Connector execute (GET and POST) needs `connectors:write`. Package tests stub the lookup in `TestMain`
+(`stubTokenVersion`); revocation tests call `useRealSessionLookup(t)`.
 
 Unannotated routes are intentional exemptions documented in `TestEveryGetRouteHasScope`
 and `TestEveryMutatingRouteHasScope` (both in `cmd/server/routes_scope_test.go`): auth
@@ -1668,7 +1737,9 @@ agents in `examples/headless-agents/{01-hello,02-web-scraper,03-stateful-researc
   check (cross-tenant run-control / microVM-compute takeover). Both run the
   service-auth interceptor before tenant extraction, fail-closed in prod, and the
   control-plane caller (`internal/handlers/runtime.go`) attaches the token as
-  `PerRPCCredentials`. Set `PAL_GRPC_SERVICE_TOKEN` to the **same value** on
+  `PerRPCCredentials`. The scheduler's REST port (`:8085`) follows the same rule: the
+  tenant routes take `x-pal-service-token` + `X-Pal-Tenant-Id` and no longer accept JWTs
+  (they could not check session revocation); with no token set they are refused. Set `PAL_GRPC_SERVICE_TOKEN` to the **same value** on
   control-plane, gateway, workflow-engine, runtime-scheduler, **model-router
   (`:50053`, which carries tenant provider keys; fail-closed in prod)**, and
   **runtime-manager (`:50054`)**. The manager adds per-call authz (ADR 0025): a
@@ -2364,6 +2435,22 @@ is per-binary in macOS TCC — easiest path is to run it via Terminal
 `/Users/shakes/.nvm/.../node` for true always-on. See
 `docs/personal/BOT-SETUP.md`.
 
+**Dashboard bind + bridge proxy.** The dashboard wrapper
+(`scripts/launchd/run-dashboard-wrapper.sh`) binds `PAL_DASHBOARD_HOST`
+(default `127.0.0.1`; also sourced from `~/.pal/bridge.env`) — Tailscale Serve
+fronts loopback, so never set `0.0.0.0` without a reason. The bridge proxy
+`/api/bridge/<whatsapp|imessage>/…` adds the bridge bearer itself, so it requires
+a valid `pal_token` session (`lib/server-session.ts`, `/auth/me`, 30s cache) whose
+tenant is the bridge owner tenant (`PAL_BRIDGE_OWNER_TENANT`, default the dev tenant)
+and whose role is owner/admin — the bridges are single-owner appliances, so a
+session for any other tenant would still read the owner's chat.db/Mail — the
+path `health` or `session/<the session's tenant>/…`, and for writes
+`Sec-Fetch-Site: same-origin` (or a matching Origin) + `Content-Type:
+application/json`; the `/api/pal` control-plane proxy reuses that guard for writes
+(plus Sec-Fetch-Site/-Dest checks on reads). Only `/api/signals` and `/api/pal/*`
+(the control plane authenticates it from the forwarded cookie) are public in
+`middleware.ts`; `/api/auth/session` was removed (the proxy sets the cookie).
+
 ### Web-search grounding (built-in `web_search` tool)
 
 The session tool loop has an always-on built-in `web_search` tool
@@ -2425,6 +2512,31 @@ needs a one-time re-pair; `POST /session/:tenant/reset` wipes creds and
 | `POST` | `/session/:tenantId/reset` (WA bridge)     | Wipe creds (destructive — forces fresh QR pair)                                            |
 
 ---
+
+## Notifier (`services/notifier`)
+
+Not deployed by the Helm chart or compose yet, and `NotifierService` is not registered on its
+gRPC server (only health + reflection), so nothing can reach `Notify` today. The gRPC port is
+still a trust boundary: it runs the shared service-token interceptor before tenant extraction
+(`PAL_GRPC_SERVICE_TOKEN`, fatal in prod when unset; dev warns). Webhook, Slack and Discord
+deliveries POST to a tenant-supplied URL through an SSRF dial guard (`internal/delivery/netguard.go`,
+a copy of the control-plane `internal/mcp/netguard.go` policy — change both together): loopback,
+private, CGNAT, NAT64, link-local/metadata, 6to4/Teredo-embedded and the always-refused ranges are
+refused at dial time (also local-use NAT64 `64:ff9b:1::/48`, in both copies), proxies ignored,
+redirects not followed, https required in prod; Slack only to `hooks.slack.com` and Discord only to
+`discord.com`/`discordapp.com` `/api/webhooks/…`, https always (`checkProviderURL`);
+`PAL_NOTIFIER_ALLOW_PRIVATE=1` lifts private/loopback/fake-IP in dev only. Webhooks are signed
+`X-Pal-Signature: t=<unix>,v1=<hex HMAC-SHA256(key, "<t>.<body>")>` with the per-tenant key
+`HKDF-SHA256(PAL_NOTIFIER_SIGNING_KEY, info "pal-notifier-webhook-v1|<tenant_id>", 32 bytes)`
+(`delivery.WebhookSigningKey`); the root is fatal in prod when unset or < 32 bytes. A receiver
+recomputes the HMAC over `<t>.<raw body>`, compares in constant time and rejects a stale `t`
+(±5 min, as for inbound generic hooks). There is no tenant-facing API to read the derived key yet:
+the operator hands it out. (The old signature was keyed by the tenant id — forgeable.)
+
+**Tenant GUC: always a bound parameter.** `app.tenant_id` is set with
+`SELECT set_config('app.tenant_id', $1, true)`, never `fmt.Sprintf("SET LOCAL … '%s'")` — the
+latter was a stacked-statement SQL injection from gRPC metadata in notifier, billing and memory
+(fixed). Those services' tenant interceptors also refuse a non-UUID `tenant_id` (InvalidArgument).
 
 ## Proto workflow
 

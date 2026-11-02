@@ -336,11 +336,12 @@ func billingDisabled(w http.ResponseWriter) {
 	})
 }
 
-// canManageBilling: owner/admin sessions, or a service key holding
-// settings:write. Members and viewers cannot change the subscription.
+// canManageBilling: owner sessions (S-5: billing is owner-only), or a service
+// key holding settings:write. Admins, members and viewers cannot change the
+// subscription.
 func canManageBilling(c *PalClaims) bool {
 	switch c.Role {
-	case "owner", "admin":
+	case "owner":
 		return true
 	case "service":
 		return HasScope(c, ScopeSettingsWrite)
@@ -355,7 +356,7 @@ func (h *BillingHandler) authorizeManage(w http.ResponseWriter, r *http.Request)
 		return nil, false
 	}
 	if !canManageBilling(claims) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only a workspace owner or admin can manage billing"})
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "only the workspace owner can manage billing"})
 		return nil, false
 	}
 	return claims, true

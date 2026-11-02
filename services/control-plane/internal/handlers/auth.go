@@ -4,14 +4,17 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,6 +36,8 @@ type AuthHandler struct {
 	rl spawnRedisClient
 	// mailer delivers verification + reset links (ADR 0027).
 	mailer mailer.Mailer
+	// sessions caches users.token_version for revocation (session_revocation.go).
+	sessions sessionCache
 }
 
 // NewAuthHandler creates an AuthHandler using the given server and JWT secret.
@@ -116,6 +121,9 @@ type PalClaims struct {
 	// agent, dataplane-session). A user session never carries it, so
 	// ValidateToken rejects any token that does (ADR 0055 §7).
 	Typ string `json:"typ,omitempty"`
+	// TokenVersion is users.token_version at mint time; a session whose tv no
+	// longer matches the row is revoked (session_revocation.go).
+	TokenVersion int `json:"tv"`
 }
 
 // ---------- handlers ----------
@@ -251,6 +259,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
+	if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
+		h.logger().Error("mark bootstrapped failed", zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
 
 	if err := applyFreeTierDefaults(ctx, tx, tenantID); err != nil {
 		h.logger().Error("apply free tier failed", zap.Error(err))
@@ -280,7 +293,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT.
-	token, err := h.generateToken(userID, tenantID, req.Email, req.Name, "owner")
+	token, err := h.generateToken(ctx, userID, tenantID, req.Email, req.Name, "owner")
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -408,7 +421,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		name = *displayName
 	}
 
-	token, err := h.generateToken(userID, tenantID, req.Email, name, role)
+	token, err := h.generateToken(ctx, userID, tenantID, req.Email, name, role)
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
@@ -465,6 +478,7 @@ type oauthLoginProvider struct {
 	AuthURL      string
 	TokenURL     string
 	UserInfoURL  string
+	EmailsURL    string // GitHub only: the verified-address list (/user/emails)
 	Scopes       string
 	ClientIDEnv  string
 	ClientSecEnv string
@@ -483,6 +497,7 @@ var oauthLoginProviders = map[string]oauthLoginProvider{
 		AuthURL:      "https://github.com/login/oauth/authorize",
 		TokenURL:     "https://github.com/login/oauth/access_token",
 		UserInfoURL:  "https://api.github.com/user",
+		EmailsURL:    "https://api.github.com/user/emails",
 		Scopes:       "user:email",
 		ClientIDEnv:  "GITHUB_CLIENT_ID",
 		ClientSecEnv: "GITHUB_CLIENT_SECRET",
@@ -520,17 +535,62 @@ func pkceChallenge() (verifier, challenge string, err error) {
 	return verifier, challenge, nil
 }
 
+// oauthStateCookie binds an OAuth login to the browser that started it: it
+// holds a digest of the state, and the callback refuses a state the browser
+// cannot vouch for (login CSRF: an attacker's own code+state delivered to a
+// victim's browser would otherwise sign the victim into the attacker's
+// account). Path-scoped to /auth/oauth/ and short-lived like the state.
+const (
+	oauthStateCookie = "pal_oauth_state"
+	oauthStateTTL    = 10 * time.Minute
+)
+
+func oauthStateDigest(state string) string {
+	sum := sha256.Sum256([]byte("pal-oauth-state:" + state))
+	return hex.EncodeToString(sum[:])
+}
+
+func setOAuthStateCookie(w http.ResponseWriter, value string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    value,
+		Path:     "/auth/oauth/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   isProd(),
+		SameSite: http.SameSiteLaxMode, // Lax: sent on the provider's top-level redirect back
+	})
+}
+
 // OAuthStart initiates an OAuth login flow.
-// GET /auth/oauth/{provider}/start
+// GET /auth/oauth/{provider}/start[?invite=][&redirect=1]
 //
 // M3: PKCE (S256) is generated here and the verifier stored in Redis with the
 // state. The code_challenge is sent to the authorization endpoint.
+//
+// The browser-binding cookie (oauthStateCookie) is set on this response, so
+// the browser must load it as a top-level navigation on the same host as the
+// callback (OAUTH_REDIRECT_BASE): with redirect=1 it answers 302 to the
+// provider (errors 302 back to the dashboard login), which is what the
+// dashboard uses. Without it, it answers {"redirect_url"} as before.
 func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	providerName := r.PathValue("provider")
+	navigate := r.URL.Query().Get("redirect") == "1"
+	fail := func(status int, msg string) {
+		if navigate {
+			code := oauthErrFailed
+			if status == http.StatusInternalServerError {
+				code = oauthErrInternal
+			}
+			oauthLoginError(w, r, code, providerName)
+			return
+		}
+		writeJSON(w, status, map[string]string{"error": msg})
+	}
 
 	provider, ok := oauthLoginProviders[providerName]
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported OAuth provider: " + providerName})
+		fail(http.StatusBadRequest, "unsupported OAuth provider: "+providerName)
 		return
 	}
 
@@ -538,9 +598,7 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	clientSecret := os.Getenv(provider.ClientSecEnv)
 	if clientID == "" || clientSecret == "" {
 		displayName := strings.Title(providerName) //nolint:staticcheck
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("%s OAuth is not configured. Set %s and %s environment variables.", displayName, provider.ClientIDEnv, provider.ClientSecEnv),
-		})
+		fail(http.StatusBadRequest, fmt.Sprintf("%s OAuth is not configured. Set %s and %s environment variables.", displayName, provider.ClientIDEnv, provider.ClientSecEnv))
 		return
 	}
 
@@ -548,7 +606,7 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	stateBytes := make([]byte, 24)
 	if _, err := rand.Read(stateBytes); err != nil {
 		h.logger().Error("failed to generate state token", zap.Error(err))
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		fail(http.StatusInternalServerError, "internal error")
 		return
 	}
 	stateToken := hex.EncodeToString(stateBytes)
@@ -557,7 +615,7 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	pkceVerifier, pkceChallengVal, err := pkceChallenge()
 	if err != nil {
 		h.logger().Error("failed to generate PKCE challenge", zap.Error(err))
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		fail(http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -573,11 +631,12 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 		"pkce_verifier": pkceVerifier,
 		"invite":        invite,
 	})
-	if err := h.srv.Redis.Set(r.Context(), "oauth_login_state:"+stateToken, string(stateData), 10*time.Minute).Err(); err != nil {
+	if err := h.srv.Redis.Set(r.Context(), "oauth_login_state:"+stateToken, string(stateData), oauthStateTTL).Err(); err != nil {
 		h.logger().Error("failed to store OAuth state in Redis", zap.Error(err))
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		fail(http.StatusInternalServerError, "internal error")
 		return
 	}
+	setOAuthStateCookie(w, oauthStateDigest(stateToken), int(oauthStateTTL/time.Second))
 
 	redirectURI := oauthRedirectBase() + "/auth/oauth/" + providerName + "/callback"
 
@@ -597,6 +656,10 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authURL := provider.AuthURL + "?" + params.Encode()
+	if navigate {
+		http.Redirect(w, r, authURL, http.StatusFound)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"redirect_url": authURL})
 }
 
@@ -605,32 +668,38 @@ func (h *AuthHandler) OAuthStart(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	providerName := r.PathValue("provider")
-	dashboardURL := oauthDashboardURL()
 
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	oauthError := r.URL.Query().Get("error")
 
 	if oauthError != "" {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Authorization denied: "+oauthError), http.StatusFound)
+		oauthLoginError(w, r, oauthErrDenied, providerName)
 		return
 	}
 
 	if code == "" || state == "" {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Missing code or state parameter"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 
-	// Validate state from Redis.
-	stateDataStr, err := h.srv.Redis.Get(ctx, "oauth_login_state:"+state).Result()
+	// The state must have been started by THIS browser (login CSRF), and it is
+	// redeemed atomically (GETDEL) so a replay — or a second concurrent
+	// callback with the same state — finds nothing.
+	if c, cerr := r.Cookie(oauthStateCookie); cerr != nil ||
+		subtle.ConstantTimeCompare([]byte(c.Value), []byte(oauthStateDigest(state))) != 1 {
+		h.logger().Warn("OAuth callback state not bound to this browser", zap.String("provider", providerName))
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
+		return
+	}
+	setOAuthStateCookie(w, "", -1)
+
+	stateDataStr, err := h.srv.Redis.GetDel(ctx, "oauth_login_state:"+state).Result()
 	if err != nil {
 		h.logger().Warn("invalid or expired OAuth login state", zap.Error(err))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Invalid or expired state token. Please try again."), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateExpired, providerName)
 		return
 	}
-
-	// Delete state to prevent replay.
-	h.srv.Redis.Del(ctx, "oauth_login_state:"+state) //nolint:errcheck
 
 	var stateData struct {
 		Provider     string `json:"provider"`
@@ -638,19 +707,19 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 		Invite       string `json:"invite"`
 	}
 	if err := json.Unmarshal([]byte(stateDataStr), &stateData); err != nil {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Corrupted state data"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 
 	// Verify provider matches.
 	if stateData.Provider != providerName {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("State mismatch"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrStateInvalid, providerName)
 		return
 	}
 
 	provider, ok := oauthLoginProviders[providerName]
 	if !ok {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Unknown provider"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrFailed, providerName)
 		return
 	}
 
@@ -659,129 +728,61 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	accessToken, err := h.exchangeOAuthLoginCode(ctx, providerName, provider, code, stateData.PKCEVerifier)
 	if err != nil {
 		h.logger().Error("OAuth login token exchange failed", zap.Error(err), zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Token exchange failed"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrFailed, providerName)
 		return
 	}
 
-	// Fetch user profile from the provider.
+	// Fetch user profile from the provider. Only a provider-VERIFIED email
+	// comes back; an unverified one is refused (account takeover otherwise).
 	email, displayName, err := h.fetchOAuthUserProfile(ctx, providerName, provider, accessToken)
+	if errors.Is(err, errOAuthEmailUnverified) {
+		h.logger().Info("OAuth sign-in refused: provider email not verified", zap.String("provider", providerName))
+		oauthLoginError(w, r, oauthErrEmailUnverified, providerName)
+		return
+	}
 	if err != nil {
 		h.logger().Error("OAuth user profile fetch failed", zap.Error(err), zap.String("provider", providerName))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Failed to fetch user profile"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrFailed, providerName)
 		return
 	}
 
 	if email == "" {
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Could not determine email address from OAuth provider"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrEmailUnverified, providerName)
 		return
 	}
 
-	// Find or create user by email.
-	var (
-		userID   string
-		tenantID string
-		role     string
-		name     string
-	)
-
-	// rls-exempt: pre-auth OAuth callback — resolves or creates the tenant from
-	// the verified OAuth email across all tenants; no tenant context exists yet.
-	err = h.srv.Pool.QueryRow(ctx, `
-		SELECT u.id, u.tenant_id, u.display_name, u.role
-		FROM users u WHERE u.email = $1 LIMIT 1
-	`, email).Scan(&userID, &tenantID, &name, &role)
-
-	if err == pgx.ErrNoRows {
-		// A new user is a sign-up: the same PAL_SIGNUP_MODE + rate-limit
-		// policy as POST /auth/signup applies (existing users sign in above).
-		if reason := h.oauthSignupGate(ctx, remoteIP(r), email, stateData.Invite); reason != "" {
-			h.logger().Info("OAuth sign-up refused", zap.String("provider", providerName), zap.String("reason", reason))
-			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape(reason), http.StatusFound)
-			return
-		}
-		// Create new user + tenant.
-		if displayName == "" {
-			displayName = strings.Split(email, "@")[0]
-		}
-
-		slugSuffix, _ := randomHex(4)
-		slug := strings.Split(email, "@")[0] + "-" + slugSuffix
-
-		// rls-exempt: pre-auth OAuth registration — creates the tenant + first
-		// user before any tenant context exists.
-		tx, txErr := h.srv.Pool.Begin(ctx)
-		if txErr != nil {
-			h.logger().Error("begin tx failed", zap.Error(txErr))
-			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
-			return
-		}
-		defer tx.Rollback(ctx) //nolint:errcheck
-
-		txErr = tx.QueryRow(ctx, `
-			INSERT INTO tenants (slug, name, tier, k8s_namespace)
-			VALUES ($1, $2, 'personal', $3)
-			RETURNING id
-		`, slug, displayName+"'s Workspace", "pal-t-"+slug).Scan(&tenantID)
-		if txErr != nil {
-			h.logger().Error("insert tenant failed", zap.Error(txErr))
-			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
-			return
-		}
-
-		// The first user of a new tenant is always the owner.
-		txErr = tx.QueryRow(ctx, `
-			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, role, email_verified_at)
-			VALUES ($1, $2, $3, $4, $5, 'owner', now())
-			RETURNING id
-		`, tenantID, email, displayName, providerName, email).Scan(&userID) // provider-verified email
-		if txErr != nil {
-			h.logger().Error("insert user failed", zap.Error(txErr))
-			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
-			return
-		}
-
-		if txErr = applyFreeTierDefaults(ctx, tx, tenantID); txErr != nil {
-			h.logger().Error("apply free tier failed", zap.Error(txErr))
-			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
-			return
-		}
-
-		if txErr = tx.Commit(ctx); txErr != nil {
-			h.logger().Error("commit failed", zap.Error(txErr))
-			http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
-			return
-		}
-
-		name = displayName
-		role = "owner"
-
+	u, refusal, err := h.resolveOAuthUser(ctx, providerName, email, displayName, remoteIP(r), stateData.Invite)
+	if err != nil {
+		h.logger().Error("OAuth user resolution failed", zap.Error(err), zap.String("provider", providerName))
+		oauthLoginError(w, r, oauthErrInternal, providerName)
+		return
+	}
+	if refusal != "" {
+		h.logger().Info("OAuth sign-in refused", zap.String("provider", providerName), zap.String("reason", refusal))
+		oauthLoginError(w, r, refusal, providerName)
+		return
+	}
+	userID, tenantID, name, role := u.id, u.tenantID, u.name, u.role
+	if u.created {
 		h.logger().Info("new user created via OAuth",
 			zap.String("user_id", userID),
 			zap.String("tenant_id", tenantID),
-			zap.String("email", email),
 			zap.String("provider", providerName),
 		)
-	} else if err != nil {
-		h.logger().Error("query user by email failed", zap.Error(err))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
-		return
 	} else {
-		// Existing user: update last_seen_at.
 		// rls-exempt: pre-auth OAuth login bookkeeping by user id.
 		_, _ = h.srv.Pool.Exec(ctx, `UPDATE users SET last_seen_at = now() WHERE id = $1`, userID)
-
 		h.logger().Info("user logged in via OAuth",
 			zap.String("user_id", userID),
-			zap.String("email", email),
 			zap.String("provider", providerName),
 		)
 	}
 
 	// Issue JWT.
-	token, err := h.generateToken(userID, tenantID, email, name, role)
+	token, err := h.generateToken(ctx, userID, tenantID, email, name, role)
 	if err != nil {
 		h.logger().Error("token generation failed", zap.Error(err))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
 
@@ -793,20 +794,20 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 	onetimeCode, codeErr := randomHex(24)
 	if codeErr != nil {
 		h.logger().Error("failed to generate one-time code", zap.Error(codeErr))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
 	if storeErr := h.srv.Redis.Set(ctx, "oauth_code:"+onetimeCode, token, 60*time.Second).Err(); storeErr != nil {
 		h.logger().Error("failed to store one-time code in Redis", zap.Error(storeErr))
-		http.Redirect(w, r, dashboardURL+"/login?error="+url.QueryEscape("Internal error"), http.StatusFound)
+		oauthLoginError(w, r, oauthErrInternal, providerName)
 		return
 	}
-	http.Redirect(w, r, dashboardURL+"/auth/callback?code="+url.QueryEscape(onetimeCode), http.StatusFound)
+	http.Redirect(w, r, oauthDashboardURL()+"/auth/callback?code="+url.QueryEscape(onetimeCode), http.StatusFound)
 }
 
 // oauthSignupGate applies the password sign-up policy (ADR 0027) to a NEW
 // user arriving via OAuth, so the provider button is not a way around
-// "sign-up closed". Returns "" when allowed, else the user-facing reason.
+// "sign-up closed". Returns "" when allowed, else an oauthErr* code.
 //   - closed: refused (existing users still sign in).
 //   - invite: the invite code carried in the OAuth state must be valid for the
 //     provider-verified email.
@@ -817,18 +818,174 @@ func (h *AuthHandler) OAuthCallback(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) oauthSignupGate(ctx context.Context, ip, email, invite string) string {
 	mode := signupMode()
 	if mode != signupOpen && mode != signupInvite {
-		return "Sign-up is closed"
+		return oauthErrSignupClosed
 	}
 	switch h.signupRateLimited(ctx, ip) {
 	case http.StatusTooManyRequests:
-		return "Too many sign-up attempts; please try again later"
+		return oauthErrSignupLimited
 	case http.StatusServiceUnavailable:
-		return "Sign-up is temporarily unavailable; please try again later"
+		return oauthErrSignupUnavailable
 	}
 	if mode == signupInvite && !inviteCodeValid(os.Getenv("PAL_SIGNUP_INVITE_SECRET"), email, invite, time.Now()) {
-		return "A valid invite code is required to sign up"
+		return oauthErrInviteRequired
 	}
 	return ""
+}
+
+// OAuth login error codes. Failures redirect to /login?error=<code>
+// [&provider=<google|github>] and the dashboard maps the code to copy
+// (apps/web/app/login/auth-errors.ts, oauthErrorMessage). Never free text: the
+// login page must not render query text an attacker can put in a link.
+const (
+	oauthErrDenied            = "oauth_denied"
+	oauthErrFailed            = "oauth_failed"
+	oauthErrStateInvalid      = "state_invalid"
+	oauthErrStateExpired      = "state_expired"
+	oauthErrEmailUnverified   = "email_unverified"
+	oauthErrLinkRefused       = "link_refused"
+	oauthErrSignupClosed      = "signup_closed"
+	oauthErrInviteRequired    = "invite_required"
+	oauthErrSignupLimited     = "signup_rate_limited"
+	oauthErrSignupUnavailable = "signup_unavailable"
+	oauthErrInternal          = "internal"
+)
+
+// oauthLoginError redirects to the dashboard login with an error code. The
+// provider is echoed only when it is a known one.
+func oauthLoginError(w http.ResponseWriter, r *http.Request, code, provider string) {
+	q := url.Values{"error": {code}}
+	if _, ok := oauthLoginProviders[provider]; ok {
+		q.Set("provider", provider)
+	}
+	http.Redirect(w, r, oauthDashboardURL()+"/login?"+q.Encode(), http.StatusFound)
+}
+
+// oauthAccount is the PAL user an OAuth sign-in resolves to.
+type oauthAccount struct {
+	id, tenantID, name, role string
+	authProvider             string
+	emailVerified            bool
+	created                  bool
+}
+
+// findOAuthAccount looks the email up across all tenants (case-insensitive;
+// the oldest account wins when an address exists in several workspaces).
+//
+// An UNVERIFIED password account is skipped: nobody has proven they own that
+// address, so it must not be able to squat it and lock the real owner out of
+// provider sign-in. The owner gets their own account (or the verified one the
+// email already belongs to); the squatter's account stays unverified and
+// unusable where verification is required.
+func findOAuthAccount(ctx context.Context, q credRowQuerier, email string) (oauthAccount, error) {
+	var a oauthAccount
+	var name *string
+	err := q.QueryRow(ctx, `
+		SELECT id, tenant_id, display_name, role, auth_provider, email_verified_at IS NOT NULL
+		FROM users WHERE lower(email) = lower($1)
+		  AND NOT (auth_provider = 'local' AND email_verified_at IS NULL)
+		ORDER BY created_at, id LIMIT 1
+	`, email).Scan(&a.id, &a.tenantID, &name, &a.role, &a.authProvider, &a.emailVerified)
+	if name != nil {
+		a.name = *name
+	}
+	return a, err
+}
+
+// oauthLinkRefusal is the linking policy for an OAuth identity that matches an
+// existing account by email. It may sign in as that account only when the
+// account's own email is verified (email_verified_at set) AND either the
+// account is already this provider's or the provider verified the email. The
+// second half always holds here — fetchOAuthUserProfile refuses unverified
+// emails — so the account's verification is what decides: an unverified
+// password sign-up never becomes reachable through a provider that happens
+// to know the same address (findOAuthAccount already skips unverified
+// password accounts; this guards any other unverified account). Returns ""
+// when allowed, else oauthErrLinkRefused.
+func oauthLinkRefusal(a oauthAccount) string {
+	if a.emailVerified {
+		return ""
+	}
+	return oauthErrLinkRefused
+}
+
+// resolveOAuthUser finds or creates the PAL account for a provider-verified
+// email. Returns a user-facing refusal when the sign-in is not allowed (link
+// policy, sign-up policy), or an error for internal failures.
+//
+// New-account creation is serialized per email (advisory xact lock on
+// lower(email), then a re-check inside the tx): users is only UNIQUE per
+// (tenant_id, email), so two concurrent first callbacks would otherwise each
+// create a tenant for the same person.
+func (h *AuthHandler) resolveOAuthUser(ctx context.Context, provider, email, displayName, ip, invite string) (oauthAccount, string, error) {
+	// rls-exempt: pre-auth OAuth callback — resolves the account from the
+	// verified OAuth email across all tenants; no tenant context exists yet.
+	a, err := findOAuthAccount(ctx, h.srv.Pool, email)
+	if err == nil {
+		return a, oauthLinkRefusal(a), nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return a, "", fmt.Errorf("look up OAuth user: %w", err)
+	}
+
+	// A new user is a sign-up: the same PAL_SIGNUP_MODE + rate-limit policy as
+	// POST /auth/signup applies (existing users sign in above).
+	if reason := h.oauthSignupGate(ctx, ip, email, invite); reason != "" {
+		return a, reason, nil
+	}
+	if displayName == "" {
+		displayName = strings.Split(email, "@")[0]
+	}
+	slugSuffix, _ := randomHex(4)
+	slug := strings.Split(email, "@")[0] + "-" + slugSuffix
+
+	// rls-exempt: pre-auth OAuth registration — creates the tenant + first
+	// user before any tenant context exists.
+	tx, err := h.srv.Pool.Begin(ctx)
+	if err != nil {
+		return a, "", fmt.Errorf("begin OAuth sign-up tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('pal-oauth-signup:' || lower($1), 0))`, email); err != nil {
+		return a, "", fmt.Errorf("lock OAuth sign-up: %w", err)
+	}
+	// A concurrent callback may have created the account while we waited.
+	if a, err := findOAuthAccount(ctx, tx, email); err == nil {
+		return a, oauthLinkRefusal(a), nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return a, "", fmt.Errorf("re-check OAuth user: %w", err)
+	}
+
+	a = oauthAccount{name: displayName, role: "owner", authProvider: provider, emailVerified: true, created: true}
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO tenants (slug, name, tier, k8s_namespace)
+		VALUES ($1, $2, 'personal', $3)
+		RETURNING id
+	`, slug, displayName+"'s Workspace", "pal-t-"+slug).Scan(&a.tenantID); err != nil {
+		return a, "", fmt.Errorf("insert tenant: %w", err)
+	}
+	// The first user of a new tenant is always the owner; the email is
+	// provider-verified (fetchOAuthUserProfile), so it is stored verified.
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, role, email_verified_at)
+		VALUES ($1, $2, $3, $4, $5, 'owner', now())
+		RETURNING id
+	`, a.tenantID, email, displayName, provider, email).Scan(&a.id); err != nil {
+		return a, "", fmt.Errorf("insert user: %w", err)
+	}
+	// Same tx as the user insert (#427): the instance is bootstrapped once its
+	// first user exists.
+	if _, err := tx.Exec(ctx, markBootstrappedSQL); err != nil {
+		return a, "", fmt.Errorf("mark bootstrapped: %w", err)
+	}
+
+	if err := applyFreeTierDefaults(ctx, tx, a.tenantID); err != nil {
+		return a, "", fmt.Errorf("apply free tier: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return a, "", fmt.Errorf("commit OAuth sign-up: %w", err)
+	}
+	return a, "", nil
 }
 
 // OAuthExchange handles POST /auth/oauth/exchange.
@@ -957,44 +1114,56 @@ func (h *AuthHandler) fetchOAuthUserProfile(ctx context.Context, providerName st
 
 	switch providerName {
 	case "google":
+		// Only an address Google itself verified may name a PAL account: an
+		// unverified one is an account-takeover vector (anyone can type a
+		// victim's address into a fresh Google account). v2 userinfo says
+		// verified_email; the OIDC userinfo says email_verified.
 		email, _ = profile["email"].(string)
 		displayName, _ = profile["name"].(string)
+		v2, _ := profile["verified_email"].(bool)
+		oidc, _ := profile["email_verified"].(bool)
+		if !v2 && !oidc {
+			return "", "", errOAuthEmailUnverified
+		}
 	case "github":
 		displayName, _ = profile["name"].(string)
 		if displayName == "" {
 			displayName, _ = profile["login"].(string)
 		}
-		// GitHub may not include email in profile response; fetch from /user/emails.
-		email, _ = profile["email"].(string)
-		if email == "" {
-			email, err = h.fetchGitHubEmail(ctx, accessToken)
-			if err != nil {
-				return "", "", fmt.Errorf("fetch github email: %w", err)
-			}
+		// The profile's public "email" carries no verified flag, so it is never
+		// trusted: the address always comes from /user/emails, primary+verified.
+		email, err = h.fetchGitHubEmail(ctx, provider.EmailsURL, accessToken)
+		if err != nil {
+			return "", "", err
 		}
 	}
 
 	return email, displayName, nil
 }
 
-// fetchGitHubEmail fetches the primary verified email from GitHub's /user/emails endpoint.
-func (h *AuthHandler) fetchGitHubEmail(ctx context.Context, accessToken string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/user/emails", nil)
+// errOAuthEmailUnverified: the provider has not verified the account's email,
+// so it cannot identify a PAL user.
+var errOAuthEmailUnverified = errors.New("oauth: provider email is not verified")
+
+// fetchGitHubEmail returns the PRIMARY address from GitHub's /user/emails, and
+// only when GitHub has verified it (errOAuthEmailUnverified otherwise). No
+// fallback to another verified address: the primary is the one the user owns
+// the account by.
+func (h *AuthHandler) fetchGitHubEmail(ctx context.Context, emailsURL, accessToken string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, emailsURL, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("build github emails request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("github emails request: %w", err)
 	}
 	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("github emails endpoint returned HTTP %d", resp.StatusCode)
 	}
 
 	var emails []struct {
@@ -1002,53 +1171,50 @@ func (h *AuthHandler) fetchGitHubEmail(ctx context.Context, accessToken string) 
 		Primary  bool   `json:"primary"`
 		Verified bool   `json:"verified"`
 	}
-	if err := json.Unmarshal(body, &emails); err != nil {
-		return "", err
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&emails); err != nil {
+		return "", fmt.Errorf("parse github emails: %w", err)
 	}
-
-	// Prefer primary + verified.
 	for _, e := range emails {
-		if e.Primary && e.Verified {
+		if e.Primary {
+			if !e.Verified || e.Email == "" {
+				return "", errOAuthEmailUnverified
+			}
 			return e.Email, nil
 		}
 	}
-	// Fall back to any verified.
-	for _, e := range emails {
-		if e.Verified {
-			return e.Email, nil
-		}
-	}
-	// Fall back to first.
-	if len(emails) > 0 {
-		return emails[0].Email, nil
-	}
-
-	return "", fmt.Errorf("no emails found")
+	return "", errOAuthEmailUnverified
 }
 
 // ---------- token helpers ----------
 
-func (h *AuthHandler) generateToken(userID, tenantID, email, name, role string) (string, error) {
+func (h *AuthHandler) generateToken(ctx context.Context, userID, tenantID, email, name, role string) (string, error) {
+	tv, err := h.currentTokenVersion(ctx, userID)
+	if err != nil {
+		return "", err
+	}
 	now := time.Now()
 	claims := PalClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(30 * 24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(jwtTTL())),
 			Issuer:    "pal",
 		},
-		TenantID: tenantID,
-		Email:    email,
-		Name:     name,
-		Role:     role,
+		TenantID:     tenantID,
+		Email:        email,
+		Name:         name,
+		Role:         role,
+		TokenVersion: tv,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(h.jwtSecret)
 }
 
-// ValidateToken parses and validates a JWT string, returning the claims.
-func (h *AuthHandler) ValidateToken(tokenStr string) (*PalClaims, error) {
+// ValidateToken parses and validates a session JWT: signature, expiry, a
+// lifetime no longer than PAL_JWT_TTL (so tokens minted under a longer TTL,
+// such as the old 30-day ones, are refused), and revocation (token_version).
+func (h *AuthHandler) ValidateToken(ctx context.Context, tokenStr string) (*PalClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &PalClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -1068,12 +1234,33 @@ func (h *AuthHandler) ValidateToken(tokenStr string) (*PalClaims, error) {
 	if claims.Typ != "" || claims.Issuer == "pal-agent" {
 		return nil, fmt.Errorf("not a session token")
 	}
-
+	// Kiosk sessions carry their own short TTL (PAL_KIOSK_TTL_MIN, ADR 0029).
+	if claims.Role != kioskRole {
+		if claims.IssuedAt == nil || claims.ExpiresAt == nil ||
+			claims.ExpiresAt.Sub(claims.IssuedAt.Time) > jwtTTL()+jwtTTLSlack {
+			return nil, fmt.Errorf("session lifetime exceeds PAL_JWT_TTL")
+		}
+	}
+	if err := h.checkSession(ctx, claims); err != nil {
+		return nil, err
+	}
 	return claims, nil
 }
 
+// apiKeyPrefix is the prefix of newly issued keys; legacyAPIKeyPrefix keys
+// (issued before the PAL rename) keep validating.
+const (
+	apiKeyPrefix       = "pal_live_"
+	legacyAPIKeyPrefix = "hlx_live_"
+)
+
+// isAPIKey reports whether a bearer token has an API-key prefix (vs a JWT).
+func isAPIKey(tok string) bool {
+	return strings.HasPrefix(tok, apiKeyPrefix) || strings.HasPrefix(tok, legacyAPIKeyPrefix)
+}
+
 // validateRequest extracts and validates credentials from the Authorization
-// header. Accepts either a JWT or a long-lived API key (prefix hlx_live_).
+// header. Accepts either a JWT or a long-lived API key (prefix pal_live_, or legacy hlx_live_).
 func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
@@ -1086,10 +1273,10 @@ func (h *AuthHandler) validateRequest(r *http.Request) (*PalClaims, error) {
 	}
 
 	token := parts[1]
-	if strings.HasPrefix(token, "hlx_live_") {
+	if isAPIKey(token) {
 		return h.validateAPIKey(r.Context(), token)
 	}
-	return h.ValidateToken(token)
+	return h.ValidateToken(r.Context(), token)
 }
 
 // validateAPIKey looks up an API key by its SHA-256 hash and returns synthetic
@@ -1211,23 +1398,58 @@ func isWriteScope(s Scope) bool {
 	return false
 }
 
+// roleScopes is what an interactive session of each users.role may do
+// (S-4/E4). It must agree with the dashboard's apps/web/lib/rbac.ts MATRIX;
+// TestRoleScopesMatchDashboardMatrix fails the build if they drift. Owner-only
+// actions (workspace erase/export, billing, runtime quota) keep their explicit
+// role checks in the handlers; owner and admin differ only there.
+//
+//	member: build and run agents; read everything; no keys, connectors,
+//	        budgets, channels, billing, sandboxes admin or personal (coarse
+//	        write) data. Connectors are admin-only because their credentials
+//	        are tenant-wide secrets every agent can use.
+//	viewer: read only. Unknown roles get viewer.
+var roleScopes = map[string][]Scope{
+	"owner":  {ScopeAdmin},
+	"admin":  {ScopeAdmin},
+	"member": {ScopeRead, ScopeAgentsWrite, ScopeRunsExecute},
+	"viewer": {ScopeRead},
+}
+
+// sessionScopes returns the scopes a JWT session holds by role.
+func sessionScopes(role string) []Scope {
+	if s, ok := roleScopes[role]; ok {
+		return s
+	}
+	return roleScopes["viewer"]
+}
+
+// isUserSession reports whether claims came from an interactive user JWT
+// (not an API key, not a kiosk visitor). Decided by provenance, not by the
+// role string: API-key claims carry APIKeyID, internal dispatch claims
+// (webhook triggers) carry no Subject, and every session JWT has one. A JWT
+// that merely CLAIMS role "service" is still a session and, being an unknown
+// role, gets viewer scopes — never the unrestricted service path.
+func isUserSession(c *PalClaims) bool {
+	return c.APIKeyID == "" && c.Subject != "" && c.Role != kioskRole
+}
+
 // HasScope returns true when the claims allow the requested scope.
 //
 // Rules:
-//   - JWT-based auth (Role != "service"): always allowed — JWT holders are
-//     interactive users, not machine tokens.
+//   - User session (JWT): the role's scopes (roleScopes).
+//   - Kiosk (ADR 0029): its explicit token scopes.
 //   - API key with empty scopes list: always allowed (legacy / unrestricted key).
 //   - API key with non-empty scopes: see scopeImplies for the full lattice.
 func HasScope(claims *PalClaims, required Scope) bool {
-	// Role "kiosk" (ADR 0029) is scope-limited like a service key, so
-	// PAL_AUTHZ_ENFORCE=1 actually constrains an anonymous demo visitor.
-	if claims.Role != "service" && claims.Role != kioskRole {
-		return true
+	held := claims.Scopes
+	switch {
+	case isUserSession(claims):
+		held = sessionScopes(claims.Role)
+	case claims.Role != kioskRole && len(claims.Scopes) == 0:
+		return true // API key or internal dispatch with no scope list: unrestricted (legacy)
 	}
-	if len(claims.Scopes) == 0 && claims.Role != kioskRole {
-		return true
-	}
-	for _, s := range claims.Scopes {
+	for _, s := range held {
 		if Scope(s) == required || scopeImplies(Scope(s), required) {
 			return true
 		}
@@ -1279,6 +1501,15 @@ func (h *AuthHandler) WithScope(required Scope, next http.HandlerFunc) http.Hand
 			return
 		}
 		if !HasScope(claims, required) {
+			// A user session's role is ALWAYS enforced; PAL_AUTHZ_ENFORCE only
+			// stages enforcement for API keys and kiosk (ADR 0042).
+			if isUserSession(claims) {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"error": fmt.Sprintf("your role (%s) cannot do this (needs %s)", claims.Role, required),
+					"code":  "role_forbidden",
+				})
+				return
+			}
 			if authzEnforce() {
 				writeJSON(w, http.StatusForbidden, map[string]string{
 					"error": fmt.Sprintf("API key missing required scope: %s", required),
@@ -1311,6 +1542,29 @@ func (h *AuthHandler) WithScopeOrAgent(required Scope, next http.HandlerFunc) ht
 			return
 		}
 		scoped(w, r)
+	}
+}
+
+// AdminRoles are the session roles that may administer the workspace.
+var AdminRoles = []string{"owner", "admin"}
+
+// RequireSessionRole narrows a WithScope route for interactive sessions: a
+// user JWT whose role is not listed gets 403. API keys and agents pass through
+// (their scope / policy already governs them), so it never breaks a key that
+// holds the route's scope. Wrap it INSIDE WithScope, which puts the claims in
+// the context:
+//
+//	auth.WithScope(ScopeAgentsWrite, auth.RequireSessionRole(AdminRoles, h.Rotate))
+func (h *AuthHandler) RequireSessionRole(roles []string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if c := claimsFromCtx(r.Context()); c != nil && isUserSession(c) && !slices.Contains(roles, c.Role) {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error": fmt.Sprintf("your role (%s) cannot do this (needs %s)", c.Role, strings.Join(roles, " or ")),
+				"code":  "role_forbidden",
+			})
+			return
+		}
+		next(w, r)
 	}
 }
 

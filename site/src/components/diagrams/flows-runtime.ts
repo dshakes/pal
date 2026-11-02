@@ -371,7 +371,7 @@ export const DEPLOY_TOPOLOGY: FlowDef = {
     { from: "lcp", to: "stub", dashed: true, via: [[450, 197], [450, 417]], at: 0.5 },
     { from: "cli", to: "bundle", label: "publish", via: [[10, 87], [10, 522]], at: 0.9 },
     { from: "bundle", to: "cdpa", label: "same artifact", via: [[505, 522], [505, 232]], at: 0.15 },
-    { from: "cdpa", to: "ccp", label: "mTLS tunnel", dashed: true },
+    { from: "cdpa", to: "ccp", label: "TLS tunnel, dials out", dashed: true },
     { from: "cdpa", to: "cwe" },
     { from: "cwe", to: "crs" },
     { from: "crs", to: "crm" },

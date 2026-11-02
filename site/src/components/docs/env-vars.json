@@ -670,9 +670,31 @@
   ],
   "group": "Control plane: auth, secrets, trust boundaries",
   "default": "on in production, off in dev",
-  "description": "Scope enforcement is on by default in production (`PAL_ENV=production|staging`) and off in dev. `=0` opts out (logged as a warning); `=1` forces it on in dev. A key missing the endpoint's scope then gets 403.",
+  "description": "Scope enforcement for API keys and kiosk sessions is on by default in production (`PAL_ENV=production|staging`) and off in dev. `=0` opts out (logged as a warning); `=1` forces it on in dev. A key missing the endpoint's scope then gets 403. Dashboard sessions are always limited to their role's scopes, whatever this says.",
   "prod": true,
   "source": "services/control-plane/internal/handlers/env.go:33"
+ },
+ {
+  "name": "PAL_JWT_TTL",
+  "services": [
+   "control-plane"
+  ],
+  "group": "Control plane: auth, secrets, trust boundaries",
+  "default": "12h",
+  "description": "Session JWT lifetime (Go duration, `5m` to `24h`). Out of range or unparseable stops startup. Tokens with a longer lifetime are refused. No refresh token: users sign in again after it.",
+  "prod": false,
+  "source": "services/control-plane/internal/handlers/session_revocation.go:70"
+ },
+ {
+  "name": "PAL_DASHBOARD_TRUSTED_PROXIES",
+  "services": [
+   "web"
+  ],
+  "group": "Dashboard (Next.js)",
+  "default": "empty",
+  "description": "Comma-separated CIDRs of the ingress in front of the dashboard. Only from these peers does the `/api/pal` proxy read the client from `X-Forwarded-For`; otherwise the TCP peer is the client. Either way it sends the control plane one hop and never the browser's header. Helm sets it from `controlPlane.trustedProxies`.",
+  "prod": false,
+  "source": "apps/web/app/api/pal/[...path]/route.ts"
  },
  {
   "name": "PAL_BATCH_MAX_ITEMS",
@@ -2710,6 +2732,28 @@
   "description": "",
   "prod": false,
   "source": "services/imessage-bridge/src/session.ts:1134"
+ },
+ {
+  "name": "PAL_NOTIFIER_ALLOW_PRIVATE",
+  "services": [
+   "notifier"
+  ],
+  "group": "Service: notifier",
+  "default": "unset",
+  "description": "`1` lets webhook/Slack/Discord deliveries reach loopback, private and fake-IP (198.18.0.0/15) addresses, for local receivers. Dev only: ignored in prod, where webhook deliveries also require https. Metadata/link-local is refused everywhere.",
+  "prod": false,
+  "source": "services/notifier/internal/delivery/netguard.go:50"
+ },
+ {
+  "name": "PAL_NOTIFIER_SIGNING_KEY",
+  "services": [
+   "notifier"
+  ],
+  "group": "Service: notifier",
+  "default": "unset",
+  "description": "Root secret for notifier webhook signatures. Each tenant's key is HKDF-SHA256(this, info `pal-notifier-webhook-v1|<tenant_id>`, 32 bytes); the header is `X-Pal-Signature: t=<unix>,v1=<hex HMAC-SHA256(key, \"<t>.<body>\")>`. Fatal in prod when unset or shorter than 32 bytes; dev uses a well-known default. **Required in prod.**",
+  "prod": true,
+  "source": "services/notifier/internal/delivery/webhook.go:36"
  },
  {
   "name": "PAL_NO_PROXY",

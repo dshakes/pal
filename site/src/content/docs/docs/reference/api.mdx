@@ -17,7 +17,7 @@ Pass your API key in the `Authorization` header on every request:
 Authorization: Bearer hlx_live_your_api_key_here
 ```
 
-Create keys under **Settings > API keys**. Keys start with `hlx_live_` and carry scopes (`read`, `write`, `admin`, or fine-grained ones such as `agents:write` and `runs:execute`). Every route is annotated with the scope it needs (for example `GET /v1/runs` needs `runs:read`, `POST /v1/runs` needs `runs:execute`). Scope enforcement is on by default in production (`PAL_ENV=production|staging`) and off in dev. Set `PAL_AUTHZ_ENFORCE=0` to opt out (logged as a warning) or `=1` to force it on in dev; a key missing the required scope then gets `403`. Row-level security is on in production whenever `PAL_APP_DB_PASSWORD` is set; without it the control plane refuses to start unless you set `PAL_RLS_ENFORCE=0`.
+Create keys under **Settings > API keys**. Keys start with `pal_live_` (keys issued before the rename start with `hlx_live_` and keep working) and carry scopes (`read`, `write`, `admin`, or fine-grained ones such as `agents:write` and `runs:execute`). Every route is annotated with the scope it needs (for example `GET /v1/runs` needs `runs:read`, `POST /v1/runs` needs `runs:execute`). A dashboard session JWT holds the scopes of the user's role, always enforced (see [Roles](/docs/build/accounts/#roles)), lasts `PAL_JWT_TTL` (default 12 hours) and is revoked by `POST /auth/logout` or a password or role change. For API keys, scope enforcement is on by default in production (`PAL_ENV=production|staging`) and off in dev. Set `PAL_AUTHZ_ENFORCE=0` to opt out (logged as a warning) or `=1` to force it on in dev; a key missing the required scope then gets `403`. `POST /v1/api-keys` takes an optional `expiresAt` (RFC 3339, in the future, at most one year out); an expired key gets `401`. `POST /v1/api-keys/{id}/rotate` (admin scope) returns a replacement with the same name and scopes once and revokes the old key in the same transaction (the gateway caches introspection for up to 60 seconds, so it may keep accepting the old key for that long); rotating an unscoped (legacy) key needs an owner/admin JWT, an admin-scoped key gets `403`; send `expiresAt` to set a new expiry (required if the old key already expired). Keys record the user who created them (`createdBy`). Row-level security is on in production whenever `PAL_APP_DB_PASSWORD` is set; without it the control plane refuses to start unless you set `PAL_RLS_ENFORCE=0`.
 
 <Aside type="note" title="Self-hosted base URL">
 By default the control plane binds to `http://localhost:8080`. There is no managed cloud endpoint: you deploy the control plane yourself.
@@ -25,7 +25,7 @@ By default the control plane binds to `http://localhost:8080`. There is no manag
 
 ## Accounts
 
-Sign-up, login, email verification, password reset, data export and workspace deletion (`/auth/*` and `/v1/tenants/{id}`) are documented on [Accounts](/docs/build/accounts/).
+Sign-up, login, logout, sessions, roles, email verification, password reset, data export and workspace deletion (`/auth/*` and `/v1/tenants/{id}`) are documented on [Accounts](/docs/build/accounts/). OAuth sign-in starts at `GET /auth/oauth/{provider}/start`; in `invite` sign-up mode pass the code as `?invite=<code>`, and OAuth sign-up follows `PAL_SIGNUP_MODE` like password sign-up.
 
 ## Agents
 
@@ -403,11 +403,19 @@ Everything else registered in `services/control-plane/cmd/server/main.go`, with 
 | Sandbox VMs | `POST /v1/runtime/schedule`, `/v1/runtime/vms` (+ `{id}`, `pause`, `resume`, `fork`, `exec`, `logs`, `files`, `files/content`), `/v1/runtime/{quota,cluster,audit,metrics}`, `GET/PUT /v1/egress/dlp-policy` (+ `rules`) | [Sandbox lifecycle](/docs/runtime/sandbox-lifecycle/) |
 | Runtime internals | `POST /v1/runtime/report`, `POST /v1/runtime/secrets/resolve` (service token, not JWT) | [Egress](/docs/security/egress/) |
 | Channels | `/v1/surfaces` (+ `{id}/test`, `slack/command`, `whatsapp/{heartbeat,status}`), `/v1/voice/{numbers,calls,token,webhook/{provider},calls/status/{provider}}` | [Channels](/docs/build/channels/) |
-| Memory and people | `/v1/people` (+ `resolve`, `merge`, `duplicates`, `relationship`), `/v1/memory/{events,context,search,distill,distillates}` | [pal internals](/docs/architecture/pal/) |
+| Memory and people | `/v1/people` (+ `resolve`, `merge`, `duplicates`, `relationship`), `/v1/memory/{events,context,search,distill,distillates}` | [PAL internals](/docs/architecture/pal/) |
 | Settings and keys | `/v1/settings/llm-providers`, `/v1/api-keys`, `GET /v1/system/health` | [Your first agent](/docs/start/quickstart/) |
+| Promotion | `POST /v1/agents/{name}/versions` (freeze), `POST /v1/agents/{name}/promote`, `GET /v1/agents/{name}/environments`, `POST /v1/agents/{name}/environments/{env}/rollback`, `POST /v1/agents/{name}/environments/prod/canary/evaluate`, `POST /v1/agents/{name}/environments/sandbox/runs` (record sandbox evidence), `GET /v1/promotions` (+ `audit`), `POST /v1/promotions/{id}/{approve,reject}` (human owner/admin only). Scopes: `agents:read` / `agents:write` | [Promotion](/docs/build/promotion/) |
+| Agent identity and policy | `GET/PUT /v1/agents/{name}/policy` (`PUT` with a stale `version` is 409), `POST .../policy/propose` (never saved), `GET .../identity`, `POST .../identity/{rotate,revoke}`, `POST .../identity/token` (JWT owner/admin only), `GET .../audit` (`?limit=&event=`, returns `chainValid`), `GET /.well-known/pal-agent-keys/{agentId}` (public). A policy deny is `403 agent_policy_denied`; an agent calling as itself sends `X-Pal-Agent-Token` | [Agent identity and policy](/docs/security/agent-policy/) |
+| Reliability | `GET /v1/runs/{id}/trace` (redacted step, LLM, tool and child-run tree), `GET/PUT /v1/agents/{name}/slo` (+ `GET .../slo/status`), `GET/PUT /v1/agents/{name}/prod-evals`, `GET /v1/incidents` (+ `{id}`), `POST /v1/incidents/{id}/{acknowledge,resolve,rollback}`, `POST /v1/incidents/scan` | [Observability](/docs/observability/) |
+| Debug and support | `POST /v1/debug/analyze` (run, incident or eval case), `POST /v1/support/ask`, `GET/POST /v1/support/escalations`, `GET /v1/support/escalations/{id}` (+ `/verify`, checks the signed digest) | [Debugging and support](/docs/build/debugging/) |
+| A2A v0.3 | `GET /v1/agents/{name}/a2a/.well-known/agent-card.json` (spec card), `POST /v1/agents/{name}/a2a` (JSON-RPC: `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`, `tasks/resubscribe`), `GET /.well-known/agent-card.json` (the agent named by `PAL_A2A_DEFAULT_AGENT`, public only). The older `POST /v1/agents/{name}/a2a/invoke` and `GET .../card` remain | [A2A](/docs/build/a2a/) |
+| MCP client | `GET/POST /v1/mcp/tenant-servers`, `DELETE /v1/mcp/tenant-servers/{slug}`, `GET /v1/mcp/credentials`, `PUT/DELETE /v1/mcp/credentials/{slug}`, `POST /v1/mcp/oauth/{start,callback}`, `GET /v1/agents/{name}/mcp-servers/{slug}/tools` | [MCP](/docs/build/mcp/) |
+| MCP server | `POST /mcp` (stateless Streamable HTTP; accepts only API keys that carry the explicit `mcp` scope), `GET` and `DELETE /mcp` answer 405, `GET /.well-known/oauth-protected-resource[/mcp]` (RFC 9728 metadata) | [MCP](/docs/build/mcp/) |
+| Conversational onboarding | `GET/DELETE /v1/onboarding/agent?product=` (transcript, reset), `POST /v1/onboarding/agent/turn` (`{product, message?, event?, results?}`; `runs:execute`) | [Your first agent](/docs/start/quickstart/) |
 | Agent onboarding | `GET/PUT/DELETE /v1/onboarding`, `POST /v1/onboarding/explain` | [Your first agent](/docs/start/quickstart/) |
-| pal setup | `GET/PUT/DELETE /v1/pal/onboarding`, `GET /v1/pal/onboarding/profile`, `POST /v1/pal/onboarding/{guide,voice,profile/extract,trust/suggest}`. Reads need `read`, state writes `settings:write`, the four POSTs (they call an LLM) `runs:execute` | [Connect your channels](/docs/pal/surfaces/) |
-| Domain records | `/v1/domain-records` (+ `{id}`), `GET /v1/domains/{domain}/digest`, `POST /v1/assist/explain` | [pal internals](/docs/architecture/pal/) |
+| pal setup | `GET/PUT/DELETE /v1/pal/onboarding`, `GET /v1/pal/onboarding/profile`, `POST /v1/pal/onboarding/{guide,voice,profile/extract,trust/suggest}`. Reads need `read`, state writes `settings:write`, the four POSTs (they call an LLM) `runs:execute` | [Set up PAL](/docs/pal/surfaces/) |
+| Domain records | `/v1/domain-records` (+ `{id}`), `GET /v1/domains/{domain}/digest`, `POST /v1/assist/explain` | [PAL internals](/docs/architecture/pal/) |
 | Internal | `POST /internal/auth/introspect-key` (gateway, `x-pal-service-token`) | [Security boundaries](/docs/architecture/security-boundaries/) |
 
 The bridges also use endpoints that serve the personal agent only: `/v1/life-events`, `/v1/commitments`, `/v1/errands`, `/v1/whatsapp/{drafts,facts,vips}`, `/v1/jarvis/*`, `/v1/signals` (a device token, JWT or API key; or the legacy shared token), `/v1/shortcuts/*`, `/v1/news`, `/v1/vision/ocr`, `/v1/audio/transcriptions`, `/v1/browser/*`. They are single-owner and not a stable public surface.
@@ -440,3 +448,352 @@ Common HTTP status codes:
 <Aside type="note">
 There are no rate-limit tiers or `X-RateLimit` headers, though `POST /v1/runs` and the auth endpoints answer `429` when overloaded. Spend and run limits are per-agent (cost, tokens and runs per day enforced; cost/run enforced mid-run in workflows only); see [Budgets](/docs/build/budgets/).
 </Aside>
+
+## Route index
+
+Every route the control plane registers, generated from the Go sources by `node scripts/gen-api-routes.mjs --write`. CI runs `--check` and fails if a route is missing here, so this list is complete; the sections above explain the shapes. Each route's required scope is set where it is registered in `services/control-plane/cmd/server/main.go`.
+
+<Aside type="note">The index lists registrations, not stability. Personal-agent routes (`/v1/whatsapp/*`, `/v1/jarvis/*`, `/v1/shortcuts/*` and similar) serve the bridges and are not a stable public surface.</Aside>
+
+{/* routes:start (generated by scripts/gen-api-routes.mjs; do not edit) */}
+```text
+GET /.well-known/agent-card.json
+GET /.well-known/agent.json
+GET /.well-known/oauth-protected-resource
+GET /.well-known/oauth-protected-resource/mcp
+GET /.well-known/pal-agent-identity
+GET /.well-known/pal-agent-keys/{agentId}
+GET /.well-known/pal-receipts
+POST /auth/forgot
+POST /auth/login
+POST /auth/logout
+GET /auth/me
+GET /auth/oauth/{provider}/callback
+GET /auth/oauth/{provider}/start
+POST /auth/oauth/exchange
+GET /auth/providers
+POST /auth/reset
+POST /auth/signup
+POST /auth/verify
+POST /auth/verify/resend
+GET /dl/{token}
+POST /internal/auth/introspect-key
+POST /internal/dl/stage
+DELETE /mcp
+GET /mcp
+POST /mcp
+GET /v1/agents
+POST /v1/agents
+DELETE /v1/agents/{name}
+GET /v1/agents/{name}
+PATCH /v1/agents/{name}
+POST /v1/agents/{name}/a2a
+GET /v1/agents/{name}/a2a/.well-known/agent-card.json
+POST /v1/agents/{name}/a2a/invoke
+GET /v1/agents/{name}/audit
+DELETE /v1/agents/{name}/budget
+GET /v1/agents/{name}/budget
+PUT /v1/agents/{name}/budget
+GET /v1/agents/{name}/card
+GET /v1/agents/{name}/deploy
+POST /v1/agents/{name}/deploy
+POST /v1/agents/{name}/deploy/stop
+GET /v1/agents/{name}/documents
+POST /v1/agents/{name}/documents
+DELETE /v1/agents/{name}/documents/{id}
+GET /v1/agents/{name}/documents/{id}
+POST /v1/agents/{name}/documents/search
+GET /v1/agents/{name}/environments
+POST /v1/agents/{name}/environments/{env}/rollback
+POST /v1/agents/{name}/environments/prod/canary/evaluate
+POST /v1/agents/{name}/environments/sandbox/runs
+GET /v1/agents/{name}/feedback
+GET /v1/agents/{name}/identity
+POST /v1/agents/{name}/identity/revoke
+POST /v1/agents/{name}/identity/rotate
+POST /v1/agents/{name}/identity/token
+GET /v1/agents/{name}/mcp-servers
+POST /v1/agents/{name}/mcp-servers
+DELETE /v1/agents/{name}/mcp-servers/{slug}
+GET /v1/agents/{name}/mcp-servers/{slug}/tools
+GET /v1/agents/{name}/policy
+PUT /v1/agents/{name}/policy
+POST /v1/agents/{name}/policy/propose
+GET /v1/agents/{name}/prod-evals
+PUT /v1/agents/{name}/prod-evals
+POST /v1/agents/{name}/promote
+GET /v1/agents/{name}/setup
+GET /v1/agents/{name}/slo
+PUT /v1/agents/{name}/slo
+GET /v1/agents/{name}/slo/status
+GET /v1/agents/{name}/triggers
+POST /v1/agents/{name}/triggers
+POST /v1/agents/{name}/versions
+GET /v1/agents/{name}/workflow
+PUT /v1/agents/{name}/workflow
+POST /v1/agents/from-template
+POST /v1/agents/generate-code
+POST /v1/agents/generate-spec
+POST /v1/agents/loop
+GET /v1/agents/templates
+GET /v1/api-keys
+POST /v1/api-keys
+DELETE /v1/api-keys/{id}
+POST /v1/api-keys/{id}/rotate
+POST /v1/assist/explain
+POST /v1/audio/transcriptions
+POST /v1/batches
+GET /v1/batches/{id}
+POST /v1/batches/{id}/cancel
+GET /v1/batches/{id}/results
+GET /v1/billing
+POST /v1/billing/checkout
+POST /v1/billing/portal
+POST /v1/billing/webhook
+GET /v1/bridges
+DELETE /v1/bridges/{id}
+POST /v1/bridges/enroll
+POST /v1/bridges/pair
+POST /v1/bridges/self/rotate
+POST /v1/browser/commitments/{id}/execute
+POST /v1/browser/propose
+POST /v1/browser/read
+GET /v1/budgets
+DELETE /v1/budgets/tenant
+GET /v1/budgets/tenant
+PUT /v1/budgets/tenant
+GET /v1/commitments
+POST /v1/commitments
+GET /v1/commitments/{id}
+PUT /v1/commitments/{id}
+POST /v1/commitments/{id}/dismiss
+POST /v1/commitments/{id}/done
+POST /v1/commitments/{id}/execute-action
+POST /v1/commitments/{id}/research
+POST /v1/commitments/{id}/snooze
+POST /v1/completions
+GET /v1/connectors
+GET /v1/connectors/{connectorId}/execute
+POST /v1/connectors/{connectorId}/execute
+DELETE /v1/connectors/{id}
+GET /v1/connectors/{id}
+POST /v1/connectors/{id}/test
+GET /v1/connectors/gmail/messages
+POST /v1/connectors/install
+GET /v1/connectors/oauth/callback
+POST /v1/connectors/oauth/start
+POST /v1/cross-app/propose
+GET /v1/data-planes
+POST /v1/data-planes
+DELETE /v1/data-planes/{id}
+POST /v1/debug/analyze
+GET /v1/deployments
+POST /v1/deployments
+GET /v1/deployments/{id}
+GET /v1/domain-records
+POST /v1/domain-records
+DELETE /v1/domain-records/{id}
+PUT /v1/domain-records/{id}
+GET /v1/domains/{domain}/digest
+GET /v1/egress/dlp-policy
+PUT /v1/egress/dlp-policy
+POST /v1/egress/dlp-policy/rules
+DELETE /v1/egress/dlp-policy/rules/{ruleId}
+GET /v1/errands
+POST /v1/errands
+POST /v1/errands/{id}/confirm-and-call
+POST /v1/errands/{id}/opt-out
+GET /v1/eval-baselines
+POST /v1/eval-baselines
+POST /v1/eval-judge/calibrate
+GET /v1/eval-observability/failures
+GET /v1/eval-observability/trends
+GET /v1/eval-runs
+POST /v1/eval-runs
+GET /v1/eval-runs/{id}
+GET /v1/eval-suites
+POST /v1/eval-suites
+DELETE /v1/eval-suites/{id}
+GET /v1/eval-suites/{id}
+POST /v1/eval-suites/{id}/run
+POST /v1/eval-suites/generate
+GET /v1/experiments
+POST /v1/experiments
+GET /v1/experiments/{id}
+POST /v1/experiments/{id}/conclude
+POST /v1/experiments/{id}/record
+POST /v1/hooks/{id}
+GET /v1/immigration/deadlines
+POST /v1/immigration/scan
+GET /v1/incidents
+GET /v1/incidents/{id}
+POST /v1/incidents/{id}/acknowledge
+POST /v1/incidents/{id}/resolve
+POST /v1/incidents/{id}/rollback
+POST /v1/incidents/scan
+GET /v1/jarvis/brief
+POST /v1/jarvis/brief/act
+POST /v1/jarvis/stream-completion
+POST /v1/kiosk/session
+GET /v1/life-events
+POST /v1/life-events
+POST /v1/life-events/{id}/dismiss
+POST /v1/life-events/{id}/undo
+GET /v1/life-events/prefs
+PUT /v1/life-events/prefs
+GET /v1/marketplace
+DELETE /v1/marketplace/{slug}
+GET /v1/marketplace/{slug}
+POST /v1/marketplace/{slug}/fork
+POST /v1/marketplace/{slug}/invoke
+DELETE /v1/marketplace/{slug}/star
+POST /v1/marketplace/{slug}/star
+GET /v1/marketplace/invocations
+POST /v1/marketplace/publish
+GET /v1/mcp/credentials
+DELETE /v1/mcp/credentials/{slug}
+PUT /v1/mcp/credentials/{slug}
+POST /v1/mcp/oauth/callback
+POST /v1/mcp/oauth/start
+GET /v1/mcp/servers
+GET /v1/mcp/servers/{slug}
+GET /v1/mcp/tenant-servers
+POST /v1/mcp/tenant-servers
+DELETE /v1/mcp/tenant-servers/{slug}
+GET /v1/memory/context
+POST /v1/memory/distill
+GET /v1/memory/distillates
+POST /v1/memory/events
+GET /v1/memory/search
+POST /v1/messaging/twilio/inbound
+GET /v1/news
+POST /v1/news/ask
+DELETE /v1/onboarding
+GET /v1/onboarding
+PUT /v1/onboarding
+DELETE /v1/onboarding/agent
+GET /v1/onboarding/agent
+POST /v1/onboarding/agent/turn
+POST /v1/onboarding/explain
+DELETE /v1/pal/onboarding
+GET /v1/pal/onboarding
+PUT /v1/pal/onboarding
+POST /v1/pal/onboarding/guide
+GET /v1/pal/onboarding/profile
+POST /v1/pal/onboarding/profile/extract
+POST /v1/pal/onboarding/trust/suggest
+POST /v1/pal/onboarding/voice
+GET /v1/people
+GET /v1/people/duplicates
+POST /v1/people/merge
+POST /v1/people/relationship
+POST /v1/people/resolve
+GET /v1/promotions
+POST /v1/promotions/{id}/approve
+POST /v1/promotions/{id}/reject
+GET /v1/promotions/audit
+GET /v1/runs
+POST /v1/runs
+DELETE /v1/runs/{id}
+GET /v1/runs/{id}
+POST /v1/runs/{id}/cancel
+GET /v1/runs/{id}/events
+GET /v1/runs/{id}/feedback
+POST /v1/runs/{id}/feedback
+POST /v1/runs/{id}/receipt
+GET /v1/runs/{id}/takeover
+POST /v1/runs/{id}/takeover/{takeoverId}/answer
+POST /v1/runs/{id}/takeover/{takeoverId}/deny
+POST /v1/runs/{id}/takeover/{takeoverId}/grant
+POST /v1/runs/{id}/takeover/{takeoverId}/release
+POST /v1/runs/{id}/takeover/request
+GET /v1/runs/{id}/trace
+POST /v1/runs/forecast
+POST /v1/runs/receipts/verify
+POST /v1/runs/rehearse
+GET /v1/runtime/audit
+GET /v1/runtime/cluster
+GET /v1/runtime/metrics
+GET /v1/runtime/quota
+PUT /v1/runtime/quota
+POST /v1/runtime/report
+POST /v1/runtime/schedule
+POST /v1/runtime/secrets/resolve
+GET /v1/runtime/vms
+DELETE /v1/runtime/vms/{id}
+GET /v1/runtime/vms/{id}
+POST /v1/runtime/vms/{id}/exec
+GET /v1/runtime/vms/{id}/files
+GET /v1/runtime/vms/{id}/files/content
+PUT /v1/runtime/vms/{id}/files/content
+POST /v1/runtime/vms/{id}/fork
+GET /v1/runtime/vms/{id}/logs
+POST /v1/runtime/vms/{id}/pause
+POST /v1/runtime/vms/{id}/resume
+GET /v1/schedules
+POST /v1/schedules
+DELETE /v1/schedules/{id}
+PUT /v1/schedules/{id}
+GET /v1/sessions
+POST /v1/sessions
+DELETE /v1/sessions/{id}
+GET /v1/sessions/{id}
+GET /v1/sessions/{id}/events
+POST /v1/sessions/{id}/handoff
+POST /v1/sessions/{id}/messages
+POST /v1/sessions/{id}/operator-messages
+POST /v1/sessions/{id}/resolve
+POST /v1/sessions/{id}/stop
+GET /v1/settings/llm-providers
+POST /v1/settings/llm-providers
+POST /v1/settings/llm-providers/{provider}/test
+POST /v1/shortcuts/pause
+POST /v1/shortcuts/resume
+POST /v1/shortcuts/say
+GET /v1/shortcuts/status
+GET /v1/signals
+POST /v1/signals
+POST /v1/sms/twilio/webhook
+POST /v1/support/ask
+GET /v1/support/escalations
+POST /v1/support/escalations
+GET /v1/support/escalations/{id}
+GET /v1/support/escalations/{id}/verify
+GET /v1/surfaces
+POST /v1/surfaces
+DELETE /v1/surfaces/{id}
+PUT /v1/surfaces/{id}
+POST /v1/surfaces/{id}/test
+POST /v1/surfaces/slack/command
+POST /v1/surfaces/whatsapp/heartbeat
+GET /v1/surfaces/whatsapp/status
+GET /v1/system/health
+DELETE /v1/tenants/{id}
+GET /v1/tenants/{id}/export
+DELETE /v1/triggers/{id}
+GET /v1/triggers/{id}
+PATCH /v1/triggers/{id}
+GET /v1/usage
+POST /v1/vision/ocr
+GET /v1/voice/calls
+POST /v1/voice/calls/status/{provider}
+POST /v1/voice/errand/turn/{id}
+GET /v1/voice/numbers
+POST /v1/voice/numbers
+DELETE /v1/voice/numbers/{id}
+POST /v1/voice/token
+POST /v1/voice/tts
+POST /v1/voice/twilio/turn
+POST /v1/voice/twilio/webhook
+POST /v1/voice/webhook/{provider}
+GET /v1/whatsapp/drafts
+POST /v1/whatsapp/drafts
+POST /v1/whatsapp/drafts/{id}/act
+GET /v1/whatsapp/facts
+POST /v1/whatsapp/facts
+DELETE /v1/whatsapp/facts/{id}
+DELETE /v1/whatsapp/vips
+GET /v1/whatsapp/vips
+POST /v1/whatsapp/vips
+```
+{/* routes:end */}

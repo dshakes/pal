@@ -1,0 +1,112 @@
+---
+title: Upgrading
+description: "Upgrade a self-hosted PAL install: back up Postgres first, helm upgrade to chart 0.3.0, what the new chart and control plane require, and why rollback means restore."
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+This page is for operators who installed the Helm chart (`infra/helm/pal`) with [Deploy to your cloud](/docs/start/deploy/). The commands assume release `pal` in namespace `pal`; use your own names. The chart is at **0.3.0** (`appVersion` 0.3.0).
+
+<Aside type="caution">**Migrations are forward-only.** The control plane applies pending schema migrations when it starts, and nothing in the product runs the `.down.sql` files. Once a new version has started against your database, going back to the old version means **restoring the backup you took first**. Treat step 1 as mandatory.</Aside>
+
+## Upgrade steps
+
+<Steps>
+
+1. **Take a Postgres dump.** Do this before you touch the release, and keep it until the new version has run cleanly.
+
+   ```bash
+   pg_dump "$DATABASE_URL" | gzip > pal-pre-upgrade-$(date +%Y%m%d-%H%M).sql.gz
+   ```
+
+   If you enabled the chart's backup job (`backup.enabled=true`), you can dump on demand to your bucket instead:
+
+   ```bash
+   kubectl create job --from=cronjob/pal-postgres-backup backup-manual-1 -n pal
+   kubectl -n pal logs job/backup-manual-1
+   ```
+
+   Check it worked: the file is non-empty and `gunzip -c pal-pre-upgrade-*.sql.gz | head` shows SQL. A backup you have never restored is a hope, so run the [restore drill](repo:/blob/master/docs/runbooks/db-restore.md) (`scripts/db-restore-drill.sh`) at least once.
+
+2. **Read the changes since your version.** The [Changelog](/docs/changelog/) lists what merged. Check your values file against the requirements in the next section.
+
+3. **Render before you apply.** The chart fails the render with a clear message when a required value is missing, so catch that now rather than mid-rollout.
+
+   ```bash
+   helm template pal ./infra/helm/pal -f infra/helm/pal/values-prod.yaml -f my-values.yaml -f pal-secrets.yaml > /dev/null && echo render ok
+   ```
+
+4. **Upgrade.**
+
+   ```bash
+   helm dependency build ./infra/helm/pal
+   helm upgrade pal ./infra/helm/pal --namespace pal \
+     -f infra/helm/pal/values-prod.yaml -f my-values.yaml -f pal-secrets.yaml --wait
+   ```
+
+   Pass the same values and secrets you installed with ([Deploy to your cloud](/docs/start/deploy/) keeps them in `my-values.yaml` and `pal-secrets.yaml`). `helm upgrade` does not carry over `--set` values from the previous release, so a secret you passed only with `--set` at install comes back empty and that pod refuses to start.
+
+   Check it worked: `kubectl -n pal rollout status deploy/pal-control-plane`, then `curl -fsS https://<api-host>/auth/providers` (`/healthz` is not on the ingress).
+
+5. **Confirm the migrations ran.** The control plane applies them at startup and golang-migrate records the current version in the `schema_migrations` table.
+
+   ```sql
+   SELECT version, dirty FROM schema_migrations;
+   ```
+
+   `dirty` must be `false`. A `true` means a migration stopped half-way: the control plane will not come up cleanly until you fix it, so restore the dump from step 1 rather than editing the table.
+
+6. **Smoke test.** Sign in, run an agent, and check `pal doctor` against the new API.
+
+</Steps>
+
+## What chart 0.3.0 requires
+
+| Requirement | Why | Failure mode |
+| --- | --- | --- |
+| **Two ingress hosts**: an API host (`/v1`, `/auth`, `/.well-known`, `/mcp`, `/dl` to the control plane) and an app host (`/` to the dashboard) | The dashboard pages and the API share `/auth/{verify,reset,forgot,callback}` paths that one origin cannot split. Do not point the API host at `gateway`. | A single-host values file routes `/auth` to the wrong service. `/internal` and `/metrics` are never exposed on the ingress. |
+| `controlPlane.trustedProxies` when `ingress.enabled` (becomes `PAL_TRUSTED_PROXIES`) | Set it to your ingress controller's pod CIDR. The auth rate limiter reads the client IP from `X-Forwarded-For` only from these proxies. | The chart refuses to render. |
+| `networkPolicy.ingressFrom` when both `ingress.enabled` and `networkPolicy.enabled` | The only rule admitting your ingress controller's pods; without it other namespaces would be the only allowed sources. For example `[{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]`. | The chart refuses to render. |
+| `secrets.callbackSigningSecret` (becomes `PAL_CALLBACK_SIGNING_SECRET`) | Signs the run callback and batch webhook POSTs (`X-Pal-Signature`). | In production (`PAL_ENV=prod\|production\|staging`) the control plane **refuses to start** without it. In dev it falls back to an insecure default and warns. |
+
+Generate the secret with a strong random value (`openssl rand -hex 32`) and keep it stable: changing it changes the signing key your callback receivers verify against.
+
+## Sign-up and account requirements
+
+These come from recent control-plane changes. They apply at startup in production:
+
+- **Redis is required for `open` and `invite` sign-up.** The sign-up rate limiter fails closed, so without a reachable Redis every sign-up would be refused. The control plane therefore refuses to start with `PAL_SIGNUP_MODE` set to `open` or `invite` and no `REDIS_URL`. A Redis outage after boot also refuses sign-ups (503) rather than letting them through unlimited.
+- **OAuth sign-up follows `PAL_SIGNUP_MODE`.** Signing up with Google obeys the same mode as a password sign-up: refused when `closed`, subject to the per-IP limit when `open`, and in `invite` mode it needs a valid invite code. Pass it on the OAuth start URL as `GET /auth/oauth/{provider}/start?invite=<code>`. If you relied on OAuth to create accounts on a `closed` deployment, change the mode or create the users another way before upgrading.
+- Unset `PAL_SIGNUP_MODE` means `closed` in production and `open` in dev, and an invalid value stops the server. With `open` or `invite` you also need a real mailer: `PAL_MAILER=log` is refused in production. Details: [Accounts](/docs/build/accounts/).
+
+- **First owner.** An instance with zero users can create its first owner from `controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL`: the control plane prints a one-time password link in its log. It does nothing once any user exists. See [Accounts and teams](/docs/build/accounts/#first-owner-on-a-self-host).
+
+## Rolling back
+
+There is no downgrade. If the upgrade fails, or you need the old version back:
+
+1. Scale the control plane down (`kubectl -n pal scale deploy/pal-control-plane --replicas=0`) so nothing writes while you restore.
+2. Restore the dump from step 1 into a database (`gunzip -c pal-pre-upgrade-*.sql.gz | psql "$DATABASE_URL"` into an empty database; see [`docs/runbooks/db-restore.md`](repo:/blob/master/docs/runbooks/db-restore.md)).
+3. `helm rollback pal <revision> --namespace pal` (find it with `helm history pal -n pal`), or `helm upgrade` with the previous chart and values.
+
+Anything written after the dump is lost. That is why the dump comes first, and why you should upgrade a staging copy of your database when you can.
+
+## From the Bitnami-based chart
+
+<Aside type="caution" title="Not an in-place upgrade">
+Postgres (pgvector) and the S3-compatible store (SeaweedFS) are now first-party templates instead of Bitnami subcharts. Their StatefulSet selectors differ, so `helm upgrade` from the old chart cannot adopt the existing volumes. Redis is still a Bitnami subchart, pinned by `Chart.lock`.
+</Aside>
+
+1. Take a dump from the old release and keep it off the cluster (`pg_dump`, or the backup CronJob if it was on).
+2. Copy any objects you need out of the old object store.
+3. `helm uninstall` the old release, then `helm install` the new chart.
+4. Restore the dump into the new database, recreate `pal_app`, and verify with the [restore drill](repo:/blob/master/docs/runbooks/db-restore.md).
+
+This does not apply to production values: `values-prod.yaml` uses external Postgres and S3, which the chart never owned. Plan the cutover for the in-cluster stores only.
+
+## After the upgrade
+
+- The `pal` CLI is versioned separately. Rebuild or `brew upgrade pal` so it matches the control plane ([Install](/docs/start/installation/)).
+- Data-plane components in your cloud upgrade with their own Terraform and Helm release. `pal infra upgrade` is a placeholder that prints the manual steps ([CLI](/docs/reference/cli/#infra)).
+
+Next: [Console](/docs/build/console/), a tour of the dashboard you now run.

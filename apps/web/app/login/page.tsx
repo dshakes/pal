@@ -7,10 +7,10 @@
 // only or closed. Unknown (older control-plane) → no OAuth buttons rather
 // than buttons that can only fail.
 //
-// Session handling follows the auth-loop fix: the HttpOnly cookie write is
-// AWAITED before navigating to a gated route, and when the server bounced us
-// here (?from= / ?next=) while we still hold a valid token, the cookie is
-// repaired non-destructively (api.syncCookie) instead of forcing a re-login.
+// Session handling: the session is the HttpOnly cookie, set by the same-origin
+// /api/pal proxy on the login/sign-up response itself, so it is in place when
+// the call resolves — there is no separate cookie write to await and no
+// client-held token that can fall out of sync with it (the old auth loop).
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
@@ -19,9 +19,10 @@ import { ArrowRight, Eye, EyeOff, KeyRound, Loader2, MailCheck } from "lucide-re
 import { useAuth } from "@/lib/auth";
 import { api, type AuthProviders } from "@/lib/api";
 import { visibleOAuthProviders } from "@/lib/auth-providers";
+import { oauthStartUrl } from "@/lib/oauth-url";
 import { Turnstile, TURNSTILE_SITE_KEY } from "@/components/turnstile";
 import { AuthError, AuthFrame, authInputClass } from "@/app/auth/auth-shell";
-import { describeAuthError, safeNextPath, type AuthErrorView } from "./auth-errors";
+import { describeAuthError, oauthErrorMessage, safeNextPath, type AuthErrorView } from "./auth-errors";
 
 function GoogleIcon() {
   return (
@@ -55,9 +56,6 @@ export default function LoginPage() {
   const { login, signup, loginDemo, isAuthenticated, isLoading } = useAuth();
 
   const nextPath = safeNextPath(searchParams.get("next") || searchParams.get("from"));
-  // A from/next param means the SERVER rejected our session. If the client
-  // still reads as authenticated it's the localStorage/cookie desync — repair.
-  const bounced = searchParams.get("from") !== null || searchParams.get("next") !== null;
   const inviteParam = searchParams.get("invite") ?? "";
   const oauthError = searchParams.get("error");
 
@@ -74,7 +72,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<AuthErrorView | null>(
-    oauthError ? { kind: "other", message: "That sign-in didn't complete. Try again or use email." } : null,
+    oauthErrorMessage(oauthError, searchParams.get("provider")),
   );
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
@@ -88,22 +86,14 @@ export default function LoginPage() {
   const signupAllowed = signupMode !== "closed" || Boolean(inviteParam);
   const oauthProviders = visibleOAuthProviders(providers?.oauth).filter((id) => OAUTH_META[id]);
 
-  // Redirect / desync repair once AuthProvider has validated the token.
+  // Already signed in (AuthProvider's /auth/me succeeded): go on.
   const redirecting = useRef(false);
   const destination = useRef<string | null>(null);
   useEffect(() => {
     if (isLoading || !isAuthenticated || redirecting.current) return;
     redirecting.current = true;
-    let cancelled = false;
-    void (async () => {
-      if (bounced) await api.syncCookie();
-      await api.whenCookieSynced();
-      if (!cancelled) router.replace(destination.current ?? nextPath);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoading, isAuthenticated, bounced, nextPath, router]);
+    router.replace(destination.current ?? nextPath);
+  }, [isLoading, isAuthenticated, nextPath, router]);
 
   if (!isLoading && isAuthenticated) return null;
 
@@ -113,17 +103,14 @@ export default function LoginPage() {
     setResent(false);
   };
 
-  const handleOAuthLogin = async (provider: string) => {
+  // A top-level navigation, not a fetch: the start response sets the cookie
+  // that binds the sign-in to this browser. Errors come back as /login?error=.
+  const handleOAuthLogin = (provider: string) => {
     setError(null);
     setOauthLoading(provider);
-    try {
-      const data = await api.oauthStart(provider, inviteCode.trim() || undefined);
-      if (data.redirect_url) window.location.href = data.redirect_url;
-      else throw new Error("no redirect");
-    } catch (err) {
-      setError(describeAuthError(err, "signin"));
-      setOauthLoading(null);
-    }
+    // The API's public host, never the /api/pal proxy (it refuses navigations
+    // and drops the Set-Cookie that binds the sign-in to this browser).
+    window.location.href = oauthStartUrl(provider, inviteCode.trim() || undefined);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -152,11 +139,9 @@ export default function LoginPage() {
           setCheckEmail(true);
           return;
         }
-        await api.whenCookieSynced();
         router.replace("/welcome");
       } else {
         await login(email.trim(), password);
-        await api.whenCookieSynced();
         router.replace(nextPath);
       }
     } catch (err) {

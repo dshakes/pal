@@ -2,36 +2,34 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dshakes/pal/services/control-plane/internal/db"
 )
 
 var evRefRe = regexp.MustCompile(`\[ev:[0-9]+\]|\[evidence:truncated\]`)
 
-// mintScopedKey is an API-key principal (role "service") holding exactly scopes.
-func mintScopedKey(t *testing.T, tenantID string, scopes ...string) string {
+// mintScopedKey creates a real API key holding exactly scopes and returns the
+// raw key. (A JWT that merely claims role "service" is a session, not a key.)
+func mintScopedKey(t *testing.T, pool *pgxpool.Pool, tenantID string, scopes ...string) string {
 	t.Helper()
-	now := time.Now()
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, PalClaims{
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "key-" + uuid.NewString()[:6], IssuedAt: jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)), Issuer: "pal-test"},
-		TenantID: tenantID, Role: "service", Scopes: scopes,
-	})
-	s, err := tok.SignedString([]byte(testJWTSecret))
-	if err != nil {
+	raw := apiKeyPrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
+	sum := sha256.Sum256([]byte(raw))
+	if _, err := pool.Exec(context.Background(), `INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, scopes)
+		VALUES ($1, 'test-key', $2, $3, $4)`, tenantID, hex.EncodeToString(sum[:]), raw[:16], scopes); err != nil {
 		t.Fatal(err)
 	}
-	return s
+	return raw
 }
 
 func mountSupport(s *debugScenario) *SupportHandler {
@@ -82,11 +80,11 @@ func TestDebugSupport_ScopeMatrixAlwaysEnforced(t *testing.T) {
 		tok   string
 		allow []call
 	}{
-		"widget runs:execute only":        {mintScopedKey(t, s.f.tenant, "runs:execute"), nil},
-		"coarse read (no execute)":        {mintScopedKey(t, s.f.tenant, "read"), []call{escList, escGet, escVerify}},
-		"agents+budgets read, no execute": {mintScopedKey(t, s.f.tenant, "agents:read", "budgets:read"), nil},
-		"debug key":                       {mintScopedKey(t, s.f.tenant, "runs:execute", "agents:read", "budgets:read"), []call{analyze, ask}},
-		"settings key":                    {mintScopedKey(t, s.f.tenant, "settings:write"), []call{escPost, escList, escVerify}},
+		"widget runs:execute only":        {mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "runs:execute"), nil},
+		"coarse read (no execute)":        {mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "read"), []call{escList, escGet, escVerify}},
+		"agents+budgets read, no execute": {mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "agents:read", "budgets:read"), nil},
+		"debug key":                       {mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "runs:execute", "agents:read", "budgets:read"), []call{analyze, ask}},
+		"settings key":                    {mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "settings:write"), []call{escPost, escList, escVerify}},
 		"kiosk session":                   {mintTestToken(t, s.f.tenant, "kiosk-1", "kiosk"), nil},
 		"owner session":                   {s.f.owner, all},
 	} {
@@ -326,11 +324,11 @@ func TestRedaction_SecondReviewShapes(t *testing.T) {
 func TestDebugSupport_SecondReviewGuards(t *testing.T) {
 	s := newDebugScenario(t)
 	mountSupport(s)
-	settingsOnly := mintScopedKey(t, s.f.tenant, "settings:write")
+	settingsOnly := mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "settings:write")
 	if code, _ := s.f.call("POST", "/v1/support/escalations", settingsOnly, map[string]any{"question": "help", "runId": s.failedRun}); code != 403 {
 		t.Fatalf("settings-only key bundling a run: want 403, got %d", code)
 	}
-	if code, _ := s.f.call("POST", "/v1/support/escalations", mintScopedKey(t, s.f.tenant, "settings:write", "runs:read", "agents:read"), map[string]any{"question": "help", "runId": s.failedRun}); code != 201 {
+	if code, _ := s.f.call("POST", "/v1/support/escalations", mintScopedKey(t, s.f.e.srv.Pool, s.f.tenant, "settings:write", "runs:read", "agents:read"), map[string]any{"question": "help", "runId": s.failedRun}); code != 201 {
 		t.Fatalf("settings+runs+agents key bundling a run: want 201, got %d", code)
 	}
 

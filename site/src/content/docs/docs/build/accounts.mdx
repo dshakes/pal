@@ -21,9 +21,32 @@ Every sign-up on the control plane (`:8080`) creates a **workspace** (a tenant) 
 
 The same mode applies to a **new** user who signs in with Google or GitHub. A first OAuth sign-in creates a workspace, which counts as a sign-up. Users who already exist always sign in.
 
-- `closed` refuses new OAuth users. The redirect is `/login?error=Sign-up is closed`.
+- `closed` refuses new OAuth users. The redirect is `/login?error=signup_closed`.
 - `invite` needs an invite code bound to the email the provider verified. The dashboard sends it with `GET /auth/oauth/{provider}/start?invite=<code>`. The server stores it in the OAuth state and never sends it to the provider.
 - `open` and `invite` apply the per-IP sign-up rate limit, which fails closed in prod. There is no captcha on the OAuth path: completing the provider's sign-in is the human check, and a Turnstile token can't survive the provider redirect.
+
+### OAuth sign-in rules
+
+- **Only a provider-verified email counts.** Google must report `verified_email` (or OIDC `email_verified`) as true. For GitHub the address always comes from `/user/emails` and must be the **primary** address and verified; the public profile email is ignored. Otherwise the redirect is `/login?error=email_unverified` and no account is created or touched.
+- **Linking to an existing account.** Accounts are matched by email, case-insensitively, across workspaces (oldest first). An **unverified password account is skipped**: nobody has proven they own that address, so it cannot squat it and lock the real owner out. The owner gets their own new workspace (subject to the sign-up mode) or the verified account the email already belongs to. A provider sign-in may enter an existing account only if that account's email is verified (`email_verified_at` set). Every provider email is verified by the rule above, so a verified password account, or an account first created with the other provider, can also sign in with Google or GitHub. Nothing is stored for a link: the provider sign-in just signs in as that user. The lookup uses the `users_email_lower_idx` index (migration 0046).
+- **Errors are codes.** A failed OAuth sign-in redirects to `/login?error=<code>`, plus `&provider=google|github` when the provider is known. The codes are `email_unverified`, `link_refused`, `signup_closed`, `invite_required`, `signup_rate_limited`, `signup_unavailable`, `state_invalid`, `state_expired`, `oauth_denied`, `oauth_failed` and `internal`. The login page maps known codes to its own copy and never renders the query text.
+- **The sign-in is bound to the browser that started it.** `GET /auth/oauth/{provider}/start` sets an HttpOnly, `SameSite=Lax` cookie `pal_oauth_state` (path `/auth/oauth/`, 10 minutes, `Secure` in prod) holding a hash of the state. The callback refuses a state this cookie does not match (`state_invalid`). That stops login CSRF, where an attacker's own code and state are delivered to your browser. The state is redeemed atomically (Redis `GETDEL`), so a replay or a second concurrent callback fails. PKCE (S256) is kept.
+- The dashboard **navigates** to `/auth/oauth/{provider}/start?redirect=1` (a top-level load, not a `fetch`) so the browser accepts the cookie. That answers `302` to the provider, and errors `302` back to `/login?error=<code>`. Without `redirect=1` the endpoint still returns `{"redirect_url"}`, but the cookie only sticks if the caller is a same-site browser. The start URL and `OAUTH_REDIRECT_BASE` (the callback) must be on the same host, or the cookie is not sent back.
+- First sign-ins for one email are serialized (a Postgres advisory lock on the lowercased email), so two concurrent callbacks create one workspace, not two.
+
+## First owner on a self-host
+
+Production starts with sign-up closed and an empty database, so nobody could log in. To create the first owner, set `PAL_BOOTSTRAP_OWNER_EMAIL=you@example.com` (Helm: `controlPlane.env.PAL_BOOTSTRAP_OWNER_EMAIL`) and start the control plane once. If, and only if, the instance has **zero users**, startup creates the workspace (with the usual free-tier defaults) and an owner whose password is unusable, in one transaction. It writes a one-time password link to the server's **stderr** (`kubectl logs deploy/<release>-control-plane`):
+
+```
+PAL first-owner bootstrap for you@example.com
+Set the owner password (single use, expires in 1 hour):
+  https://<dashboard>/auth/reset?token=...
+```
+
+Open the link, set a password, then log in. The link is an ordinary password-reset token (SHA-256 at rest, single use, 1 hour, rate limited), so there is no extra endpoint to attack. The raw token is never sent to the structured logger or traces. Once any user has existed, the variable is ignored for good: a durable `instance_bootstrap` marker is written, so erasing every workspace later does not re-arm it. **Unset `PAL_BOOTSTRAP_OWNER_EMAIL` after your first login** anyway.
+
+If the hour passes before you redeem the link and you have a real mailer configured, use "Forgot password". Otherwise take the `tenant_id` from the control-plane's `bootstrap: first owner created` log line, run `DELETE FROM tenants WHERE id = '<tenant_id>'; DELETE FROM instance_bootstrap;` (**only when the instance has zero real users**: clearing the marker re-arms bootstrap) (both are needed, the second clears the marker) and restart. With sign-up closed, zero users and no bootstrap variable, the control plane logs a warning naming this variable at every start.
 
 ## Sign up, verify, log in
 
@@ -60,6 +83,44 @@ curl -s -X POST http://localhost:8080/auth/verify \
   -H 'Content-Type: application/json' -d '{"token":"<token from the link>"}'
 # 200 {"verified":true}
 ```
+
+## Sessions and sign-out
+
+A sign-in returns a session JWT (HS256). It is short-lived and revocable:
+
+- **Lifetime.** `PAL_JWT_TTL` (a Go duration, `5m` to `24h`, default `12h`). An out-of-range or unparseable value stops the control plane at startup. A token whose lifetime is longer than the configured TTL is refused even before it expires, so lowering the TTL takes effect at once and the old 30-day tokens no longer work. There is no refresh token: sign in again after the TTL.
+- **Revocation.** Each user row has a `token_version`, and every session carries it as the `tv` claim. A request whose `tv` no longer matches is refused with `401`. The version goes up on `POST /auth/logout`, on a password reset, on any password or role change (a database trigger does this, so it also covers changes made in SQL), and a deleted user or workspace is refused outright. A bump kills every session that user holds, on every device.
+- **Revocation window.** Each control-plane replica caches the version for up to 60 seconds. The replica that handled the logout or erasure refuses the old tokens immediately; other replicas refuse them within 60 seconds. A newer token (signed in after the change) is never held back by a stale cache.
+- **Where sessions are accepted.** Only by the control plane (directly or through the dashboard proxy), where the checks above run. The gateway on `:8443` accepts API keys only and refuses session JWTs.
+- **Open streams end too.** Server-sent event streams (`/v1/runs/{id}/events`, `/v1/sessions/{id}/events`) close when the token expires and re-check revocation every 60 seconds, so a logout also ends a stream that was already open.
+- **`POST /auth/logout`.** Needs a session JWT and returns `204`. It revokes all of the caller's sessions, not just the one presented. An API key gets `400`; revoke keys with `DELETE /v1/api-keys/{id}` instead.
+
+### The dashboard keeps the session out of JavaScript
+
+The dashboard stores the session only in an `HttpOnly`, `SameSite=Lax` cookie whose lifetime matches the token. In production it is named `__Host-pal_token`, so the browser only accepts it as `Secure`, host-only and `Path=/` (a sibling subdomain cannot plant or overwrite it). A session still under the old `pal_token` name is moved over and the old cookie cleared; dev keeps `pal_token`. Page scripts never see it, and nothing is written to `localStorage`. The browser calls the API through the dashboard's own origin at `/api/pal/*`; that proxy adds `Authorization: Bearer` from the cookie on the server side and streams responses (including SSE) through unbuffered. When sign-in, sign-up, the OAuth exchange or a kiosk session returns a token, the proxy moves it into the cookie and removes it from the JSON the page receives.
+
+Because the cookie is sent automatically, the proxy refuses anything that does not look like the dashboard's own `fetch()`: a `Sec-Fetch-Site` other than `same-origin`, a `Sec-Fetch-Dest` other than `empty` (so `<img>`, `<script>` and navigations to proxy URLs are refused too), and any state-changing request whose `Origin` is not the dashboard's host. Only `/v1/*` and `/auth/*` are proxied, never `/internal/*`, and request bodies over 2 MiB get `413`. OAuth sign-in is the one exception to "everything goes through the proxy": it starts with a top-level navigation to the API's public host (`PAL_PUBLIC_API_URL`), because that response sets a cookie on the API host.
+
+Every dashboard page also sends a Content-Security-Policy with a per-request nonce (`script-src 'self' 'nonce-…' 'strict-dynamic'`, no `unsafe-eval` in production, `connect-src 'self'`, `frame-ancestors 'none'`), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and a `Permissions-Policy` that turns off camera, microphone, geolocation, payment and USB.
+
+The control plane rate-limits sign-up, sign-in, password reset, verification, bridge pairing and kiosk sessions by client IP, and with the proxy it sees the dashboard as the peer. The proxy never passes on the browser's `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: it sends exactly one `X-Forwarded-For` hop it worked out itself. That hop is the TCP peer of the dashboard server, or, when that peer is your ingress and you list the ingress CIDRs in `PAL_DASHBOARD_TRUSTED_PROXIES`, the client the ingress reported. List the dashboard pods in the control plane's `PAL_TRUSTED_PROXIES` so it honours that hop; otherwise every visitor shares the dashboard's bucket. The Helm chart sets `PAL_DASHBOARD_TRUSTED_PROXIES` from `controlPlane.trustedProxies`, so one pod CIDR covers both.
+
+## Roles
+
+Every route checks the caller's role on the server. A session holds the scopes of its role, and a route that needs a scope the role lacks returns `403 {"code":"role_forbidden"}`. This is always on; `PAL_AUTHZ_ENFORCE` only stages scope enforcement for API keys and kiosk sessions. The dashboard offers each role exactly what the server allows (one source: `apps/web/lib/rbac.ts`, checked against the server by a test).
+
+| Role | Scopes | Can | Cannot |
+| --- | --- | --- | --- |
+| `owner` | `admin` | Everything. | |
+| `admin` | `admin` | Everything except the owner-only actions. | Export or delete the workspace, change billing, set the sandbox quota. |
+| `member` | `read`, `agents:write`, `runs:execute` | Read everything; build, edit, run and delete agents; propose promotions; star and fork marketplace agents. | API keys, provider keys, connectors and MCP credentials (they are tenant-wide secrets every agent can use), budgets, channels, voice numbers, devices, DLP, data planes, agent identity and policy, approving promotions, administering sandboxes, and the owner's personal data (held replies, automations, people, memory). |
+| `viewer` | `read` | Read. | Anything that changes state. |
+
+An unknown role gets `viewer`. API keys keep their own scopes. Kiosk sessions keep theirs (ADR 0029). Whether a caller is a session is decided by how it authenticated, not by the role it claims: a token that claims `role: service` is still a session (with viewer scopes), never an API key.
+
+### Credentials are never returned
+
+Connector, channel (surface) and MCP-attachment config is returned with every secret masked as `********`, to every role including the owner. Only identifier fields (for example `accountSid`, `phoneNumber`, `email`, `region`, `botUsername`) keep their value; any field not on that allowlist is masked, so a new credential field is safe by default. When a client sends a config back with a field still set to `********`, the stored value is kept. Executing a connector action (`GET` or `POST /v1/connectors/{id}/execute`) needs `connectors:write`, because it spends tenant-wide credentials; agents are governed by their policy instead.
 
 ## Email verification
 
@@ -176,7 +237,7 @@ The control plane refuses to start when:
 
 ## Endpoint reference
 
-All `/auth/*` routes take JSON and need no Bearer token.
+All `/auth/*` routes take JSON and need no Bearer token, except `POST /auth/logout` and `GET /auth/me`.
 
 | Endpoint | Request | Success | Errors |
 | --- | --- | --- | --- |
@@ -185,16 +246,19 @@ All `/auth/*` routes take JSON and need no Bearer token.
 | `POST /auth/verify` | `{token}` | `200 {"verified":true}` | `400 invalid or expired token` (unknown, reused, expired or wrong-purpose), `429` past 20 per hour per IP |
 | `POST /auth/verify/resend` | `{email}` | `202 {"status":"ok","message":"If that address has an account, we've sent it a link."}` for any well-formed email | `400 a valid email is required`, `429` |
 | `POST /auth/forgot` | `{email}` | Same responses and limits as resend; sends a reset link | |
-| `POST /auth/reset` | `{token, password}` | `200 {"reset":true}` | `400` short password or `invalid or expired token`, `429`. The token is checked after the length, so a short password does not burn it. |
+| `POST /auth/reset` | `{token, password}` | `200 {"reset":true}` | `400` short password or `invalid or expired token`, `429`. The token is checked after the length, so a short password does not burn it. A reset revokes every existing session of that user. |
+| `POST /auth/logout` | none; Bearer session JWT | `204`; every session of the caller is revoked | `400` for an API key, `401` without a valid session |
 
 `GET /v1/tenants/{id}/export` and `DELETE /v1/tenants/{id}` take a Bearer owner JWT; see above.
 
 ## Teams
 
-A workspace is one tenant. Sign-up creates its owner, and only the owner can export or delete it. The control plane has no member or invite API. The Settings page has a Team tab, but it keeps its member list in the browser's local storage, so it does not give anyone else access to the workspace. For shared programmatic access, [API keys](/docs/reference/api/) carry scopes; a key cannot be an owner.
+A workspace is one tenant. Sign-up creates its owner, and only the owner can export or delete it. Other users' roles are enforced as described in [Roles](#roles), but the control plane has no member or invite API yet, so a non-owner can only be created by an operator. The Settings page has a Team tab, but it keeps its member list in the browser's local storage, so it does not give anyone else access to the workspace. For shared programmatic access, [API keys](/docs/reference/api/) carry scopes; a key cannot be an owner.
 
 ## Limits
 
 - Invite codes cannot be listed or revoked. To cancel one, rotate `PAL_SIGNUP_INVITE_SECRET`, which invalidates all of them.
 - Rate limiting needs Redis. If Redis is absent or errors, sign-up **fails closed in prod** (`503 sign-up is temporarily unavailable`), so a Redis outage can't be used to create accounts without a limit. Login, verification and password reset fail open, because a Redis outage must not lock owners out. Only the captcha, sign-up mode and per-email checks protect those routes while Redis is down. In dev every route fails open. Bridge pairing keeps its own limiter in memory, so Redis has no effect on it.
 - Emailed links use `OAUTH_DASHBOARD_URL`, which defaults to localhost.
+- There is no refresh token. A session ends at `PAL_JWT_TTL` and the user signs in again.
+- Another replica can honor a revoked session for up to 60 seconds (see [Sessions and sign-out](#sessions-and-sign-out)).

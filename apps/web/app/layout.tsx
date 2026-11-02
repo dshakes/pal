@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { THEME_INIT_SCRIPT } from "@/lib/theme-init-script";
 import localFont from "next/font/local";
 import "./globals.css";
@@ -21,11 +22,13 @@ export const metadata: Metadata = {
 // on client-only APIs like useSearchParams / localStorage during SSG).
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Per-request CSP nonce from middleware.ts (lib/security-headers.ts).
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className={`dark ${interTight.variable} ${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <head>
@@ -33,6 +36,7 @@ export default function RootLayout({
             server env sets it, so local dev keeps its build-time default. */}
         {process.env.PAL_PUBLIC_API_URL !== undefined && (
           <script
+            nonce={nonce}
             dangerouslySetInnerHTML={{
               __html: `window.__NEXT_PUBLIC_API_URL=${JSON.stringify(process.env.PAL_PUBLIC_API_URL).replace(/</g, "\\u003c")};`,
             }}
@@ -40,6 +44,7 @@ export default function RootLayout({
         )}
         {/* No-flash theme init: set data-theme before paint. Dark is default (light via the toggle). */}
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: THEME_INIT_SCRIPT,
           }}

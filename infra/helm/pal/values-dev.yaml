@@ -104,7 +104,9 @@ dashboard:
     port: 3000
     nodePort: 30081
   env:
-    PAL_API_URL: "http://pal-gateway:8443"
+    # The control plane, not the gateway: the gateway takes API keys only, and the
+    # dashboard proxy forwards the session JWT.
+    PAL_API_URL: "http://pal-control-plane:8080"
 
 # -- Infrastructure with dev credentials --
 

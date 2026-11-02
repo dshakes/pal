@@ -2247,7 +2247,7 @@ export class WhatsAppSession {
     const telugu = teluguInbound
       ? ownerVoiceExemplars(samples, { max: 8, lang: "telugu", relevantTo })
       : [];
-    return formatOwnerVoiceBlock(ownerName, general, telugu);
+    return formatOwnerVoiceBlock(ownerName, general, telugu, this.ownerProfileStore.voice());
   }
 
   // Transition the named connection state and broadcast. Idempotent — a
@@ -6745,10 +6745,10 @@ export class WhatsAppSession {
       `  • Mail draft:     [MAIL:to@x.com|Subject|Body]`,
       `  • Phone call:     [CALL:Sam|conference|why you're calling]   (mode = conference | voicemail | task)`,
       `CALLS: when ${ownerName} asks you to call / phone / dial / ring / conference / reach someone (ANY phrasing, any language, typos and all — e.g. "call mae", "conference me withe manmanu", "can you ring her") you MUST emit a [CALL:...] marker. The bridge places the real call via Twilio and asks ${ownerName} to confirm before dialing. NEVER say "I'll call" / "calling her" / "will do" WITHOUT the [CALL:...] marker — a reply that claims a call without the marker is a lie, because no call happens. "conference me with X" → mode conference. "leave X a voicemail saying Y" → mode voicemail, message Y. "call the pharmacy to refill" → mode task, message the task. Use the contact's real name as target; the bridge resolves it to a number.`,
-      `  • Send message:   [SEND:whatsapp|Chikka|the message text]   (channel = whatsapp | imessage | sms | auto)`,
-      `SEND: when ${ownerName} asks you to send / text / message / reply-to / forward-to / tell someone something (ANY phrasing, any language — "text chikka the docs are coming", "tell mae I'll be late", "send Anil this on whatsapp") you MUST emit a [SEND:...] marker. The bridge resolves the contact, shows ${ownerName} a one-line preview, and only sends after they reply "send". The message goes FROM ${ownerName}'s own account. NEVER say "paste it yourself" / "I can only read WhatsApp" / "I'll text him" WITHOUT the marker — the send capability EXISTS; a reply that claims or defers a send without the marker is a lie. Put the message in ${ownerName}'s voice/language. Default channel to whatsapp when they say "on whatsapp", imessage/sms for "text", else auto.`,
-      `  • Send DOCUMENT:  [SENDDOC:auto|Manasa|PAN card]   (channel | contact | which document — a FILE, not text)`,
-      `SENDDOC: when ${ownerName} asks you to send a FILE / document / copy / scan / their ID (PAN card, aadhaar, passport, licence, receipt, insurance, certificate — "send Manasa my pan card", "forward the passport scan to dad") you MUST emit [SENDDOC:...] — NOT [SEND]. [SEND] carries only text and CANNOT attach a file, so using it for a document sends a "here's the pan card" message with no file (a lie). [SENDDOC] finds ${ownerName}'s real file, shows the filename, and attaches it after they reply "send". Put the document name (e.g. "PAN card") in the third field, not a sentence. The FIRST field is the CHANNEL and you MUST honor what ${ownerName} said: "whatsapp" for WhatsApp, "imessage" when they say iMessage/message, "sms" for SMS/text, else "auto" when unstated — e.g. "send Chikka my passport on iMessage" → [SENDDOC:imessage|Chikka|passport]. Never leave it "auto" when they named a channel. For a note AND a file, emit BOTH a [SEND] and a [SENDDOC].`,
+      `  • Send message:   [SEND:whatsapp|<contact>|the message text]   (channel = whatsapp | imessage | sms | auto)`,
+      `SEND: when ${ownerName} asks you to send / text / message / reply-to / forward-to / tell someone something (ANY phrasing, any language — "text <contact> the docs are coming", "tell mae I'll be late", "send Anil this on whatsapp") you MUST emit a [SEND:...] marker. The bridge resolves the contact, shows ${ownerName} a one-line preview, and only sends after they reply "send". The message goes FROM ${ownerName}'s own account. NEVER say "paste it yourself" / "I can only read WhatsApp" / "I'll text him" WITHOUT the marker — the send capability EXISTS; a reply that claims or defers a send without the marker is a lie. Put the message in ${ownerName}'s voice/language. Default channel to whatsapp when they say "on whatsapp", imessage/sms for "text", else auto.`,
+      `  • Send DOCUMENT:  [SENDDOC:auto|<contact>|passport]   (channel | contact | which document — a FILE, not text)`,
+      `SENDDOC: when ${ownerName} asks you to send a FILE / document / copy / scan / their ID (passport, licence, receipt, insurance, certificate — "send <contact> my passport", "forward the passport scan to dad") you MUST emit [SENDDOC:...] — NOT [SEND]. [SEND] carries only text and CANNOT attach a file, so using it for a document sends a "here's the passport" message with no file (a lie). [SENDDOC] finds ${ownerName}'s real file, shows the filename, and attaches it after they reply "send". Put the document name (e.g. "passport") in the third field, not a sentence. The FIRST field is the CHANNEL and you MUST honor what ${ownerName} said: "whatsapp" for WhatsApp, "imessage" when they say iMessage/message, "sms" for SMS/text, else "auto" when unstated — e.g. "send <contact> my passport on iMessage" → [SENDDOC:imessage|Sam|passport]. Never leave it "auto" when they named a channel. For a note AND a file, emit BOTH a [SEND] and a [SENDDOC].`,
       `STATUS: when ${ownerName} tells you where they are or that they're away/busy/back (ANY phrasing or language — "I am at the pool till 7:30pm est", "in a meeting for 2h", "driving", "I'm back", Telugu, etc.), emit a [STATUS:...] marker. Compute the until-ISO from the time they gave (their local timezone; resolve "till 7:30pm" to today's datetime). When they say they're back/free/available, emit [STATUS:CLEAR]. The bridge then tells anyone who messages — on EVERY channel — that ${ownerName} is at <place> and will get back, and offers to take a message. Confirm to ${ownerName} in your reply ("📍 got it — you're at the pool till 7:30; I'll let people know.").`,
       `OFFER-then-CONFIRM applies ONLY to state-modifying actions (calendar, note, mail). For READ operations (search, list, look up, find), NEVER ask permission — just execute and report results. The user already asked; asking "shall I search?" is wasted turns.`,
       `For ROSTER questions ("who came on X", "who's in X"): the group rosters above are the truth. If a member appears as "(name unknown — group privacy)", that's WhatsApp's new privacy-preserving identifier (@lid) — we genuinely don't have their name because they haven't DM'd us. State the FULL roster size from the group AND list every name we DO have; for the rest say "N others (WhatsApp doesn't expose names of non-contacts in groups, unless they DM you)". Their PARTICIPATION in the group still proves they were on the trip. Do NOT ask the user if they want you to search further; if you can search WhatsApp/iMessage history for the trip date range, JUST DO IT in this same turn.`,
@@ -9096,6 +9096,7 @@ export class WhatsAppSession {
       style,
       !!opts.isGroup,
       {
+        voice: this.ownerProfileStore.voice(),
         ownerSamples,
         // Commitments this bot already made IN THIS THREAD; its own "I'll
         // follow up" announcement is stripped from history as bot-self text.
@@ -9391,6 +9392,7 @@ export class WhatsAppSession {
     // Suppressed drafts log to the dashboard so the owner can see what was
     // almost sent.
     const botTellCtx = {
+      voice: this.ownerProfileStore.voice(),
       contactName: opts.isGroup ? undefined : (opts.senderName ?? this.contactNames.get(from)),
       relationship,
       audience: (isOwnerChan ? "owner" : "contact") as "owner" | "contact",
@@ -10404,7 +10406,7 @@ export class WhatsAppSession {
               ownerName: (process.env.PAL_OWNER_NAME || "Ada").split(/\s+/)[0],
               llmCall: async (p) => (await this.agent.respondTo(`${w.jid}::watchfollowup`, p, "", { withTools: false })) || "",
             });
-            const tell = followUp ? detectBotTells(followUp, w.topic) : { ok: false as const, reason: "empty follow-up" };
+            const tell = followUp ? detectBotTells(followUp, w.topic, { voice: this.ownerProfileStore.voice() }) : { ok: false as const, reason: "empty follow-up" };
             if (followUp && tell.ok) {
               await this.sendMessage(w.jid, followUp, { allow: this.contactAllow(w.jid) });
               w.status = "done";

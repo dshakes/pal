@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -121,13 +120,13 @@ func NewKioskHandler(srv *server.Server, auth *AuthHandler) *KioskHandler {
 
 func (h *KioskHandler) logger() *zap.Logger { return h.srv.Logger.Named("kiosk") }
 
-// allowIP: sliding one-hour window per client address.
-// ponytail: in-memory, per-process; RemoteAddr only (X-Forwarded-For is spoofable).
+// allowIP: sliding one-hour window per client address. remoteIP honours
+// X-Forwarded-For only from PAL_TRUSTED_PROXIES (the dashboard pods / ingress),
+// so the dashboard's /api/pal proxy does not make every visitor share one
+// bucket, and a direct caller still cannot pick its own address.
+// ponytail: in-memory, per-process.
 func (h *KioskHandler) allowIP(r *http.Request) bool {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
+	ip := remoteIP(r)
 	now := h.now()
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -200,6 +199,9 @@ func (h *KioskHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 			INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, role)
 			VALUES ($1, $2, 'Demo visitor', 'kiosk', $3, 'member') RETURNING id`,
 			tenantID, slug+"@demo.invalid", slug).Scan(&userID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, markBootstrappedSQL); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)

@@ -21,7 +21,6 @@ async function call<T = Record<string, unknown>>(path: string, init?: RequestIni
 
 async function signedIn(page: Page) {
   await page.context().addCookies([{ name: "pal_token", value: token, url: WEB_URL }]);
-  await page.addInitScript((t) => localStorage.setItem("pal_token", t), token);
 }
 
 test.beforeAll(async () => {

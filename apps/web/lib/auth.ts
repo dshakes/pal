@@ -17,7 +17,6 @@ import React from "react";
 
 export interface AuthState {
   user: User | null;
-  token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isDemoMode: boolean;
@@ -29,7 +28,7 @@ export interface AuthState {
   ) => Promise<{ verificationRequired: boolean }>;
   login: (email: string, password: string) => Promise<void>;
   loginDemo: () => void;
-  /** Clears the session; resolves once the HttpOnly cookie is cleared too. */
+  /** Revokes every session server-side and clears the HttpOnly cookie. */
   logout: () => Promise<void>;
 }
 
@@ -39,18 +38,10 @@ export interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-// Demo mode is OFF unless explicitly enabled at build time. When off, the
-// client-minted `demo_token_*` path cannot authenticate at all: loginDemo()
-// is a no-op and any restored demo token is dropped. Even when ON, the
-// middleware validates every protected-route request against the
-// control-plane's /auth/me — a demo token 401s there — so demo mode never
-// grants access to real tenant data; it only drives local explore-the-UI
-// state on public pages.
+// Demo mode is OFF unless explicitly enabled at build time. Even when on it is
+// local UI state only: there is no session cookie, so the middleware refuses
+// every gated route and no tenant data is reachable.
 const DEMO_MODE_ENABLED = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
-
-function isDemoToken(token: string): boolean {
-  return token.startsWith("demo_token_");
-}
 
 export function useAuth(): AuthState {
   const ctx = useContext(AuthContext);
@@ -64,43 +55,20 @@ export function useAuth(): AuthState {
 // Provider
 // ---------------------------------------------------------------------------
 
+// The session is the HttpOnly `pal_token` cookie (S-3): page scripts never see
+// the JWT. "Signed in" therefore means "/auth/me through the same-origin
+// proxy answered with a user" — there is no client-side token to restore or to
+// fall out of sync with the cookie.
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // On mount: restore token from localStorage
   useEffect(() => {
-    const stored = api.restoreToken();
-    if (stored) {
-      // A client-minted demo token can only be honored when demo mode is
-      // explicitly enabled. Otherwise drop it — it is not a real credential.
-      if (isDemoToken(stored)) {
-        if (DEMO_MODE_ENABLED) {
-          setToken(stored);
-          setUser(DEMO_USER);
-          setIsDemoMode(true);
-        } else {
-          api.setToken(null);
-        }
-        setIsLoading(false);
-      } else {
-        setToken(stored);
-        // Validate the real token by calling /auth/me
-        api.getMe().then((u) => {
-          setUser(u);
-          setIsLoading(false);
-        }).catch(() => {
-          // Token expired or invalid -- clear it
-          api.setToken(null);
-          setToken(null);
-          setIsLoading(false);
-        });
-      }
-    } else {
-      setIsLoading(false);
-    }
+    api.getMe()
+      .then((u) => setUser(u))
+      .catch(() => setUser(null))
+      .finally(() => setIsLoading(false));
   }, []);
 
   const signup = useCallback(async (
@@ -110,11 +78,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     extra?: { inviteCode?: string; captchaToken?: string },
   ) => {
     const result = await api.signup(email, password, name, extra);
-    if (!result.token || !result.user) {
+    if (!result.user) {
       // Prod: account created, no session until the email is verified.
       return { verificationRequired: true };
     }
-    setToken(result.token);
     setUser(result.user);
     setIsDemoMode(false);
     return { verificationRequired: false };
@@ -122,43 +89,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await api.login(email, password);
-    setToken(result.token);
     setUser(result.user);
-    // A real login must never be classified as demo. (The api.login demo
-    // fallback is itself demo-gated.) Treat a demo-shaped token as demo
-    // only when demo mode is enabled; otherwise it isn't a usable session.
-    setIsDemoMode(DEMO_MODE_ENABLED && isDemoToken(result.token));
+    setIsDemoMode(DEMO_MODE_ENABLED && result.demo === true);
   }, []);
 
   const loginDemo = useCallback(() => {
-    // Hard-gated: without NEXT_PUBLIC_DEMO_MODE=1 this cannot mint a token,
-    // so the client-side auth bypass is off in any normal/production build.
     if (!DEMO_MODE_ENABLED) {
       console.warn("[pal] Demo mode is disabled (set NEXT_PUBLIC_DEMO_MODE=1 to enable).");
       return;
     }
-    const demoToken = "demo_token_" + Date.now();
-    api.setToken(demoToken);
-    setToken(demoToken);
     setUser(DEMO_USER);
     setIsDemoMode(true);
   }, []);
 
   const logout = useCallback(async () => {
-    api.logout();
-    setToken(null);
+    // Awaited so a following navigation can't race the cookie clear and get
+    // waved through by middleware with a still-present cookie.
+    await api.logout();
     setUser(null);
     setIsDemoMode(false);
-    // Await the cookie DELETE so a following navigation can't race it and get
-    // waved through by middleware with a still-present cookie.
-    await api.whenCookieSynced();
   }, []);
 
   const value: AuthState = {
     user,
-    token,
     isLoading,
-    isAuthenticated: !!token,
+    isAuthenticated: !!user,
     isDemoMode,
     signup,
     login,

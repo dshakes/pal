@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"regexp"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -12,6 +13,10 @@ import (
 
 // tenantIDKey is an unexported context key to avoid collisions.
 type tenantIDKey struct{}
+
+// tenantIDPattern: tenant ids are UUIDs. Anything else is refused before it
+// can reach a query or the app.tenant_id GUC.
+var tenantIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // TenantIDFromContext extracts the tenant ID previously injected by the
 // tenant interceptor. Returns ("", false) if not present.
@@ -83,6 +88,10 @@ func extractTenant(ctx context.Context, logger *zap.Logger, method string) (cont
 	}
 
 	tenantID := vals[0]
+	if !tenantIDPattern.MatchString(tenantID) {
+		logger.Warn("request tenant_id is not a UUID", zap.String("method", method))
+		return ctx, status.Error(codes.InvalidArgument, "tenant_id must be a UUID")
+	}
 	ctx = context.WithValue(ctx, tenantIDKey{}, tenantID)
 
 	logger.Debug("tenant extracted",

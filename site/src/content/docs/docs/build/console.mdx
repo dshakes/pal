@@ -1,0 +1,91 @@
+---
+title: Console
+description: "A tour of the PAL dashboard: the two spaces, the agent lifecycle tabs, runs, reliability, incidents, debug, promotions, sandboxes and settings."
+---
+
+The **Console** is the dashboard at `http://localhost:3001` when you run the stack locally. It has two **spaces**, switched at the top of the sidebar: **PAL**, your personal agent, and **PAL Runtime**, where you build, ship and watch agents. The switch remembers your last space. Every number on these pages is a real API read; a source that fails shows `—` or an error with a retry, never a made-up value.
+
+Keyboard: `⌘K` asks PAL; `g o` Overview, `g a` Agents, `g r` Runs, `g v` Sandboxes, `g t` Today, `g h` Holds, `g s` Settings; `?` shows the cheat sheet.
+
+## PAL Runtime
+
+### Overview
+
+The Runtime home reads like an on-call handover: one sentence on whether things are fine, the four numbers that matter (runs, success, spend, sandboxes), what ran when (48 half-hour slots), and what needs attention. Each recent failure has an inline **Why?** that asks the server for an explanation grounded in that run's real events. Cross-tenant ids are a 404.
+
+### Agents and the lifecycle tabs
+
+An agent page lays the work out as a sequence. The numbered rail is the lifecycle; the unnumbered tabs are configuration. The URL carries the tab (`?tab=`), and old links such as `?tab=runs` still resolve.
+
+| Tab | Answers | Related |
+| --- | --- | --- |
+| Design | Prompt, model, tools | [Agents](/docs/build/agents/) |
+| Test | Talk to it | [Testing](/docs/build/testing/) |
+| Evals | Suites and scores | [Evaluations](/docs/build/evaluations/) |
+| Gate | Ready to ship? | [Promotion](/docs/build/promotion/) |
+| Promote | Sandbox, staging, prod | [Promotion](/docs/build/promotion/) |
+| Observe | Runs and cost | [Observability](/docs/observability/) |
+| Debug | Why it failed | [Debugging and support](/docs/build/debugging/) |
+| Schedule | Cron schedules | [Scheduling](/docs/build/scheduling/) |
+| Identity & policy | Who the agent is and what it may do | [Agent identity and policy](/docs/security/agent-policy/) |
+| Settings | Everything else | |
+
+### Runs
+
+The run list and a run's detail page, with the event stream and the step waterfall. A run's trace is the redacted tree of steps, model calls, tool calls and child runs, built from the journal (`GET /v1/runs/{id}/trace`). **Explain** on a run gives a short, grounded reading of what happened.
+
+### Reliability and SLOs
+
+Each agent has a **Reliability** page (`/agents/<name>/reliability`): SLO targets with error-budget burn, a run-activity chart, and opt-in sampled production evals with per-version drift. All verdicts, such as burn alerts and drift, come from the server; the page lays them out.
+
+### Incidents
+
+`/incidents` lists anomalies and SLO burn found by the observability sweep: cost, latency, error rate, tool use or quality moving well outside an agent's own baseline. Detection is deterministic. A model may write the summary, but only if it cites the incident's own runs. Acknowledging and resolving are recorded in an audit table.
+
+### Debug
+
+The **Debug** tab points the debug agent at a run, an incident or a failing eval case. It reads the evidence the server collects (run trace and journal, the failing version's snapshot against the last good one, promotion audit, failed eval cases, budget, open incidents) and returns a root cause that cites it, plus fix **proposals**. Nothing is applied until a person confirms. The CLI equivalent is `pal debug` ([CLI](/docs/reference/cli/#debug--support)). Replaying a past failure against a candidate version is not a server action yet; `pal test --rehearse` does it from the terminal.
+
+### Promotions
+
+`/promotions` is tenant-wide: what is waiting on a human, and the append-only audit of who shipped what to sandbox, staging and prod. It uses the same endpoints and approval flow as an agent's Promote tab. Approving needs an owner or admin session.
+
+### Sandboxes
+
+`/runtime` lists your microVMs: state, placement and lifecycle (pause, resume, fork, terminate), polled every 5 seconds. If a poll fails it keeps the last good rows and says they are stale. See [Sandbox lifecycle](/docs/runtime/sandbox-lifecycle/).
+
+The rest of the Runtime sidebar: **Deployments**, **Evals**, **Experiments**, **Analytics**, **Budgets**, **Connectors**, **Channels** and **Marketplace**.
+
+## PAL
+
+The PAL space is your personal agent's home. It opens on **Today**, a ranked "what needs you" list: held replies you can approve, edit or discard in one click, suggested life events, open commitments and threads waiting on you. The ranking is a deterministic order plus one model pass that may only reorder and annotate.
+
+| Page | What is there |
+| --- | --- |
+| Today | The Brief |
+| Holds | Replies PAL is waiting on your yes for ([Holds and trust](/docs/pal/human-in-the-loop/)) |
+| Automations | Life-event feed and per-kind trust (`auto`, `ask`, `off`) |
+| People & memory | Contacts, VIPs and groups |
+| Activity | Recent activity |
+| Documents | Your personal documents |
+| Voice | How PAL learns to sound like you ([Teach it your voice](/docs/pal/voice/)) |
+| Channels | iMessage and WhatsApp ([Set up PAL](/docs/pal/surfaces/)) |
+| Assistant | The assistant's controls |
+
+First sign-in lands on **Welcome**, where you pick PAL or PAL Runtime. Both paths open a conversation with the onboarding agent; a step-by-step wizard is the labelled fallback.
+
+## Ask PAL (⌘K)
+
+The command palette takes plain language and turns it into one validated action: navigate, answer, explain a run, create an agent, or pause, resume or terminate a sandbox. Routes are allowlisted, ids must come from the context the model was given, and any change stops at a confirm card first. The browser never calls a model provider; it goes through the control plane.
+
+## Settings
+
+Settings has its own navigation: General, Model providers, API keys, Team, **Devices**, Billing, MCP, **Data protection** and **Audit log**. Some entries show only to roles that can use them.
+
+- **Devices** (`/settings?tab=devices`): pair a Mac or phone to your workspace with a one-time code, list paired devices, revoke one.
+- **Data protection** (`/settings/dlp`): the egress DLP rules the sandbox broker applies to outbound requests. Anyone can read them; changes need `settings:write`. Matched values are never logged, only the decision. See [Egress](/docs/security/egress/).
+- **Audit log** (`/settings/audit`): owner and admin only. There is no single tenant-wide audit endpoint, so this page merges the two that exist, promotions and sandboxes, and says so. Per-agent policy audit is on the agent's Identity & policy tab.
+
+## Theme
+
+Dark is the default. The ☀/☾ toggle in the top bar switches to light and the choice persists in your browser.

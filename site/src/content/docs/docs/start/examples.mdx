@@ -25,7 +25,7 @@ The REST examples assume `export API=http://localhost:8080 TOKEN=<JWT or API key
 
 ## Support desk
 
-A webchat agent answers from your docs, shows its source, and hands the conversation to a human when it cannot answer, pinging Slack. The APIs are in [Knowledge and handoff](/docs/pal/knowledge/).
+A webchat agent answers from your docs, shows its source, and hands the conversation to a human when it cannot answer, pinging Slack. The APIs are in [Your documents and memory](/docs/pal/knowledge/).
 
 ```bash
 make dev-infra && make run-api          # terminal 1
@@ -79,7 +79,7 @@ curl -X POST $API/v1/schedules -H "Authorization: Bearer $TOKEN" -d @schedule.js
 
 ## Telegram assistant
 
-Message a Telegram bot (or WhatsApp Cloud number) and a workflow reads your Google Calendar and answers in the same chat. It uses the surface gateway, the Telegram secret-token and WhatsApp `X-Hub-Signature-256` checks ([Connect your channels](/docs/pal/surfaces/)) and the calendar `list_events` action.
+Message a Telegram bot (or WhatsApp Cloud number) and a workflow reads your Google Calendar and answers in the same chat. It uses the surface gateway, the Telegram secret-token and WhatsApp `X-Hub-Signature-256` checks ([Set up PAL](/docs/pal/surfaces/)) and the calendar `list_events` action.
 
 ```bash
 cd examples/telegram-assistant
@@ -92,7 +92,7 @@ The priming run is needed because the gateway starts runs over gRPC, which refus
 
 ## Voice receptionist
 
-A Twilio number answers inbound calls under a hard spend cap. Forged webhooks get 403. An over-budget call is declined with `<Reject/>` before it connects. The status callback reconciles the $0.05 reservation to the real per-started-minute cost. Details are in [Connect your channels](/docs/pal/surfaces/).
+A Twilio number answers inbound calls under a hard spend cap. Forged webhooks get 403. An over-budget call is declined with `<Reject/>` before it connects. The status callback reconciles the $0.05 reservation to the real per-started-minute cost. Details are in [Set up PAL](/docs/pal/surfaces/).
 
 ```bash
 cd examples/voice-receptionist

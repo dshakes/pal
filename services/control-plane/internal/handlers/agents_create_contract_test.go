@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -47,7 +48,7 @@ func newRESTHandlerForContractTest(t *testing.T) *RESTHandler {
 // so the REST handler's auth validation passes.
 func mintContractToken(t *testing.T, h *RESTHandler) string {
 	t.Helper()
-	tok, err := h.auth.generateToken("contract-user-id", devTenantID, "contract@test.local", "Contract Tester", "owner")
+	tok, err := h.auth.generateToken(context.Background(), "contract-user-id", devTenantID, "contract@test.local", "Contract Tester", "owner")
 	if err != nil {
 		t.Fatalf("mintContractToken: %v", err)
 	}

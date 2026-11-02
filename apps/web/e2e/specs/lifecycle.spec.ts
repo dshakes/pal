@@ -17,7 +17,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 async function signedIn(page: Page) {
   await page.context().addCookies([{ name: "pal_token", value: token, url: WEB_URL }]);
-  await page.addInitScript((t) => localStorage.setItem("pal_token", t), token);
 }
 
 const smoke = (extra: object[] = []) =>

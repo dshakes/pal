@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -109,34 +108,30 @@ func (s *tenantStream) Context() context.Context { return s.ctx }
 // HTTP auth helper
 // ---------------------------------------------------------------------
 
-// ResolveTenantHTTP validates the bearer JWT against the shared secret
-// and returns the tenant_id claim. Used by the REST gateway. The signing
-// algorithm and claim shape match services/control-plane/internal/handlers/auth.go.
-func ResolveTenantHTTP(r *http.Request, secret []byte) (string, error) {
-	authz := r.Header.Get("Authorization")
-	if authz == "" {
-		return "", status.Error(codes.Unauthenticated, "missing authorization header")
+// TenantHeader names the tenant an authenticated REST caller acts for.
+const TenantHeader = "X-Pal-Tenant-Id"
+
+// ResolveTenantHTTP authenticates a REST caller and returns its tenant.
+//
+// The REST gateway is for trusted in-cluster callers only, exactly like the
+// gRPC port: the caller presents the shared service token
+// (x-pal-service-token, constant-time compared) and names the tenant in
+// X-Pal-Tenant-Id. It no longer accepts user JWTs: this service cannot check
+// session revocation (users.token_version), the session TTL cap or role
+// scopes, so a logged-out or demoted user's token would still have scheduled
+// microVMs here. With no token configured the REST tenant routes are refused
+// (fail-closed); the prod startup guard already requires the token.
+func ResolveTenantHTTP(r *http.Request, serviceToken string) (string, error) {
+	if serviceToken == "" {
+		return "", status.Error(codes.Unauthenticated, "REST API disabled: PAL_GRPC_SERVICE_TOKEN is not set")
 	}
-	parts := strings.SplitN(authz, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-		return "", status.Error(codes.Unauthenticated, "invalid authorization header")
+	presented := r.Header.Get(ServiceTokenMetadataKey)
+	if presented == "" || !serviceTokenValid(serviceToken, presented) {
+		return "", status.Error(codes.Unauthenticated, "invalid service token")
 	}
-	tok, err := jwt.Parse(parts[1], func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, status.Errorf(codes.Unauthenticated, "unexpected signing method: %v", t.Header["alg"])
-		}
-		return secret, nil
-	})
-	if err != nil || !tok.Valid {
-		return "", status.Error(codes.Unauthenticated, "invalid token")
-	}
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", status.Error(codes.Unauthenticated, "invalid claims")
-	}
-	tid, _ := claims["tenant_id"].(string)
+	tid := strings.TrimSpace(r.Header.Get(TenantHeader))
 	if tid == "" {
-		return "", status.Error(codes.Unauthenticated, "missing tenant_id claim")
+		return "", status.Error(codes.Unauthenticated, "missing "+TenantHeader+" header")
 	}
 	return tid, nil
 }

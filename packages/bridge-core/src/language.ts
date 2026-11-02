@@ -352,7 +352,7 @@ const ISO_639_1: Partial<Record<DetectedLanguage, string>> = {
 // one (the Telugu→Kannada failure mode). Kept short — Whisper only reads the
 // last ~224 tokens of the prompt.
 const WHISPER_PRIME: Partial<Record<DetectedLanguage, string>> = {
-  telugu: "ఇది తెలుగు సంభాషణ. Telugu conversation, Telangana dialect.",
+  telugu: "ఇది తెలుగు సంభాషణ. Telugu conversation.",
   hindi: "यह हिंदी बातचीत है. Hindi conversation.",
   tamil: "இது தமிழ் உரையாடல். Tamil conversation.",
   kannada: "ಇದು ಕನ್ನಡ ಸಂಭಾಷಣೆ. Kannada conversation.",

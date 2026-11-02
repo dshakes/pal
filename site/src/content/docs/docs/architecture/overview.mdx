@@ -24,7 +24,7 @@ Three rules hold the split together. The control plane never touches code in a m
 
 ## How a request travels
 
-1. **The gateway authenticates.** A client sends `POST /v1/runs` with a JWT or API key. The gateway terminates TLS, validates the credential, applies rate limits and forwards to the control plane.
+1. **The gateway authenticates.** A client sends `POST /v1/runs` with an API key (`X-API-Key` or `Authorization: Bearer`). The gateway terminates TLS, validates the key with the control plane, applies rate limits and forwards to the control plane.
 2. **The control plane admits the run.** It resolves the agent version, reads `manifest.isolation`, and checks the [budget](/docs/build/budgets/). A reached hard-fail limit returns 402 here, before any model call.
 3. **The run executes.** On the shared tier the control plane's executor drives it. On the microVM tier it asks the scheduler for a node, and the runtime-manager spawns the VM.
 4. **Model calls go out by capability.** `model: "auto"` or `reasoning-large` is mapped to a concrete model. See [Models and routing](/docs/build/models/).
@@ -37,7 +37,7 @@ The step-by-step version with failure paths is [Request lifecycle](/docs/archite
 
 | Service | Language | Port | Role |
 | --- | --- | --- | --- |
-| gateway | Rust | `:8443` | TLS, JWT and API-key auth, rate limits, SSE proxy |
+| gateway | Rust | `:8443` | TLS, API-key auth (no session JWTs; the dashboard talks to the control plane), rate limits, SSE proxy |
 | control-plane | Go | `:8080` REST, `:50051` gRPC | API, budgets, agents, runs, sessions; never touches user code |
 | workflow-engine | Go | `:50052` | Durable event-sourced steps; the only writer of run state |
 | model-router | Rust | `:50053` | Capability addressing, 4 strategies, cache, failover |
@@ -50,4 +50,4 @@ The model-router service is off by default for the control plane's own completio
 
 ## Go deeper
 
-[Request lifecycle](/docs/architecture/request-lifecycle/), [microVM lifecycle](/docs/architecture/vm-lifecycle/), [Security boundaries](/docs/architecture/security-boundaries/), [Durability](/docs/architecture/durability/), [Deployment topology](/docs/architecture/deployment-topology/), [pal internals](/docs/architecture/pal/).
+[Request lifecycle](/docs/architecture/request-lifecycle/), [microVM lifecycle](/docs/architecture/vm-lifecycle/), [Security boundaries](/docs/architecture/security-boundaries/), [Durability](/docs/architecture/durability/), [Deployment topology](/docs/architecture/deployment-topology/), [PAL internals](/docs/architecture/pal/).

@@ -242,7 +242,7 @@ func (s *chatSession) actionKey(suggested string) (bool, string) {
 // actionConsent: only an explicit "y" from the owner, at this terminal.
 func (s *chatSession) actionConsent() (bool, string) {
 	cfg := s.pal
-	cfg.printf("\n   pal may read your iMessage/WhatsApp on this Mac and reply as you, sending conversation text to your own model provider. You can mute or stop it any time.\n")
+	cfg.printf("\n   PAL may read your iMessage/WhatsApp on this Mac and reply as you, sending conversation text to your own model provider. You can mute or stop it any time.\n")
 	if !cfg.yesNo("   Do you agree?", false) {
 		return false, "the owner did not agree"
 	}

@@ -47,7 +47,7 @@ export function AuthFrame({ children }: { children: ReactNode }) {
           <ul className="mt-8 space-y-4 text-sm text-white/90">
             <li className="flex gap-3">
               <MessageCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span><b className="font-semibold">pal</b> answers in your voice on WhatsApp and iMessage, and briefs you on what needs you.</span>
+              <span><b className="font-semibold">PAL</b> answers in your voice on WhatsApp and iMessage, and briefs you on what needs you.</span>
             </li>
             <li className="flex gap-3">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
@@ -59,7 +59,7 @@ export function AuthFrame({ children }: { children: ReactNode }) {
             </li>
           </ul>
         </div>
-        <p className="text-xs text-white/70">Personal Agentic Layer</p>
+        <p className="text-xs text-white/70">Personalized Agentic Layer</p>
       </aside>
       <main className="flex flex-1 items-center justify-center px-4 py-10">
         <div className="w-full max-w-[400px]">

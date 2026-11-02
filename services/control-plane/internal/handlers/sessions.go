@@ -866,7 +866,7 @@ func (h *SessionHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 		// Also check query param for EventSource (which can't set headers).
 		tokenParam := r.URL.Query().Get("token")
 		if tokenParam != "" {
-			claims, err = h.auth.ValidateToken(tokenParam)
+			claims, err = h.auth.ValidateToken(r.Context(), tokenParam)
 		}
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
@@ -920,9 +920,14 @@ func (h *SessionHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "data: %s\n\n", `{"type":"connected","data":{}}`)
 	flusher.Flush()
 
+	// The stream ends when the session token expires or is revoked (logout,
+	// password/role change), not only when the client goes away.
+	streamCtx, stopStream := h.auth.guardStream(r.Context(), claims)
+	defer stopStream()
+
 	// Subscribe to Redis pub/sub for this session.
 	channel := fmt.Sprintf("session:%s:events", sessionID)
-	pubsub := h.srv.Redis.Subscribe(r.Context(), channel)
+	pubsub := h.srv.Redis.Subscribe(streamCtx, channel)
 	defer pubsub.Close()
 
 	ch := pubsub.Channel()
@@ -930,7 +935,7 @@ func (h *SessionHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 	// Keep connection open and forward events.
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-streamCtx.Done():
 			return
 		case msg, ok := <-ch:
 			if !ok {

@@ -13,8 +13,10 @@ import { Aside } from '@astrojs/starlight/components';
 | --- | --- |
 | Get started | [`demo`](#demo), [`onboard`](#onboard), [`setup`](#setup), [`doctor`](#doctor), [`dev`](#dev) |
 | Build | [`init`](#init), [`agents`](#agents) (incl. `agents dev`), [`deploy`](#deploy), [`hooks`](#hooks) |
-| Run and observe | [`runs`](#runs), [`logs`](#logs), [`test`](#test) |
-| Sandbox VMs | [`run`, `vm`](#vm) |
+| Ship safely | [`freeze`, `promote`, `approve`, `reject`, `rollback`, `canary`, `promotions`](#freeze--promote--approve--rollback) |
+| Govern an agent | [`agents policy`, `agents identity`, `agents audit`](#agents-policy--identity--audit) |
+| Run and observe | [`runs`](#runs), [`logs`](#logs), [`test`](#test), [`eval`](#eval), [`debug`, `support`](#debug--support) |
+| Sandbox VMs | [`run`, `vm`](#vm), [`sandbox`](#sandbox) |
 | Cloud | [`infra`](#infra) |
 | Account | [`login`, `whoami`, `logout`](#login--whoami--logout) |
 
@@ -44,7 +46,7 @@ pal demo --down      # stop and delete all demo data
 
 First run. On a terminal it is a conversation with PAL's onboarding agent (the same one as the dashboard): say what you want, and it gets a working key (typed at a hidden prompt, never into the chat), designs the agent, creates it on your go-ahead and runs it. `--steps` uses the step-by-step wizard instead (health, sign-in, key test, design, confirm, streamed first run); it also takes over, labelled, when the agent can't reach the model. With `--yes` or a non-terminal stdin it never prompts (CI). Flags: `--provider` (`openai`|`anthropic`), `--api-key`, `--description`, `--steps`. See [Quickstart](/docs/start/quickstart/).
 
-`pal setup` (pal, the personal agent) works the same way: a conversation by default, `--steps` for the wizard, and consent only ever from your own keypress.
+`pal setup` (PAL, the personal agent) works the same way: a conversation by default, `--steps` for the wizard, and consent only ever from your own keypress.
 
 ```bash
 pal onboard                 # conversation
@@ -57,7 +59,7 @@ pal onboard --yes --provider anthropic --api-key "$KEY" \
 
 Agentic first run for the personal agent: the terminal twin of the dashboard's `/pal/onboarding`. The control plane owns the state and returns the step to resume, so the CLI, the dashboard and the server agree. Steps are `welcome`, `channels`, `voice`, `trust`, `profile` and `done` (your first Brief). Each step advances only on a real result: a live bridge check, a saved setting read back, your explicit confirmation. Consent is never given non-interactively.
 
-Flags: `--yes` / `-y` never prompts; it reports where setup stands and does not change consent. `--apply` writes the setup into this Mac's bridge config: confirmed facts and relationships into the owner profile, and quiet hours and the voice setting into `bridge.env`. Both files are backed up first. Bridge addresses come from `PAL_BRIDGE_URL`, `PAL_IMESSAGE_BRIDGE_URL` and `PAL_DASHBOARD_URL`, and tokens from `PAL_BRIDGE_TOKEN` and `PAL_IMESSAGE_BRIDGE_TOKEN`. See [Connect your channels](/docs/pal/surfaces/).
+Flags: `--yes` / `-y` never prompts; it reports where setup stands and does not change consent. `--apply` writes the setup into this Mac's bridge config: confirmed facts and relationships into the owner profile, and quiet hours and the voice setting into `bridge.env`. Both files are backed up first. Bridge addresses come from `PAL_BRIDGE_URL`, `PAL_IMESSAGE_BRIDGE_URL` and `PAL_DASHBOARD_URL`, and tokens from `PAL_BRIDGE_TOKEN` and `PAL_IMESSAGE_BRIDGE_TOKEN`. See [Set up PAL](/docs/pal/surfaces/).
 
 ```bash
 pal setup           # interactive, resumes where you left off
@@ -109,6 +111,22 @@ pal agents dev my-agent [--dir ./my-agent] [--input '{"prompt":"hi"}'] [--eval] 
 
 `agents dev` (also `pal agent dev`) is the agent development inner loop: it watches the local directory for changes to `agent.yaml` or code files, re-publishes the agent version on each change, runs a smoke input (`--input`), and streams the run events. `--eval` also runs the agent's eval suite after each publish.
 
+### agents policy / identity / audit
+
+Every registered agent is a principal with a signed identity and a least-privilege policy. Background: [Agent policy and identity](/docs/security/agent-policy/).
+
+```bash
+pal agents policy get <name>                  # -o json for the raw document
+pal agents policy set <name> -f policy.json   # replace; if the file has a stale "version" the server answers 409
+pal agents policy propose <name> [--apply]    # least-privilege proposal with a rationale per field
+pal agents identity show <name>
+pal agents identity rotate <name>             # new key generation; old tokens stop verifying
+pal agents identity revoke <name> [--reason "..."]   # the agent's runs fail admission
+pal agents audit <name> [--event policy_denied] [--limit 50]   # also verifies the hash chain
+```
+
+`propose` saves nothing unless you pass `--apply`. With `--apply` it writes the proposal, reads it back and reports "verified" only if the read-back equals the proposal; otherwise it exits non-zero.
+
 ## runs
 
 Manage runs: create, list, inspect, cancel.
@@ -149,6 +167,50 @@ pal test --agent my-agent --suite factual-accuracy
 pal test --agent my-agent --suite factual-accuracy --against last-green
 pal test --agent my-agent --rehearse --window 24h
 ```
+
+## freeze / promote / approve / rollback
+
+Ship an agent version through `sandbox`, `staging` and `prod`, with deterministic gates and a human approval for prod. The full flow, gates and audit trail are in [Promotion](/docs/build/promotion/).
+
+```bash
+pal freeze <agent> [--label v7]                       # snapshot the working copy as an immutable version
+pal promote <agent> --to sandbox|staging|prod [--version V] [--canary N] \
+  [--max-error-rate 0.10] [--max-cost-ratio 1.5] [--min-eval-score S] [--min-runs 20] \
+  [--reason "..."] [--run-eval <suite-id>] [--require-approval] [--json]
+pal approve <promotion-id> [--note "..."]             # human owner/admin only
+pal reject <promotion-id> [--note "..."]
+pal rollback <agent> [--env prod] [--note "..."]      # idempotent
+pal canary evaluate <agent>                           # run the canary guards now
+pal promotions list [--status pending_approval] [--agent A]
+pal promotions envs <agent>                           # what each environment serves
+pal promotions audit [--agent A]                      # append-only decision trail
+pal promote contract                                  # JSON tool contract for the onboarding agent
+```
+
+`promote`, `approve`, `reject` and `rollback` exit non-zero when the request is blocked, so CI and scripts cannot treat "blocked" as success. `--run-eval` retries once after running the named suite hermetically against the target environment.
+
+## eval
+
+Hermetic, LLM-judged evals run on the control plane with mocked tools ([Evaluations](/docs/build/evaluations/)). `pal test` is the older runner that executes a suite through real runs.
+
+```bash
+pal eval run --agent support --suite core [--samples 3] [--set-baseline] [--branch main] [--case NAME] [--max-cost 1.00] [--judge-model reasoning-large] [--json]
+pal eval generate --agent support [--goal "..."] [--max-cases 12] [--out draft.json] [--approve [-y]]
+pal eval approve --file draft.json
+pal eval calibrate --agent support [--rubric R] [--limit 20]
+```
+
+`run` exits non-zero when any case fails or the run regressed against the branch baseline. `generate` never saves a suite without `--approve` or a later `eval approve`.
+
+## sandbox
+
+Promote an agent to `sandbox`, run its workload in a real microVM and record the evidence.
+
+```bash
+pal sandbox run <agent> --spec agent.yaml [--exec "/bin/sh -c uname"] [--input '{...}'] [--keep] [--wait 2m] [--version V] [--json]
+```
+
+It exits non-zero if the VM never ran or the command failed, and refuses a stub scheduler because nothing would have run. `--exec` is execve-style: no shell unless you pass `/bin/sh -c ...`. The VM is terminated unless `--keep`.
 
 ## vm
 
@@ -254,6 +316,8 @@ pal login [--email --password]   # authenticate to the control plane
 pal whoami                       # show current authenticated user
 pal logout                       # clear stored credentials
 ```
+
+A `pal login` session is a dashboard session JWT: it lasts `PAL_JWT_TTL` (12 hours by default) with no refresh, and it ends early when that user signs out anywhere (`POST /auth/logout` revokes all of the user's sessions) or their password or role changes. `pal logout` only clears the locally stored credentials. **For automation (CI, cron, scripts), use an API key** (`--api-key` / `PAL_API_KEY`, created under **Settings > API keys** with only the scopes the job needs): keys do not expire every 12 hours and are revoked individually.
 
 ## Global flags
 

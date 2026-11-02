@@ -2550,7 +2550,8 @@ func (h *RuntimeHandler) GetQuota(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpsertQuota handles PUT /v1/runtime/quota. Requires runtime:admin scope
-// (owner/admin role, or a service API key with runtime:admin).
+// and, for a user session, the owner role (S-5: quota is spend policy); a
+// service API key with runtime:admin may set it.
 func (h *RuntimeHandler) UpsertQuota(w http.ResponseWriter, r *http.Request) {
 	claims, err := h.auth.validateRequest(r)
 	if err != nil {
@@ -2558,6 +2559,12 @@ func (h *RuntimeHandler) UpsertQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.requireRuntimeScope(w, claims, ScopeRuntimeAdmin) {
+		return
+	}
+	// Same principal model as authorizeRuntimeScope: "service" (API key) is
+	// governed by runtime:admin above; any human session must be the owner.
+	if claims.Role != "service" && claims.Role != "owner" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "owner role required", "code": "role_forbidden"})
 		return
 	}
 	tenantID := claims.TenantID

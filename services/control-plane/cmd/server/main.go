@@ -508,6 +508,8 @@ func main() {
 	// One-time-code exchange: the OAuth callback redirects with ?code=… (not
 	// the JWT in the URL); the dashboard POSTs the code here to get the token.
 	httpMux.HandleFunc("POST /auth/oauth/exchange", authHandler.OAuthExchange)
+	// Revokes every session the caller holds (S-2). Any session may log out.
+	httpMux.HandleFunc("POST /auth/logout", authHandler.WithScope(handlers.ScopeRead, authHandler.Logout))
 
 	// REST API endpoints (direct, no gateway needed).
 	httpMux.HandleFunc("GET /v1/agents", authHandler.WithScope(handlers.ScopeAgentsRead, restHandler.ListAgents))
@@ -537,7 +539,10 @@ func main() {
 	// Both GET (?action= style) and POST can invoke write-capable connector
 	// actions (send message, create event, etc.) so both require connectors:write.
 	httpMux.HandleFunc("GET /v1/connectors/{connectorId}/execute", authHandler.WithScopeOrAgent(handlers.ScopeConnectorsWrite, connectorExecutor.Execute))
-	httpMux.HandleFunc("POST /v1/connectors/{connectorId}/execute", authHandler.WithScopeOrAgent(handlers.ScopeRunsExecute, connectorExecutor.Execute))
+	// Executing a connector action spends tenant-wide credentials: connectors:write
+	// for users and keys on BOTH methods (it was runs:execute on POST, which let a
+	// public widget key fire Slack/SMS actions). Agents are governed by their policy.
+	httpMux.HandleFunc("POST /v1/connectors/{connectorId}/execute", authHandler.WithScopeOrAgent(handlers.ScopeConnectorsWrite, connectorExecutor.Execute))
 	// Twilio webhooks — owner's private agent channel. NO auth
 	// middleware (Twilio HMAC verification is done inside the handler).
 	httpMux.HandleFunc("POST /v1/sms/twilio/webhook", smsHandler.SMSWebhook)
@@ -624,6 +629,7 @@ func main() {
 
 	// API key endpoints.
 	httpMux.HandleFunc("POST /v1/api-keys", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.CreateApiKey))
+	httpMux.HandleFunc("POST /v1/api-keys/{id}/rotate", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.RotateApiKey))
 	httpMux.HandleFunc("GET /v1/api-keys", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.ListApiKeys))
 	httpMux.HandleFunc("DELETE /v1/api-keys/{id}", authHandler.WithScope(handlers.ScopeAdmin, apiKeyHandler.RevokeApiKey))
 
@@ -686,11 +692,11 @@ func main() {
 	httpMux.HandleFunc("GET /v1/agents/{name}/a2a/.well-known/agent-card.json", a2aHandler.GetA2AAgentCard)
 	httpMux.HandleFunc("POST /v1/agents/{name}/a2a", authHandler.WithScopeOrAgent(handlers.ScopeRunsExecute, a2aHandler.JSONRPC))
 	httpMux.HandleFunc("GET /v1/agents/{name}/policy", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.GetPolicy))
-	httpMux.HandleFunc("PUT /v1/agents/{name}/policy", authHandler.WithScope(handlers.ScopeAgentsWrite, agentIdentityHandler.PutPolicy))
+	httpMux.HandleFunc("PUT /v1/agents/{name}/policy", authHandler.WithScope(handlers.ScopeAgentsWrite, authHandler.RequireSessionRole(handlers.AdminRoles, agentIdentityHandler.PutPolicy)))
 	httpMux.HandleFunc("POST /v1/agents/{name}/policy/propose", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.ProposePolicy))
 	httpMux.HandleFunc("GET /v1/agents/{name}/identity", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.GetIdentity))
-	httpMux.HandleFunc("POST /v1/agents/{name}/identity/rotate", authHandler.WithScope(handlers.ScopeAgentsWrite, agentIdentityHandler.RotateIdentity))
-	httpMux.HandleFunc("POST /v1/agents/{name}/identity/revoke", authHandler.WithScope(handlers.ScopeAgentsWrite, agentIdentityHandler.RevokeIdentity))
+	httpMux.HandleFunc("POST /v1/agents/{name}/identity/rotate", authHandler.WithScope(handlers.ScopeAgentsWrite, authHandler.RequireSessionRole(handlers.AdminRoles, agentIdentityHandler.RotateIdentity)))
+	httpMux.HandleFunc("POST /v1/agents/{name}/identity/revoke", authHandler.WithScope(handlers.ScopeAgentsWrite, authHandler.RequireSessionRole(handlers.AdminRoles, agentIdentityHandler.RevokeIdentity)))
 	httpMux.HandleFunc("POST /v1/agents/{name}/identity/token", authHandler.WithScope(handlers.ScopeAdmin, agentIdentityHandler.MintToken))
 	httpMux.HandleFunc("GET /v1/agents/{name}/audit", authHandler.WithScope(handlers.ScopeAgentsRead, agentIdentityHandler.ListAudit))
 	httpMux.HandleFunc("GET /.well-known/pal-agent-keys/{agentId}", agentIdentityHandler.AgentJWKS)
@@ -789,8 +795,8 @@ func main() {
 	httpMux.HandleFunc("GET /v1/marketplace/{slug}", marketplaceHandler.Get)
 	httpMux.HandleFunc("DELETE /v1/marketplace/{slug}", authHandler.WithScope(handlers.ScopeAgentsWrite, marketplaceHandler.Unpublish))
 	httpMux.HandleFunc("POST /v1/marketplace/{slug}/fork", authHandler.WithScope(handlers.ScopeAgentsWrite, marketplaceHandler.Fork))
-	httpMux.HandleFunc("POST /v1/marketplace/{slug}/star", authHandler.WithScope(handlers.ScopeWrite, marketplaceHandler.Star))
-	httpMux.HandleFunc("DELETE /v1/marketplace/{slug}/star", authHandler.WithScope(handlers.ScopeWrite, marketplaceHandler.Star))
+	httpMux.HandleFunc("POST /v1/marketplace/{slug}/star", authHandler.WithScope(handlers.ScopeAgentsWrite, marketplaceHandler.Star))
+	httpMux.HandleFunc("DELETE /v1/marketplace/{slug}/star", authHandler.WithScope(handlers.ScopeAgentsWrite, marketplaceHandler.Star))
 	// W11c: cross-tenant invocations with HMAC-signed settlement.
 	httpMux.HandleFunc("POST /v1/marketplace/{slug}/invoke", authHandler.WithScopeOrAgent(handlers.ScopeRunsExecute, marketplaceHandler.Invoke))
 	httpMux.HandleFunc("GET /v1/marketplace/invocations", authHandler.WithScope(handlers.ScopeRunsRead, marketplaceHandler.ListInvocations))
@@ -935,6 +941,9 @@ func main() {
 	httpMux.HandleFunc("DELETE /v1/tenants/{id}", authHandler.WithScope(handlers.ScopeAdmin, gdprHandler.DeleteTenant))
 	if err := handlers.RegisterAccountLifecycleRoutes(httpMux, authHandler, gdprHandler, handlers.IsProd()); err != nil {
 		logger.Fatal("account lifecycle (ADR 0027)", zap.Error(err))
+	}
+	if err := authHandler.BootstrapOwner(context.Background(), os.Stderr); err != nil {
+		logger.Fatal("first-owner bootstrap (E11)", zap.Error(err))
 	}
 
 	// Kiosk demo mode (ADR 0029): route + expiry sweep exist only when PAL_KIOSK=1.
@@ -1270,6 +1279,12 @@ func runStartupGuards(logger *zap.Logger) {
 	if !prod {
 		// Dev warning already printed to stderr by GetJWTSecret(); nothing more needed.
 		_ = jwtSecret
+	}
+
+	// S-2: session lifetime. Fatal in every env: an out-of-range TTL is a typo
+	// that would otherwise silently fall back to the 12h default.
+	if err := handlers.CheckJWTTTL(); err != nil {
+		logger.Fatal("invalid session TTL", zap.Error(err))
 	}
 
 	// Kiosk (ADR 0029): anonymous tenants + a forgeable (dev-default) JWT secret

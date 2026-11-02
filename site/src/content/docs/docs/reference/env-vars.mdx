@@ -19,6 +19,7 @@ Every variable is spelled `PAL_*`. Flag values accept `1`, `true` or `on` unless
 | Runtime scheduler | `PAL_GRPC_SERVICE_TOKEN`, `SCHEDULER_NODE_TOKEN`, `PAL_DEFAULT_MANAGER_ADDR`, manager TLS CA and client cert |
 | Runtime manager | `PAL_GRPC_SERVICE_TOKEN`, `PAL_MANAGER_TLS_CA`/`_CERT`/`_KEY` |
 | Harness | `PAL_WORKLOAD_UID`, `PAL_HARNESS_EXEC_TOKEN` |
+| Notifier | `PAL_GRPC_SERVICE_TOKEN`, `PAL_NOTIFIER_SIGNING_KEY` (32+ bytes; signs outbound webhooks) |
 
 The control plane also refuses to start in prod with `PAL_TWILIO_WEBHOOK_AUTH=off` or `PAL_USE_CLAUDE_CODE=1`, and the scheduler refuses `PAL_DIALER=stub`.
 

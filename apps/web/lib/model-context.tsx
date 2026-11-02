@@ -132,18 +132,19 @@ export function ModelProvider({ children }: { children: ReactNode }) {
 
   // Fetch per session: the provider is mounted above /login, so a mount-time
   // fetch ran signed-out (401) and never re-ran after sign-in, leaving the
-  // "add a provider key" banner stale. Re-run whenever the token changes.
-  const { token, isLoading: authLoading } = useAuth();
+  // "add a provider key" banner stale. Re-run whenever the session changes.
+  const { user, isLoading: authLoading } = useAuth();
+  const userId = user?.id ?? null;
   useEffect(() => {
     if (authLoading) return;
-    if (!token) {
+    if (!userId) {
       setProviders([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     void fetchProviders();
-  }, [token, authLoading, fetchProviders]);
+  }, [userId, authLoading, fetchProviders]);
 
   // Also check localStorage as fallback (Settings page saves there when API is down)
   const localConfigured = typeof window !== "undefined" && (() => {

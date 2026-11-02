@@ -272,7 +272,7 @@ func main() {
 	}()
 
 	// --- REST gateway ---
-	rest := handlers.NewRESTHandler(schedSvc, clusterStore, []byte(cfg.JWTSecret), logger)
+	rest := handlers.NewRESTHandler(schedSvc, clusterStore, cfg.ServiceToken, logger)
 	rest.Metrics = schedMetrics
 
 	mux := http.NewServeMux()
@@ -350,7 +350,6 @@ func main() {
 type config struct {
 	GRPCAddr  string
 	HTTPAddr  string
-	JWTSecret string
 	NodeToken string
 	// ServiceToken is the shared secret that callers must present as
 	// x-pal-service-token in gRPC metadata. When empty the check is
@@ -370,7 +369,6 @@ func loadConfig() config {
 	return config{
 		GRPCAddr:        envOrDefault("LISTEN_ADDR", ":50055"),
 		HTTPAddr:        envOrDefault("HTTP_ADDR", ":8085"),
-		JWTSecret:       envOrDefault("JWT_SECRET", "pal-dev-jwt-secret-do-not-use-in-production"),
 		NodeToken:       os.Getenv("SCHEDULER_NODE_TOKEN"),
 		ServiceToken:    os.Getenv("PAL_GRPC_SERVICE_TOKEN"),
 		LogLevel:        envOrDefault("LOG_LEVEL", "info"),

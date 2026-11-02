@@ -15,7 +15,6 @@ import type {
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
 import { parseApiErrorBody } from "./eval-format";
-import { runtimeApiUrl } from "./runtime-config.ts";
 import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
 import {
@@ -445,38 +444,13 @@ export function getSimulatedHistory(): SimulatedEvent[] {
 
 class PalAPI {
   private baseUrl: string;
-  private _token: string | null = null;
-  // Resolves when the most recent HttpOnly session-cookie write has completed.
-  // A login redirect awaits this so it never races ahead of the cookie.
-  private _cookieSync: Promise<void> = Promise.resolve();
-
-  /** Await the latest session-cookie write before navigating to a gated route. */
-  whenCookieSynced(): Promise<void> {
-    return this._cookieSync;
-  }
-
-  /**
-   * Re-write the HttpOnly session cookie from the current in-memory token.
-   * Repairs a token/cookie desync (valid localStorage token but missing/stale
-   * cookie → middleware bounce loop / blank screen) WITHOUT forcing a re-login.
-   * No-op with a resolved promise when there is no token to sync.
-   */
-  syncCookie(): Promise<void> {
-    if (typeof window === "undefined" || !this._token) return Promise.resolve();
-    this._cookieSync = fetch("/api/auth/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: this._token }),
-    }).then(() => undefined).catch(() => undefined);
-    return this._cookieSync;
-  }
 
   constructor() {
-    // In the browser, use the Next.js proxy to avoid CORS. Server-side, call
-    // the control-plane directly (docker-compose service name or env var).
+    // Browser: the same-origin proxy (app/api/pal), which adds the session
+    // from the HttpOnly cookie server-side — page scripts never hold the JWT
+    // (S-3). Server-side: the control plane directly (no session there).
     if (typeof window !== "undefined") {
-      // Browser: use relative URL so Next.js rewrites proxy to the backend.
-      this.baseUrl = runtimeApiUrl() ?? "http://localhost:8080";
+      this.baseUrl = "/api/pal";
     } else {
       this.baseUrl =
         process.env.PAL_API_URL ??
@@ -485,68 +459,16 @@ class PalAPI {
     }
   }
 
-  // ---- token management ---------------------------------------------------
-
-  get token(): string | null {
-    return this._token;
-  }
-
-  setToken(token: string | null) {
-    this._token = token;
-    if (typeof window !== "undefined") {
-      // Persist token in localStorage for in-memory restoreToken() on page
-      // load (before the HttpOnly cookie is read server-side).
-      if (token) {
-        localStorage.setItem("pal_token", token);
-      } else {
-        localStorage.removeItem("pal_token");
-      }
-      // Set / clear the auth cookie as HttpOnly via the server-side Route
-      // Handler so XSS cannot read it.  Fire-and-forget: the cookie is only
-      // needed for the middleware's /auth/me check, and a failure here just
-      // means the next page load falls back to localStorage.
-      if (token) {
-        // Track the cookie write so a login redirect can await it — otherwise the
-        // redirect to a gated route races ahead of the cookie and the middleware
-        // bounces back to /login (blank-screen loop). Still non-fatal on failure.
-        this._cookieSync = fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        }).then(() => undefined).catch(() => undefined);
-      } else {
-        this._cookieSync = fetch("/api/auth/session", { method: "DELETE" })
-          .then(() => undefined).catch(() => undefined);
-      }
-    }
-  }
-
-  restoreToken(): string | null {
-    if (typeof window === "undefined") return null;
-    const stored = localStorage.getItem("pal_token");
-    if (stored) {
-      this._token = stored;
-    }
-    return this._token;
-  }
-
   // ---- internal fetch helper ----------------------------------------------
 
   private async request<T>(
     path: string,
     options: RequestInit = {},
   ): Promise<T> {
-    // Ensure token is loaded from localStorage if not already set
-    if (!this._token && typeof window !== "undefined") {
-      this.restoreToken();
-    }
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string> | undefined),
     };
-    if (this._token) {
-      headers["Authorization"] = `Bearer ${this._token}`;
-    }
 
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...options,
@@ -563,7 +485,6 @@ class PalAPI {
         !path.startsWith("/auth/") &&
         !isNoSessionPath(window.location.pathname)
       ) {
-        this.setToken(null);
         const next = encodeURIComponent(
           window.location.pathname + window.location.search,
         );
@@ -592,16 +513,16 @@ class PalAPI {
     password: string,
     name: string,
     extra: { inviteCode?: string; captchaToken?: string } = {},
-  ): Promise<{ token?: string; user?: User; verificationRequired?: boolean }> {
+  ): Promise<{ user?: User; verificationRequired?: boolean }> {
     try {
-      const data = await this.request<{ token?: string; user?: User; verificationRequired?: boolean }>(
+      // The proxy moves the returned session into the HttpOnly cookie.
+      const data = await this.request<{ user?: User; verificationRequired?: boolean }>(
         "/auth/signup",
         {
           method: "POST",
           body: JSON.stringify({ email, password, name, ...extra }),
         },
       );
-      if (data.token) this.setToken(data.token);
       return data;
     } catch (err) {
       console.warn(
@@ -615,16 +536,17 @@ class PalAPI {
   async login(
     email: string,
     password: string,
-  ): Promise<{ token: string; user: User }> {
+  ): Promise<{ user: User; demo?: boolean }> {
     try {
-      const data = await this.request<{ token: string; user: User }>(
+      // The proxy moves the returned session into the HttpOnly cookie, so the
+      // cookie is set by the time this resolves (no separate cookie write).
+      const data = await this.request<{ user: User }>(
         "/auth/login",
         {
           method: "POST",
           body: JSON.stringify({ email, password }),
         },
       );
-      this.setToken(data.token);
       return data;
     } catch (err) {
       // 403 email_unverified (prod): say so instead of "invalid credentials".
@@ -635,18 +557,14 @@ class PalAPI {
       // status so the sign-in page can say exactly what happened.
       if (err instanceof Error && err.message.startsWith("API ")) throw err;
       notifySimulated("login", err);
-      // Demo-mode fallback: only ever mint a local demo token when demo mode
-      // is explicitly enabled at build time (NEXT_PUBLIC_DEMO_MODE=1). Off by
-      // default so an unreachable control-plane can't be used to slip past
-      // auth with a client-minted token. Even when on, the middleware rejects
-      // demo tokens at /auth/me, so they never reach real tenant data.
+      // Demo-mode fallback: only when demo mode is explicitly enabled at build
+      // time (NEXT_PUBLIC_DEMO_MODE=1). It is local UI state only: there is no
+      // session cookie, so the middleware still refuses every gated route.
       if (
         process.env.NEXT_PUBLIC_DEMO_MODE === "1" &&
         (email === "demo@pal.local" || password === "demo")
       ) {
-        const demoToken = "demo_token_" + Date.now();
-        this.setToken(demoToken);
-        return { token: demoToken, user: DEMO_USER };
+        return { user: DEMO_USER, demo: true };
       }
       throw err;
     }
@@ -686,26 +604,25 @@ class PalAPI {
     await this.request(`/v1/tenants/${encodeURIComponent(tenantId)}`, { method: "DELETE" });
   }
 
-  /** invite: an invite code for invite-only sign-up; the server keeps it in the OAuth state. */
-  async oauthStart(provider: string, invite?: string): Promise<{ redirect_url: string }> {
-    const q = invite ? `?invite=${encodeURIComponent(invite)}` : "";
-    return this.request<{ redirect_url: string }>(`/auth/oauth/${provider}/start${q}`);
-  }
+  // OAuth sign-in start is NOT an API call: the login page navigates to
+  // lib/oauth-url.ts oauthStartUrl() on the API's public host. It never goes
+  // through this client, whose browser base is the /api/pal proxy.
 
   /** Exchange the one-time OAuth code (delivered to /auth/callback?code=…) for
-   *  a JWT. The token is no longer passed in the redirect URL — the callback
-   *  page POSTs the short-lived, single-use code here to obtain it. */
-  async exchangeOAuthCode(code: string): Promise<{ token: string }> {
-    const data = await this.request<{ token: string }>("/auth/oauth/exchange", {
+   *  a session. The proxy sets the HttpOnly cookie from the response; the JWT
+   *  never reaches this page. */
+  async exchangeOAuthCode(code: string): Promise<void> {
+    await this.request("/auth/oauth/exchange", {
       method: "POST",
       body: JSON.stringify({ code }),
     });
-    this.setToken(data.token);
-    return data;
   }
 
-  logout(): void {
-    this.setToken(null);
+  /** Revokes every session this user holds (all devices) and clears the
+   *  cookie. Best-effort: the proxy clears the cookie even when the control
+   *  plane is unreachable. */
+  async logout(): Promise<void> {
+    await fetch(`${this.baseUrl}/auth/logout`, { method: "POST", headers: { "Content-Type": "application/json" } }).catch(() => undefined);
   }
 
   // ---- Agents -------------------------------------------------------------
@@ -808,17 +725,16 @@ class PalAPI {
   } {
     // Real SSE only — no mock event emitter. fetch + lib/sse (not EventSource):
     // the server names every frame after its journal kind, which EventSource's
-    // onmessage never receives, and fetch sends the token as a header.
+    // onmessage never receives. The proxy adds the session from the cookie.
     // Events and state that arrive before subscribe are held and replayed.
     let onEvent: ((e: StreamEvent) => void) | null = null;
     let onStateCb: ((s: StreamState) => void) | null = null;
     const buffered: StreamEvent[] = [];
     let state: StreamState = "connecting";
-    const token = this._token;
     const close = openRunStream({
       runId,
       url: `${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {},
       onEvent: (e) => (onEvent ? onEvent(e) : buffered.push(e)),
       onState: (s) => { state = s; onStateCb?.(s); },
     });
@@ -1362,16 +1278,9 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     // installed-connector tools and dispatching tool_calls inline.
     agentName?: string;
   }): Promise<Response> {
-    // Ensure token is loaded (complete() bypasses this.request() so we must check)
-    if (!this._token) {
-      this.restoreToken();
-    }
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (this._token) {
-      headers["Authorization"] = `Bearer ${this._token}`;
-    }
     return fetch(`${this.baseUrl}/v1/completions`, {
       method: "POST",
       headers,
@@ -1391,9 +1300,7 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 8000);
     try {
-      if (!this._token) this.restoreToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (this._token) headers["Authorization"] = `Bearer ${this._token}`;
       const res = await fetch(`${this.baseUrl}/v1/completions`, {
         method: "POST",
         headers,
@@ -1640,17 +1547,13 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
   }
 
   /**
-   * Open the run's SSE stream with the bearer token in a header (not the URL).
+   * Open the run's SSE stream (the proxy adds the session from the cookie).
    * The server emits NAMED events (`event: <kind>`), which EventSource's
    * onmessage never sees — callers read the body and parse frames.
    */
   async openRunEventStream(runId: string, signal: AbortSignal): Promise<Response> {
-    if (!this._token && typeof window !== "undefined") this.restoreToken();
     const res = await fetch(`${this.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`, {
-      headers: {
-        Accept: "text/event-stream",
-        ...(this._token ? { Authorization: `Bearer ${this._token}` } : {}),
-      },
+      headers: { Accept: "text/event-stream" },
       signal,
     });
     if (!res.ok || !res.body) {
@@ -2171,12 +2074,9 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
   }
 
   connectSessionEvents(sessionId: string): EventSource {
-    // Ensure token is loaded
-    if (!this._token) {
-      this.restoreToken();
-    }
-    const url = `${this.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}/events`;
-    return new EventSource(this._token ? `${url}?token=${this._token}` : url);
+    // Same-origin EventSource: the cookie rides along, the proxy adds the
+    // session server-side (no ?token= in the URL any more).
+    return new EventSource(`${this.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}/events`);
   }
 
   // ---- Marketplace (real /v1/marketplace backend) --------------------------
@@ -2646,7 +2546,8 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
 
   // ---- Commitments ----------------------------------------------------------
 
-  async listCommitments(params?: { status?: string; tier?: string; limit?: number }): Promise<Commitment[]> {
+  /** `strict` rethrows instead of returning [] so a caller can say a source is down. */
+  async listCommitments(params?: { status?: string; tier?: string; limit?: number; strict?: boolean }): Promise<Commitment[]> {
     const q = new URLSearchParams();
     if (params?.status) q.set("status", params.status);
     if (params?.tier) q.set("tier", params.tier);
@@ -2654,9 +2555,29 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     const qs = q.toString();
     try {
       return await this.request<Commitment[]>(`/v1/commitments${qs ? `?${qs}` : ""}`);
-    } catch {
+    } catch (err) {
+      if (params?.strict) throw err;
       return [];
     }
+  }
+
+  // ---- People + memory (pal space) -------------------------------------------
+  // Raw payloads: callers narrow with parsePeople / parseMemoryContext (lib/pal-space).
+
+  async listPeople(): Promise<unknown> {
+    return this.request<unknown>(`/v1/people`);
+  }
+
+  async getMemoryContext(personId: string, opts?: { limit?: number; windowDays?: number }): Promise<unknown> {
+    const qs = new URLSearchParams({ personId });
+    if (opts?.limit) qs.set("limit", String(opts.limit));
+    if (opts?.windowDays) qs.set("windowDays", String(opts.windowDays));
+    return this.request<unknown>(`/v1/memory/context?${qs.toString()}`);
+  }
+
+  /** `{enabled:false, deadlines:[]}` unless PAL_IMMIGRATION_SENTINEL is on server-side. */
+  async listImmigrationDeadlines(): Promise<unknown> {
+    return this.request<unknown>(`/v1/immigration/deadlines`);
   }
 
   // ---- Domain Records -------------------------------------------------------

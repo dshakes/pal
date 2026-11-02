@@ -113,6 +113,8 @@ export interface OwnerProfile {
    *  6th. The gap this fills: every existing bucket was timeless (Facts,
    *  Public, Relationships) and the bot had no notion of "this week". */
   now: NowItem[];
+  /** Owner voice declaration from a "## Voice" section; undefined ⇒ neutral. */
+  voice?: OwnerVoice;
 }
 
 export interface NowItem { text: string; until?: string }
@@ -125,6 +127,81 @@ export function parseNowLine(line: string): NowItem | null {
   const m = t.match(/^(.*?)\s*(?:\|\s*until:\s*|\(\s*until\s+|\b(?:until|till)\s+)(\d{4}-\d{2}-\d{2})\)?\s*$/i);
   if (m) return { text: m[1].trim(), until: m[2] };
   return { text: t };
+}
+
+/** Pronouns the persona uses for the owner. Default (no `## Voice`): they/them. */
+export interface OwnerPronouns {
+  subj: string;
+  obj: string;
+  poss: string;
+  refl: string;
+  /** Plural agreement ("they're", "don't") vs singular ("he's", "doesn't"). */
+  plural: boolean;
+}
+
+/** Per-owner voice declaration, parsed from a "## Voice" section. Everything
+ *  owner-specific the persona used to hardcode (dialect, pronouns, register
+ *  notes, never-use words) lives here. Absent section ⇒ neutral English,
+ *  they/them, no dialect rules. */
+export interface OwnerVoice {
+  /** Lowercased dialect id, e.g. "te-telangana". Unset ⇒ no dialect rules. */
+  dialect?: string;
+  languages: string[];
+  pronouns: OwnerPronouns;
+  /** Free-form register notes ("short verbs, casual, lowercase"). */
+  register: string[];
+  /** Words/phrases the owner never uses; a draft containing one is suppressed. */
+  neverUse: string[];
+}
+
+const PRONOUN_SETS: Record<"he" | "she" | "they", OwnerPronouns> = {
+  he: { subj: "he", obj: "him", poss: "his", refl: "himself", plural: false },
+  she: { subj: "she", obj: "her", poss: "her", refl: "herself", plural: false },
+  they: { subj: "they", obj: "them", poss: "their", refl: "themself", plural: true },
+};
+
+/** Pronouns for the owner; they/them when no voice (or no pronouns) declared. */
+export function ownerPronouns(voice?: OwnerVoice | null): OwnerPronouns {
+  return voice?.pronouns ?? PRONOUN_SETS.they;
+}
+
+/** Parse the body lines of a "## Voice" section. Grammar (all optional):
+ *    - dialect: te-telangana
+ *    - languages: English, Telugu
+ *    - pronouns: he/him
+ *    - register: short verbs, casual
+ *    - never: ra, bava
+ *  A bullet with no recognised key is a register note. Returns undefined when
+ *  the section carries nothing usable. Exported for tests. */
+export function parseVoiceLines(lines: string[]): OwnerVoice | undefined {
+  const voice: OwnerVoice = { languages: [], pronouns: PRONOUN_SETS.they, register: [], neverUse: [] };
+  let any = false;
+  const list = (v: string) =>
+    v.split(",").map((t) => t.trim().replace(/^["']|["']$/g, "").trim()).filter(Boolean);
+  for (const line of lines) {
+    const t = line.trim().replace(/^[-*]\s*/, "");
+    if (!t || t.startsWith("#") || t.startsWith("<!--")) continue;
+    const m = t.match(/^([A-Za-z][A-Za-z ]*?)\s*:\s*(.+)$/);
+    const key = m?.[1].toLowerCase();
+    const val = m?.[2].trim().replace(/^<\s*|\s*>$/g, "").trim() ?? "";
+    if (key === "dialect" && val) {
+      voice.dialect = val.toLowerCase();
+    } else if ((key === "language" || key === "languages") && val) {
+      voice.languages.push(...list(val));
+    } else if ((key === "pronoun" || key === "pronouns") && val) {
+      const pm = val.toLowerCase().match(/^(he|she|they)\b/);
+      if (pm) voice.pronouns = PRONOUN_SETS[pm[1] as "he" | "she" | "they"];
+      else continue;
+    } else if ((key === "never" || key === "never use" || key === "avoid") && val) {
+      voice.neverUse.push(...list(val).map((w) => w.toLowerCase()));
+    } else if ((key === "register" || key === "tone" || key === "style") && val) {
+      voice.register.push(val);
+    } else {
+      voice.register.push(t);
+    }
+    any = true;
+  }
+  return any ? voice : undefined;
 }
 
 const RELOAD_TTL_MS = 30_000;
@@ -283,6 +360,11 @@ export class OwnerProfileStore {
    *  language. Returns "" when the profile has no Nativity section. */
   nativity(): string {
     return this.get()?.nativity ?? "";
+  }
+
+  /** Owner voice declaration ("## Voice"); undefined ⇒ neutral persona. */
+  voice(): OwnerVoice | undefined {
+    return this.get()?.voice;
   }
 
   /** IANA timezone derived from the profile's "## My world" location line
@@ -480,7 +562,7 @@ export class OwnerProfileStore {
  *  is pulled out as a name→relationship map; everything else is prose.
  *
  *  Relationships section format (one per line):
- *    - Shiva: brother
+ *    - Alex: brother
  *    - +15125551234: college roommate
  *    - alex@work.com: my manager
  */
@@ -599,6 +681,7 @@ export function parseProfile(raw: string): OwnerProfile {
   const privateVaultLines: string[] = [];
   const publicFactLines: string[] = [];
   const nowItems: NowItem[] = [];
+  const voiceLines: string[] = [];
 
   // Markdown section heading: "## Title". We only treat level-2+ ("##",
   // "###", ...) as section boundaries. A single "#" is reserved for the
@@ -618,6 +701,7 @@ export function parseProfile(raw: string): OwnerProfile {
   let inPrivateVault = false;
   let inPublic = false;
   let inNow = false;
+  let inVoice = false;
   // Everything before the first "## " section (the "# Owner profile"
   // title + the "Do NOT put secrets here" instructional preamble) is
   // guidance for the human, NOT content about the owner. Skip it so it
@@ -653,10 +737,19 @@ export function parseProfile(raw: string): OwnerProfile {
       // "## Now" / "## This week" / "## Currently" — the dated present-tense
       // self-model. Typed injection (nowBlock()), expired lines dropped.
       inNow = /^(now|this\s+week|right\s+now|currently|these\s+days)\b/i.test(section);
-      if (!inRelationships && !inFacts && !inPrivateVault && !inPublic && !inNow) proseLines.push(line);
+      // "## Voice" — typed dialect/pronouns/register/never-use declaration
+      // (voiceBlock via parseVoiceLines). Takes precedence over the Languages
+      // match so "## Voice & languages" is still the voice section.
+      inVoice = /^voice\b/i.test(section);
+      if (inVoice) inNativity = false;
+      if (!inRelationships && !inFacts && !inPrivateVault && !inPublic && !inNow && !inVoice) proseLines.push(line);
       continue;
     }
     if (!seenFirstSection) continue; // pre-section preamble — drop
+    if (inVoice) {
+      voiceLines.push(line);
+      continue;
+    }
     if (inPrivateVault) {
       // Capture the raw body for the owner-only consumer. NEVER append
       // to proseLines — that is the one inviolable rule of this section.
@@ -854,6 +947,7 @@ export function parseProfile(raw: string): OwnerProfile {
     privateVault: privateVaultLines.join("\n").trim(),
     publicFacts: publicFactLines,
     now: nowItems,
+    voice: parseVoiceLines(voiceLines),
   };
 }
 
@@ -880,6 +974,15 @@ I'm <name> — <role / what you do>. <one or two lines on current focus>.
 - <city / timezone>
 - <anything a close friend would just know>
 
+## Voice
+# Optional. Without this section the bot writes neutral English and refers to
+# you as they/them. Uncomment and edit what applies:
+# - pronouns: they/them   (he/him, she/her, they/them)
+# - languages: English
+# - dialect: <language-region id; omit for none>
+# - register: <e.g. short casual verbs, lowercase>
+# - never: <words you never use, comma separated>
+
 ## Facts
 - married: yes
 - spouse: <name>
@@ -887,7 +990,7 @@ I'm <name> — <role / what you do>. <one or two lines on current focus>.
 - wedding anniversary: <YYYY-MM-DD>
 
 ## Relationships
-- Shiva: brother
+- Alex: brother
 - <Name>: <relationship> | address as: <what to call them> | never: <terms to avoid>
 - <Name>: <relationship> | also: <+1555..., second@email> (extra numbers/emails for the SAME person)
 - <Name or phone or email>: <relationship>

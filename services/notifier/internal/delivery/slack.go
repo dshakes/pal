@@ -21,7 +21,7 @@ type SlackDeliverer struct {
 // NewSlackDeliverer creates a new SlackDeliverer.
 func NewSlackDeliverer(logger *zap.Logger) *SlackDeliverer {
 	return &SlackDeliverer{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: deliveryDialPolicy().newHTTPClient(15 * time.Second), // SSRF guard: Recipient is tenant input
 		logger: logger.Named("slack"),
 	}
 }
@@ -91,6 +91,11 @@ func (s *SlackDeliverer) Deliver(ctx context.Context, n *Notification) (*Deliver
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal slack payload: %w", err)
+	}
+
+	// SSRF / misdirection: only the provider's own webhook host, over https.
+	if err := deliveryDialPolicy().checkProviderURL(n.Recipient, slackWebhookHosts, ""); err != nil {
+		return &DeliveryResult{Success: false, ErrorMessage: err.Error(), AttemptedAt: time.Now()}, nil
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.Recipient, bytes.NewReader(body))

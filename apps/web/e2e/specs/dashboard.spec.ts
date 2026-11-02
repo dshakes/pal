@@ -22,22 +22,21 @@ test.beforeAll(async () => {
 });
 
 async function signedIn(page: Page) {
-  await page.context().addCookies([{ name: "pal_token", value: sharedToken, url: WEB_URL }]);
-  await page.addInitScript((t) => localStorage.setItem("pal_token", t), sharedToken);
+  await page.context().addCookies([{ name: "pal_token", value: sharedToken, url: WEB_URL, httpOnly: true, sameSite: "Lax" }]);
 }
 
 async function addDummyProvider(page: Page) {
   // llm-replay stands in for the provider (PAL_LLM_BASEURL_OPENAI), so a
   // dummy key routes every control-plane completion to the fixture rules.
-  const status = await page.evaluate(async (api) => {
-    const token = localStorage.getItem("pal_token");
-    const r = await fetch(`${api}/v1/settings/llm-providers`, {
+  // Through the same-origin proxy, exactly as the dashboard calls the API.
+  const status = await page.evaluate(async () => {
+    const r = await fetch("/api/pal/v1/settings/llm-providers", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "openai", apiKey: "sk-e2e-dummy-key" }),
     });
     return r.status;
-  }, API_URL);
+  });
   expect(status).toBeLessThan(300);
 }
 
@@ -94,24 +93,24 @@ test("mode switch flips home space, nav and accent", async ({ page }) => {
   const accent = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim());
   await expect(html).toHaveAttribute("data-mode", "pal");
   const palAccent = await accent();
-  await expect(page.getByRole("navigation", { name: "pal navigation" }).getByRole("link", { name: "Holds" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "PAL navigation" }).getByRole("link", { name: "Holds" })).toBeVisible();
 
   // The sidebar header is the workspace + space switcher.
-  const switchSpace = async (name: string) => {
+  const switchSpace = async (name: RegExp) => {
     await page.getByRole("button", { name: /Switch space or workspace/ }).click();
-    await page.getByRole("menuitemradio", { name: new RegExp(`^${name}\\b`) }).click();
+    await page.getByRole("menuitemradio", { name }).click();
   };
-  await switchSpace("Runtime");
+  await switchSpace(/^PAL Runtime\b/);
   await expect(page).toHaveURL(/\/overview/);
   await expect(html).toHaveAttribute("data-mode", "runtime");
   expect(await accent()).not.toBe(palAccent);
-  await expect(page.getByRole("navigation", { name: "Runtime navigation" }).getByRole("link", { name: "Sandboxes" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "PAL Runtime navigation" }).getByRole("link", { name: "Sandboxes" })).toBeVisible();
 
   // Shared routes keep the current mode.
   await page.goto("/settings");
   await expect(html).toHaveAttribute("data-mode", "runtime");
 
-  await switchSpace("pal");
+  await switchSpace(/^PAL(?! Runtime)\b/);
   await expect(page).toHaveURL(/\/brief/);
 });
 

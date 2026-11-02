@@ -36,7 +36,7 @@ export function KioskTour() {
   const [ended, setEnded] = useState<"expired" | "idle" | null>(null);
 
   const end = useCallback((why: "expired" | "idle") => {
-    api.setToken(null);
+    void api.logout();
     try { localStorage.removeItem(KIOSK_STORAGE_KEY); } catch { /* storage blocked */ }
     setEnded(why);
   }, []);
