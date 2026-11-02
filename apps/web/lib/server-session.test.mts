@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 import { clearSessionCache, getSession, rejectCrossSiteWrite } from "./server-session.ts";
 import * as route from "../app/api/bridge/[channel]/[...path]/route.ts";
 import { POST as sessionPOST } from "../app/api/auth/session/route.ts";
+import { middleware } from "../middleware.ts";
 
 const CP = "http://cp.test";
 const WA = "http://wa.test";
@@ -33,7 +34,8 @@ beforeEach(() => {
       if (auth === `Bearer ${GOOD}`) {
         return Response.json({ id: "u1", tenantId: TENANT, role: "owner" });
       }
-      return Response.json({ error: "invalid" }, { status: 401 });
+      // tenantId present so only the status check can reject it.
+      return Response.json({ error: "invalid", tenantId: TENANT }, { status: 401 });
     }
     return Response.json({ ok: true, echoed: url });
   }) as typeof fetch;
@@ -193,4 +195,20 @@ test("/api/auth/session POST: login CSRF guarded (cross-site / text/plain → 40
     headers: { "sec-fetch-site": "same-origin", "content-type": "text/plain" }, body: '{"token":"attacker"}',
   }));
   assert.equal(plain.status, 403);
+});
+
+test("middleware: /api is no longer blanket-public", async () => {
+  const api = await middleware(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`));
+  assert.equal(api.status, 401);
+  const forged = await middleware(req("GET", "/api/anything", { token: "forged" }));
+  assert.equal(forged.status, 401);
+  const ok = await middleware(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`, { token: GOOD }));
+  assert.equal(ok.headers.get("x-middleware-next"), "1");
+  for (const p of ["/api/signals", "/api/auth/session"]) {
+    const pub = await middleware(req("POST", p));
+    assert.equal(pub.headers.get("x-middleware-next"), "1", p);
+  }
+  // Pages still redirect to /login rather than 401.
+  const page = await middleware(req("GET", "/agents"));
+  assert.equal(page.status, 307);
 });
