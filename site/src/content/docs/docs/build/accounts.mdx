@@ -29,9 +29,9 @@ Set the owner password (single use, expires in 1 hour):
   https://<dashboard>/auth/reset?token=...
 ```
 
-Open the link, set a password, then log in. The link is an ordinary password-reset token (SHA-256 at rest, single use, 1 hour, rate limited), so there is no extra endpoint to attack. The raw token is never sent to the structured logger or traces. Once any user exists the variable is ignored for good, so you can leave it set or remove it.
+Open the link, set a password, then log in. The link is an ordinary password-reset token (SHA-256 at rest, single use, 1 hour, rate limited), so there is no extra endpoint to attack. The raw token is never sent to the structured logger or traces. Once any user has existed, the variable is ignored for good: a durable `instance_bootstrap` marker is written, so erasing every workspace later does not re-arm it. **Unset `PAL_BOOTSTRAP_OWNER_EMAIL` after your first login** anyway.
 
-If the hour passes before you redeem it and you have a real mailer configured, use "Forgot password". Otherwise delete the pending tenant (`DELETE FROM tenants WHERE slug LIKE 'you-%'`) and restart. With sign-up closed, zero users and no bootstrap variable, the control plane logs a warning naming this variable at every start.
+If the hour passes before you redeem the link and you have a real mailer configured, use "Forgot password". Otherwise take the `tenant_id` from the control-plane's `bootstrap: first owner created` log line, run `DELETE FROM tenants WHERE id = '<tenant_id>'; DELETE FROM instance_bootstrap;` (both are needed, the second clears the marker) and restart. With sign-up closed, zero users and no bootstrap variable, the control plane logs a warning naming this variable at every start.
 
 ## Sign up, verify, log in
 

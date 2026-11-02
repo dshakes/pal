@@ -423,6 +423,8 @@ var rlsExemptTables = map[string]bool{
 	"billing_webhook_events": true,
 	// ADR 0055: a single global row recording when per-agent policy shipped.
 	"agent_policy_cutover": true,
+	// E11: single instance-wide bootstrap marker; no tenant_id.
+	"instance_bootstrap": true,
 }
 
 // TestRLSEnforcement_AllTenantTables is the permanent catalog gate. For every

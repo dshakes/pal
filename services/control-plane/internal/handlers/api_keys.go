@@ -353,9 +353,10 @@ var (
 )
 
 // RotateApiKey handles POST /v1/api-keys/{id}/rotate. The old key is revoked and
-// the replacement (same name and scopes) inserted in ONE transaction, so there
-// is never a window with both live or neither. The subset-scope rule applies to
-// the old key's scopes. Optional body {expiresAt}; default keeps the old expiry.
+// the replacement (same name and scopes) inserted in ONE transaction, so the
+// swap is atomic in the database. The gateway caches introspection for 60s, so
+// the old key can still be accepted there for up to that long. The subset-scope
+// rule applies to the old key's scopes. Optional body {expiresAt}; default keeps the old expiry.
 func (h *ApiKeyHandler) RotateApiKey(w http.ResponseWriter, r *http.Request) {
 	ctx, tenantID, err := h.contextWithTenant(r)
 	if err != nil {

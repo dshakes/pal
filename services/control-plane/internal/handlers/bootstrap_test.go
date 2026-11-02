@@ -269,3 +269,54 @@ func TestBootstrapOwner_InvalidEmailAndZeroUserWarning(t *testing.T) {
 		t.Fatalf("unexpected log with open sign-up: %v", logs.All())
 	}
 }
+
+func TestBootstrapOwner_StaysInertAfterAllWorkspacesErased(t *testing.T) {
+	setSignupEnv(t, "production", "", "")
+	t.Setenv("PAL_BOOTSTRAP_OWNER_EMAIL", "root@selfhost.test")
+	pool := emptyDBPool(t)
+	h, _ := bootstrapHandler(pool)
+	ctx := context.Background()
+	if err := h.BootstrapOwner(ctx, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	// GDPR-style erasure of the only workspace: users go, instance is empty again.
+	if _, err := pool.Exec(ctx, `DELETE FROM tenants`); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM users`); n != 0 {
+		t.Fatalf("users=%d after erase", n)
+	}
+	var out bytes.Buffer
+	if err := h.BootstrapOwner(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 || countRows(t, pool, `SELECT count(*) FROM users`) != 0 {
+		t.Fatalf("bootstrap re-fired after erase: %q", out.String())
+	}
+}
+
+func TestBootstrapOwner_MarksInstancesThatAlreadyHadUsers(t *testing.T) {
+	setSignupEnv(t, "production", "", "")
+	t.Setenv("PAL_BOOTSTRAP_OWNER_EMAIL", "")
+	pool := emptyDBPool(t)
+	ctx := context.Background()
+	var tid string
+	if err := pool.QueryRow(ctx, `INSERT INTO tenants (slug,name,tier,k8s_namespace) VALUES ('y','y','personal','pal-t-y') RETURNING id`).Scan(&tid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users (tenant_id,email,display_name,auth_provider,auth_subject,role) VALUES ($1,'o@y.test','o','local','o@y.test','owner')`, tid); err != nil {
+		t.Fatal(err)
+	}
+	h, _ := bootstrapHandler(pool)
+	if err := h.BootstrapOwner(ctx, &bytes.Buffer{}); err != nil { // env unset, still marks
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM tenants`); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PAL_BOOTSTRAP_OWNER_EMAIL", "root@selfhost.test")
+	var out bytes.Buffer
+	if err := h.BootstrapOwner(ctx, &out); err != nil || out.Len() != 0 {
+		t.Fatalf("err=%v out=%q: re-armed after erase", err, out.String())
+	}
+}

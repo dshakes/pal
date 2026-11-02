@@ -17,8 +17,8 @@ import (
 // unusable) + free-tier defaults in one transaction and mints a purposeResetPassword
 // token through the existing machinery (SHA-256 at rest, single-use, 1h TTL,
 // rate-limited, constant-time by hash lookup). The owner redeems it via the
-// existing POST /auth/reset to set a password. Once any user exists the path is
-// permanently inert. The raw token goes ONLY to `out` (stderr) — never zap/OTel.
+// existing POST /auth/reset to set a password. Once any user exists (durable instance_bootstrap marker,
+// which survives erasure of every workspace) the path is permanently inert. The raw token goes ONLY to `out` (stderr) — never zap/OTel.
 
 // bootstrapLockKey serialises concurrent replicas; arbitrary constant.
 const bootstrapLockKey int64 = 0x50414c424f4f54
@@ -44,12 +44,24 @@ func (h *AuthHandler) BootstrapOwner(ctx context.Context, out io.Writer) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, bootstrapLockKey); err != nil {
 		return fmt.Errorf("bootstrap: lock: %w", err)
 	}
+	// Durable marker: once set (a user was ever seen/created) bootstrap stays
+	// inert even if every workspace is later erased.
+	var marked bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM instance_bootstrap)`).Scan(&marked); err != nil {
+		return fmt.Errorf("bootstrap: read marker: %w", err)
+	}
+	if marked {
+		return nil
+	}
 	var users int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&users); err != nil {
 		return fmt.Errorf("bootstrap: count users: %w", err)
 	}
 	if users > 0 {
-		return nil // inert forever once any user exists
+		if _, err := tx.Exec(ctx, `INSERT INTO instance_bootstrap DEFAULT VALUES ON CONFLICT DO NOTHING`); err != nil {
+			return fmt.Errorf("bootstrap: write marker: %w", err)
+		}
+		return tx.Commit(ctx) // inert forever once any user exists
 	}
 	if email == "" {
 		if signupMode() == signupClosed {
@@ -81,6 +93,9 @@ func (h *AuthHandler) BootstrapOwner(ctx context.Context, out io.Writer) error {
 	}
 	if err := applyFreeTierDefaults(ctx, tx, tenantID); err != nil {
 		return fmt.Errorf("bootstrap: free-tier defaults: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO instance_bootstrap DEFAULT VALUES ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("bootstrap: write marker: %w", err)
 	}
 	token, err := insertAuthToken(ctx, tx, tenantID, userID, purposeResetPassword, resetTokenTTL)
 	if err != nil {
