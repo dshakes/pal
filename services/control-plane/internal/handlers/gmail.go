@@ -69,7 +69,7 @@ func FetchGmailViaAPI(accessToken string, maxResults int) ([]GmailMessage, error
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("Gmail API request failed: %w", err)
 	}
@@ -106,7 +106,7 @@ func FetchGmailViaAPI(accessToken string, maxResults int) ([]GmailMessage, error
 		}
 		msgReq.Header.Set("Authorization", "Bearer "+accessToken)
 
-		msgResp, err := http.DefaultClient.Do(msgReq)
+		msgResp, err := outboundHTTPClient.Do(msgReq)
 		if err != nil {
 			continue
 		}
@@ -170,7 +170,7 @@ func ListRecentGmailViaAPI(accessToken, query string, maxResults int) ([]GmailMe
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("Gmail API request failed: %w", err)
 	}
@@ -206,7 +206,7 @@ func ListRecentGmailViaAPI(accessToken, query string, maxResults int) ([]GmailMe
 			continue
 		}
 		msgReq.Header.Set("Authorization", "Bearer "+accessToken)
-		msgResp, err := http.DefaultClient.Do(msgReq)
+		msgResp, err := outboundHTTPClient.Do(msgReq)
 		if err != nil {
 			continue
 		}

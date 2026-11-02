@@ -117,7 +117,7 @@ export default function LoginPage() {
     setError(null);
     setOauthLoading(provider);
     try {
-      const data = await api.oauthStart(provider);
+      const data = await api.oauthStart(provider, inviteCode.trim() || undefined);
       if (data.redirect_url) window.location.href = data.redirect_url;
       else throw new Error("no redirect");
     } catch (err) {
