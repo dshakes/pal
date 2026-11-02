@@ -1103,7 +1103,7 @@ func isPublicCORSPath(path string) bool {
 //
 // All other routes reflect the request Origin only when it appears in the
 // allowlist built from PAL_CORS_ORIGINS (comma-separated; default
-// http://localhost:3001). This prevents credential-bearing cross-origin
+// http://localhost:3001 and http://127.0.0.1:3001). This prevents credential-bearing cross-origin
 // requests from arbitrary origins in production.
 func CORSMiddleware(next http.Handler) http.Handler {
 	allowed := corsAllowedOrigins()
@@ -1122,7 +1122,9 @@ func CORSMiddleware(next http.Handler) http.Handler {
 		}
 
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Idempotency-Key")
+		// Lets the browser read the truncation marker on file reads (cross-origin API host).
+		w.Header().Set("Access-Control-Expose-Headers", "X-Pal-Truncated")
 		w.Header().Set("Access-Control-Max-Age", "86400")
 
 		if r.Method == http.MethodOptions {

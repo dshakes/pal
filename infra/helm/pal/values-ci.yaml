@@ -20,6 +20,7 @@ global:
 controlPlane:
   replicas: 1
   autoscaling: {enabled: false}
+  trustedProxies: "10.0.0.0/8"   # kind pod CIDR
   env:
     PAL_ENV: "development"   # prod guards need TLS Secrets the chart cannot mint
 
@@ -32,11 +33,33 @@ gateway:        {replicas: 0, autoscaling: {enabled: false}}
 modelRouter:    {replicas: 0, autoscaling: {enabled: false}}
 workflowEngine: {replicas: 0, autoscaling: {enabled: false}}
 runtimeManager: {replicas: 0}
-dashboard:      {replicas: 0, autoscaling: {enabled: false}}
+dashboard:      {replicas: 1, autoscaling: {enabled: false}}   # real image: login page is served through the ingress
 surfaceGateway: {replicas: 0}
+
+# ingress-nginx is installed by the job; hosts are resolved with a Host header.
+# The dashboard's browser API URL and the control-plane CORS origin are DERIVED
+# from these hosts (no explicit publicApiUrl), which is what the job asserts.
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: api.pal.test
+      paths:
+        - {path: /v1, pathType: Prefix, service: control-plane}
+        - {path: /auth, pathType: Prefix, service: control-plane}
+        - {path: /.well-known, pathType: Prefix, service: control-plane}
+        - {path: /mcp, pathType: Prefix, service: control-plane}
+        - {path: /dl, pathType: Prefix, service: control-plane}
+    - host: app.pal.test
+      paths:
+        - {path: /, pathType: Prefix, service: dashboard}
 
 networkPolicy:
   enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
 
 backup:
   enabled: true

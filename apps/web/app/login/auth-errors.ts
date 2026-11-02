@@ -2,6 +2,8 @@
 // auth-errors.test.mts. Input is the Error thrown by lib/api (messages look
 // like `API <status>: <json body>`; a fetch TypeError means the API is down).
 
+import { runtimeApiUrl } from "../../lib/runtime-config.ts";
+
 export type AuthErrorKind = "rate_limited" | "unverified" | "invalid" | "unreachable" | "server" | "closed" | "other";
 
 export interface AuthErrorView {
@@ -18,10 +20,14 @@ function serverReason(body: string): string | null {
   }
 }
 
-export function describeAuthError(err: unknown, mode: "signin" | "signup"): AuthErrorView {
+export function describeAuthError(
+  err: unknown,
+  mode: "signin" | "signup",
+  apiUrl: string = runtimeApiUrl() || "this dashboard's own origin",
+): AuthErrorView {
   const msg = err instanceof Error ? err.message : String(err ?? "");
   if (err instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(msg)) {
-    return { kind: "unreachable", message: "Can't reach PAL right now. Check your connection and try again." };
+    return { kind: "unreachable", message: `Can't reach PAL at ${apiUrl}. Check that the dashboard address matches the one the API allows (CORS), that the API is up, and your connection.` };
   }
   if (/email_unverified|Verify your email/i.test(msg)) {
     return { kind: "unverified", message: "Verify your email first — we sent you a link. Didn't get it? Send a new one below." };

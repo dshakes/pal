@@ -29,6 +29,15 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${interTight.variable} ${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <head>
+        {/* Runtime browser API URL (see lib/runtime-config.ts). Only emitted when the
+            server env sets it, so local dev keeps its build-time default. */}
+        {process.env.PAL_PUBLIC_API_URL !== undefined && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.__NEXT_PUBLIC_API_URL=${JSON.stringify(process.env.PAL_PUBLIC_API_URL).replace(/</g, "\\u003c")};`,
+            }}
+          />
+        )}
         {/* No-flash theme init: set data-theme before paint. Dark is default (light via the toggle). */}
         <script
           dangerouslySetInnerHTML={{

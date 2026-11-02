@@ -18,7 +18,7 @@ global:
     # render "/pal/pal-gateway:tag", which no runtime can pull.
     registry: ghcr.io
     repository: dshakes/pal
-    tag: "0.1.0"
+    tag: ""                 # empty -> Chart.appVersion; pin a release explicitly if you prefer
     pullPolicy: IfNotPresent
   logLevel: info
 
@@ -84,6 +84,12 @@ controlPlane:
     # A key missing the endpoint's scope gets 403. JWT sessions and unscoped
     # (legacy) keys are unaffected. Re-scope keys first: ga-staged-rollout.md.
     PAL_AUTHZ_ENFORCE: "1"
+  # PAL_TRUSTED_PROXIES: the auth rate limiter keys on the client IP and X-Forwarded-For is
+  # honoured ONLY from these CIDRs. Deliberately EMPTY here: when ingress.enabled the chart
+  # refuses to render until you set controlPlane.trustedProxies to your ingress controller's
+  # POD CIDR (not a broad private range). The control-plane trusts
+  # X-Forwarded-For only from these CIDRs and uses the rightmost untrusted hop (PR #429).
+  trustedProxies: ""
   # Internal gRPC TLS is wired by `mtls` below (cert-manager). Without it a
   # prod-class env refuses to serve gRPC unless PAL_GRPC_INSECURE=1 (ADR 0043).
   # PAL_SCHEDULER_GRPC_ADDR is wired by the chart (in-cluster scheduler svc).

@@ -148,6 +148,31 @@ spec:
             matchLabels:
               {{- toYaml $inst | nindent 14 }}
       {{- end }}
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.networkPolicy.ingressFrom }}
+{{- fail "networkPolicy.ingressFrom is required when ingress.enabled and networkPolicy.enabled: it is the only thing keeping other pods/namespaces (e.g. tenant pal-t-*) off the control-plane HTTP port, which also serves /internal/*. Example: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]" }}
+{{- end }}
+---
+# Control-plane HTTP (:8080) is reachable from the ingress controller ONLY (the in-release
+# callers are allowed by allow-to-control-plane above). Never an empty from-clause: the
+# control-plane also serves /internal/* and /v1/runtime/secrets/resolve.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pal.fullname" . }}-allow-ingress-to-control-plane
+  labels:
+    {{- include "pal.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pal.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}
+      ports:
+        - {port: 8080, protocol: TCP}
+{{- end }}
 ---
 # Data stores (Bitnami subchart pods) accept only the services that use them.
 apiVersion: networking.k8s.io/v1

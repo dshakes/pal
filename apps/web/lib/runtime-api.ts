@@ -6,15 +6,10 @@
 
 import { isNoSessionPath } from "./no-session-paths";
 import { parseSSE } from "./sse";
+import { runtimeApiUrl } from "./runtime-config.ts";
 function baseUrl(): string {
   if (typeof window !== "undefined") {
-    return (
-      ((window as unknown as Record<string, unknown>).__NEXT_PUBLIC_API_URL as
-        | string
-        | undefined) ??
-      process.env.NEXT_PUBLIC_API_URL ??
-      "http://localhost:8080"
-    );
+    return runtimeApiUrl() ?? "http://localhost:8080";
   }
   return (
     process.env.PAL_API_URL ??

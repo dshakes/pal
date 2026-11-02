@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { runtimeApiUrl } from "./runtime-config.ts";
 
 // Public URLs the dashboard shows or copies for use OUTSIDE the browser (curl
 // examples, agent cards, the webchat embed). They are derived from this
@@ -9,7 +10,7 @@ import { useEffect, useState } from "react";
 //   http://localhost:8080    when the dashboard itself runs on localhost
 //   window.location.origin   otherwise (the dashboard proxies /v1 to the API)
 export function publicApiBase(): string {
-  const configured = process.env.NEXT_PUBLIC_API_URL;
+  const configured = runtimeApiUrl();
   if (configured) return configured.replace(/\/+$/, "");
   if (typeof window === "undefined") return "";
   const host = window.location.hostname;

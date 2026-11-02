@@ -83,7 +83,7 @@ Usage: include "pal-cp.image" (dict "root" . "component" .Values.gateway)
 {{- define "pal-cp.image" -}}
 {{- $registry := .root.Values.global.image.registry -}}
 {{- $repository := .root.Values.global.image.repository -}}
-{{- $tag := default .root.Values.global.image.tag .component.image.tag -}}
+{{- $tag := default (default .root.Chart.AppVersion .root.Values.global.image.tag) .component.image.tag -}}
 {{- $name := .component.image.name -}}
 {{- printf "%s/%s/%s:%s" $registry $repository $name $tag -}}
 {{- end }}
