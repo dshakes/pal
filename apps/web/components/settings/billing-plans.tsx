@@ -41,7 +41,7 @@ function errorMessage(err: unknown): string {
 export function BillingPlans() {
   const { toast } = useToast();
   // Server: checkout/portal are owner|admin only (billing.go). UX gating, not enforcement.
-  const canManage = useCan("settings:write");
+  const canManage = useCan("owner"); // billing is owner-only (server billing.go canManageBilling)
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);

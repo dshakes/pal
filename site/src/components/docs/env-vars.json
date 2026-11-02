@@ -670,9 +670,31 @@
   ],
   "group": "Control plane: auth, secrets, trust boundaries",
   "default": "on in production, off in dev",
-  "description": "Scope enforcement is on by default in production (`PAL_ENV=production|staging`) and off in dev. `=0` opts out (logged as a warning); `=1` forces it on in dev. A key missing the endpoint's scope then gets 403.",
+  "description": "Scope enforcement for API keys and kiosk sessions is on by default in production (`PAL_ENV=production|staging`) and off in dev. `=0` opts out (logged as a warning); `=1` forces it on in dev. A key missing the endpoint's scope then gets 403. Dashboard sessions are always limited to their role's scopes, whatever this says.",
   "prod": true,
   "source": "services/control-plane/internal/handlers/env.go:33"
+ },
+ {
+  "name": "PAL_JWT_TTL",
+  "services": [
+   "control-plane"
+  ],
+  "group": "Control plane: auth, secrets, trust boundaries",
+  "default": "12h",
+  "description": "Session JWT lifetime (Go duration, `5m` to `24h`). Out of range or unparseable stops startup. Tokens with a longer lifetime are refused. No refresh token: users sign in again after it.",
+  "prod": false,
+  "source": "services/control-plane/internal/handlers/session_revocation.go:70"
+ },
+ {
+  "name": "PAL_DASHBOARD_TRUSTED_PROXIES",
+  "services": [
+   "web"
+  ],
+  "group": "Dashboard (Next.js)",
+  "default": "empty",
+  "description": "Comma-separated CIDRs of the ingress in front of the dashboard. Only from these peers does the `/api/pal` proxy read the client from `X-Forwarded-For`; otherwise the TCP peer is the client. Either way it sends the control plane one hop and never the browser's header. Helm sets it from `controlPlane.trustedProxies`.",
+  "prod": false,
+  "source": "apps/web/app/api/pal/[...path]/route.ts"
  },
  {
   "name": "PAL_BATCH_MAX_ITEMS",

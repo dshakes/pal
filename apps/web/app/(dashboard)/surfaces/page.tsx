@@ -1,5 +1,6 @@
 "use client";
 
+import { validateFields } from "@/lib/surface-fields";
 import { useCan } from "@/components/role-gate";
 import { usePublicUrls } from "@/lib/public-url";
 import { useState, useEffect, useCallback } from "react";
@@ -220,18 +221,6 @@ function PasswordInput({ value, onChange, placeholder }: { value: string; onChan
       </button>
     </div>
   );
-}
-
-function validateFields(fields: Record<string, string>, definitions: ConfigField[]): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const def of definitions) {
-    if (def.type === "readonly") continue;
-    const val = (fields[def.key] ?? "").trim();
-    if (def.required && !val) { errors[def.key] = `${def.label} is required`; continue; }
-    if (val && def.minLength && val.length < def.minLength) { errors[def.key] = `Must be at least ${def.minLength} characters`; continue; }
-    if (val && def.prefix && !val.startsWith(def.prefix)) { errors[def.key] = `Should start with "${def.prefix}"`; }
-  }
-  return errors;
 }
 
 // ---------------------------------------------------------------------------

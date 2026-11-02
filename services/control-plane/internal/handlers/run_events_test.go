@@ -116,7 +116,7 @@ func makeRunEventsRequest(t *testing.T, h *RESTHandler, tenantID, runID string) 
 	// Mint a JWT using the auth handler's internal helper via a temp user row
 	// — or just embed the token in the query param. For simplicity we use the
 	// query param path which calls ValidateToken directly.
-	token, err := h.auth.generateToken("test-user-id", tenantID, "test@example.com", "Test User", "owner")
+	token, err := h.auth.generateToken(context.Background(), "test-user-id", tenantID, "test@example.com", "Test User", "owner")
 	if err != nil {
 		t.Fatalf("mintToken: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestRunEvents_Ownership(t *testing.T) {
 		_, _ = h.srv.Pool.Exec(ctx, `DELETE FROM tenants WHERE id = $1`, otherTenantID)
 	})
 
-	otherToken, err := h.auth.generateToken("other-user-id", otherTenantID, "other@example.com", "Other User", "owner")
+	otherToken, err := h.auth.generateToken(context.Background(), "other-user-id", otherTenantID, "other@example.com", "Other User", "owner")
 	if err != nil {
 		t.Fatalf("mintToken for other tenant: %v", err)
 	}

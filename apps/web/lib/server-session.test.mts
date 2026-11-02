@@ -5,7 +5,6 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { clearSessionCache, getSession, rejectCrossSiteWrite } from "./server-session.ts";
 import * as route from "../app/api/bridge/[channel]/[...path]/route.ts";
-import { POST as sessionPOST } from "../app/api/auth/session/route.ts";
 import { middleware } from "../middleware.ts";
 
 const CP = "http://cp.test";
@@ -194,16 +193,9 @@ test("rejectCrossSiteWrite lets GET through and refuses headerless writes", () =
   );
 });
 
-test("/api/auth/session POST: login CSRF guarded (cross-site / text/plain → 403)", async () => {
-  const cross = await sessionPOST(req("POST", "/api/auth/session", {
-    headers: { "sec-fetch-site": "cross-site", "content-type": "application/json" }, body: '{"token":"attacker"}',
-  }));
-  assert.equal(cross.status, 403);
-  const plain = await sessionPOST(req("POST", "/api/auth/session", {
-    headers: { "sec-fetch-site": "same-origin", "content-type": "text/plain" }, body: '{"token":"attacker"}',
-  }));
-  assert.equal(plain.status, 403);
-});
+// /api/auth/session (token-in-body → cookie) is gone: the cookie is now only
+// ever set by the /api/pal proxy from a control-plane sign-in response, whose
+// login-CSRF guard is covered in lib/pal-proxy.test.mts.
 
 test("middleware: /api is no longer blanket-public", async () => {
   const api = await middleware(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`));
@@ -212,7 +204,7 @@ test("middleware: /api is no longer blanket-public", async () => {
   assert.equal(forged.status, 401);
   const ok = await middleware(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`, { token: GOOD }));
   assert.equal(ok.headers.get("x-middleware-next"), "1");
-  for (const p of ["/api/signals", "/api/auth/session"]) {
+  for (const p of ["/api/signals", "/api/pal/auth/login"]) {
     const pub = await middleware(req("POST", p));
     assert.equal(pub.headers.get("x-middleware-next"), "1", p);
   }

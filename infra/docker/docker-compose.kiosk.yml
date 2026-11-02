@@ -63,6 +63,11 @@ services:
       PAL_MAILER: log
       PAL_CORS_ORIGINS: http://localhost:${KIOSK_WEB_PORT:-3001}
       PAL_KIOSK_IP_PER_HOUR: "60" # a booth is one machine; raise/lower per venue
+      # The dashboard's /api/pal proxy forwards one client IP it computed; trust
+      # exactly the dashboard container for it (pinned below), so visitors get
+      # separate per-IP limits. Never a broad range: direct API callers arrive via
+      # the docker gateway and must not be able to choose their address.
+      PAL_TRUSTED_PROXIES: 172.30.77.10/32
       PAL_LLM_BASEURL_OPENAI: http://llm-replay:9090
       PAL_LLM_BASEURL_ANTHROPIC: http://llm-replay:9090
       OPENAI_API_KEY: kiosk-replay-placeholder
@@ -83,3 +88,13 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost:${KIOSK_API_PORT:-8080}
     ports: !override
       - "127.0.0.1:${KIOSK_WEB_PORT:-3001}:3000"
+    networks:
+      default:
+        ipv4_address: 172.30.77.10
+
+# A fixed subnet so PAL_TRUSTED_PROXIES above can name the dashboard exactly.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.77.0/24

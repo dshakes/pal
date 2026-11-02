@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/button";
-import { api } from "@/lib/api";
 import { KIOSK_STORAGE_KEY } from "./kiosk-logic";
-import { runtimeApiUrl } from "@/lib/runtime-config";
 
 // Public landing for `pal demo`: one button that mints an ephemeral demo
 // workspace (POST /v1/kiosk/session) and drops the visitor into the dashboard.
@@ -16,18 +14,16 @@ export default function KioskStart() {
     setBusy(true);
     setError(null);
     try {
-      const base = runtimeApiUrl() ?? "http://localhost:8080";
-      const res = await fetch(`${base}/v1/kiosk/session`, { method: "POST" });
+      // Same-origin proxy: it moves the demo session into the HttpOnly cookie.
+      const res = await fetch("/api/pal/v1/kiosk/session", { method: "POST", headers: { "Content-Type": "application/json" } });
       if (!res.ok) {
         throw new Error(res.status === 429 ? "Too many demos from this device. Try again later."
           : res.status === 503 ? "The demo is full. Try again in a minute."
           : res.status === 404 ? "Demo mode is not enabled on this server."
           : "Could not start the demo.");
       }
-      const s = (await res.json()) as { token: string; expiresAt: string };
-      api.setToken(s.token);
+      const s = (await res.json()) as { expiresAt: string };
       localStorage.setItem(KIOSK_STORAGE_KEY, JSON.stringify({ expiresAt: s.expiresAt, mode: "replay" }));
-      await api.whenCookieSynced();
       window.location.href = "/inbox";
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start the demo.");

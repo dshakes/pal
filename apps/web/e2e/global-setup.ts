@@ -51,7 +51,7 @@ async function warmRoutes() {
   });
   const { token } = (await r.json()) as { token?: string };
   const headers = { cookie: `pal_token=${token ?? ""}` };
-  for (const p of ["/login", "/auth/forgot", "/auth/reset?token=x", "/onboarding", "/agents", "/settings", "/brief", "/personal/drafts", "/personal/contacts", "/personal/docs"]) {
+  for (const p of ["/login", "/auth/forgot", "/auth/reset?token=x", "/onboarding", "/agents", "/settings", "/brief", "/personal/drafts", "/personal/contacts", "/personal/docs", "/api/pal/auth/me"]) {
     await fetch(WEB_URL + p, { headers }).catch(() => {});
   }
 }
@@ -119,7 +119,8 @@ export default async function globalSetup() {
       HTTP_ADDR: `127.0.0.1:${API_PORT}`,
       LISTEN_ADDR: `127.0.0.1:${GRPC_PORT}`,
       PAL_METRICS_ADDR: `127.0.0.1:${METRICS_PORT}`,
-      // Without this every API call from the dashboard origin fails CORS.
+      // The dashboard calls the API through its same-origin /api/pal proxy; CORS
+      // stays for the specs that hit the API host from a page directly.
       PAL_CORS_ORIGINS: WEB_URL,
       PAL_ENV: "",
       PAL_MAILER: "log",
@@ -147,6 +148,7 @@ export default async function globalSetup() {
     start("web", "npx", ["next", "dev", "--port", String(WEB_PORT)], WEB_DIR, {
       NEXT_PUBLIC_API_URL: API_URL,
       PAL_API_URL: API_URL,
+      NODE_OPTIONS: "--require ./peer-ip.cjs",
       PAL_BRIDGE_OWNER_TENANT: owner.user.tenantId,
       // The dashboard proxy (/api/bridge) and the browser WebSocket default to the live bridges.
       PAL_BRIDGE_URL: BRIDGE_WA_URL,

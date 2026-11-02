@@ -31,6 +31,13 @@ spec:
               value: "http://{{ include "pal.fullname" . }}-control-plane:{{ .Values.controlPlane.service.httpPort }}"
             # Browser-side, read by the server at REQUEST time (app/layout.tsx), so one
             # image works anywhere. Unset -> the dashboard falls back to localhost:8080.
+            # The /api/pal proxy forwards one client IP to the control plane. Behind the
+            # ingress, the TCP peer is the ingress controller: trust its CIDRs so the real
+            # client is read from its X-Forwarded-For (same CIDRs the control plane trusts).
+            {{- with .Values.controlPlane.trustedProxies }}
+            - name: PAL_DASHBOARD_TRUSTED_PROXIES
+              value: {{ . | quote }}
+            {{- end }}
             {{- with include "pal.publicApiUrl" . }}
             - name: PAL_PUBLIC_API_URL
               value: {{ . | quote }}

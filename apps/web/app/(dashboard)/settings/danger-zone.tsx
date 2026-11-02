@@ -45,7 +45,7 @@ export function DangerZone() {
     setDeleting(true);
     try {
       await api.deleteTenant(user.tenantId);
-      logout();
+      await logout();
       router.replace("/login");
     } catch {
       toast("error", "Couldn't delete the workspace. Nothing was removed.");

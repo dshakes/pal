@@ -21,7 +21,7 @@
 // WhatsApp jid), so this handler must not rely on it.
 
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, getSession, mayDriveBridge, rejectCrossSiteWrite } from "../../../../../lib/server-session.ts";
+import { sessionToken, getSession, mayDriveBridge, rejectCrossSiteWrite } from "../../../../../lib/server-session.ts";
 
 type Channel = "whatsapp" | "imessage";
 
@@ -125,7 +125,7 @@ async function handle(req: NextRequest, context: RouteContext): Promise<NextResp
   if (!isChannel(channel)) {
     return NextResponse.json({ error: "unknown channel" }, { status: 404 });
   }
-  const session = await getSession(req.cookies.get(SESSION_COOKIE)?.value);
+  const session = await getSession(sessionToken(req.cookies));
   if (!session) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

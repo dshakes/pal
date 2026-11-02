@@ -84,6 +84,44 @@ curl -s -X POST http://localhost:8080/auth/verify \
 # 200 {"verified":true}
 ```
 
+## Sessions and sign-out
+
+A sign-in returns a session JWT (HS256). It is short-lived and revocable:
+
+- **Lifetime.** `PAL_JWT_TTL` (a Go duration, `5m` to `24h`, default `12h`). An out-of-range or unparseable value stops the control plane at startup. A token whose lifetime is longer than the configured TTL is refused even before it expires, so lowering the TTL takes effect at once and the old 30-day tokens no longer work. There is no refresh token: sign in again after the TTL.
+- **Revocation.** Each user row has a `token_version`, and every session carries it as the `tv` claim. A request whose `tv` no longer matches is refused with `401`. The version goes up on `POST /auth/logout`, on a password reset, on any password or role change (a database trigger does this, so it also covers changes made in SQL), and a deleted user or workspace is refused outright. A bump kills every session that user holds, on every device.
+- **Revocation window.** Each control-plane replica caches the version for up to 60 seconds. The replica that handled the logout or erasure refuses the old tokens immediately; other replicas refuse them within 60 seconds. A newer token (signed in after the change) is never held back by a stale cache.
+- **Where sessions are accepted.** Only by the control plane (directly or through the dashboard proxy), where the checks above run. The gateway on `:8443` accepts API keys only and refuses session JWTs.
+- **Open streams end too.** Server-sent event streams (`/v1/runs/{id}/events`, `/v1/sessions/{id}/events`) close when the token expires and re-check revocation every 60 seconds, so a logout also ends a stream that was already open.
+- **`POST /auth/logout`.** Needs a session JWT and returns `204`. It revokes all of the caller's sessions, not just the one presented. An API key gets `400`; revoke keys with `DELETE /v1/api-keys/{id}` instead.
+
+### The dashboard keeps the session out of JavaScript
+
+The dashboard stores the session only in an `HttpOnly`, `SameSite=Lax` cookie whose lifetime matches the token. In production it is named `__Host-pal_token`, so the browser only accepts it as `Secure`, host-only and `Path=/` (a sibling subdomain cannot plant or overwrite it). A session still under the old `pal_token` name is moved over and the old cookie cleared; dev keeps `pal_token`. Page scripts never see it, and nothing is written to `localStorage`. The browser calls the API through the dashboard's own origin at `/api/pal/*`; that proxy adds `Authorization: Bearer` from the cookie on the server side and streams responses (including SSE) through unbuffered. When sign-in, sign-up, the OAuth exchange or a kiosk session returns a token, the proxy moves it into the cookie and removes it from the JSON the page receives.
+
+Because the cookie is sent automatically, the proxy refuses anything that does not look like the dashboard's own `fetch()`: a `Sec-Fetch-Site` other than `same-origin`, a `Sec-Fetch-Dest` other than `empty` (so `<img>`, `<script>` and navigations to proxy URLs are refused too), and any state-changing request whose `Origin` is not the dashboard's host. Only `/v1/*` and `/auth/*` are proxied, never `/internal/*`, and request bodies over 2 MiB get `413`. OAuth sign-in is the one exception to "everything goes through the proxy": it starts with a top-level navigation to the API's public host (`PAL_PUBLIC_API_URL`), because that response sets a cookie on the API host.
+
+Every dashboard page also sends a Content-Security-Policy with a per-request nonce (`script-src 'self' 'nonce-…' 'strict-dynamic'`, no `unsafe-eval` in production, `connect-src 'self'`, `frame-ancestors 'none'`), plus `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and a `Permissions-Policy` that turns off camera, microphone, geolocation, payment and USB.
+
+The control plane rate-limits sign-up, sign-in, password reset, verification, bridge pairing and kiosk sessions by client IP, and with the proxy it sees the dashboard as the peer. The proxy never passes on the browser's `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: it sends exactly one `X-Forwarded-For` hop it worked out itself. That hop is the TCP peer of the dashboard server, or, when that peer is your ingress and you list the ingress CIDRs in `PAL_DASHBOARD_TRUSTED_PROXIES`, the client the ingress reported. List the dashboard pods in the control plane's `PAL_TRUSTED_PROXIES` so it honours that hop; otherwise every visitor shares the dashboard's bucket. The Helm chart sets `PAL_DASHBOARD_TRUSTED_PROXIES` from `controlPlane.trustedProxies`, so one pod CIDR covers both.
+
+## Roles
+
+Every route checks the caller's role on the server. A session holds the scopes of its role, and a route that needs a scope the role lacks returns `403 {"code":"role_forbidden"}`. This is always on; `PAL_AUTHZ_ENFORCE` only stages scope enforcement for API keys and kiosk sessions. The dashboard offers each role exactly what the server allows (one source: `apps/web/lib/rbac.ts`, checked against the server by a test).
+
+| Role | Scopes | Can | Cannot |
+| --- | --- | --- | --- |
+| `owner` | `admin` | Everything. | |
+| `admin` | `admin` | Everything except the owner-only actions. | Export or delete the workspace, change billing, set the sandbox quota. |
+| `member` | `read`, `agents:write`, `runs:execute` | Read everything; build, edit, run and delete agents; propose promotions; star and fork marketplace agents. | API keys, provider keys, connectors and MCP credentials (they are tenant-wide secrets every agent can use), budgets, channels, voice numbers, devices, DLP, data planes, agent identity and policy, approving promotions, administering sandboxes, and the owner's personal data (held replies, automations, people, memory). |
+| `viewer` | `read` | Read. | Anything that changes state. |
+
+An unknown role gets `viewer`. API keys keep their own scopes. Kiosk sessions keep theirs (ADR 0029). Whether a caller is a session is decided by how it authenticated, not by the role it claims: a token that claims `role: service` is still a session (with viewer scopes), never an API key.
+
+### Credentials are never returned
+
+Connector, channel (surface) and MCP-attachment config is returned with every secret masked as `********`, to every role including the owner. Only identifier fields (for example `accountSid`, `phoneNumber`, `email`, `region`, `botUsername`) keep their value; any field not on that allowlist is masked, so a new credential field is safe by default. When a client sends a config back with a field still set to `********`, the stored value is kept. Executing a connector action (`GET` or `POST /v1/connectors/{id}/execute`) needs `connectors:write`, because it spends tenant-wide credentials; agents are governed by their policy instead.
+
 ## Email verification
 
 - **Enforced in prod only.** Dev keeps one-step sign-up so `make dev` works unchanged, but still sends the mail so the flow is testable.
@@ -199,7 +237,7 @@ The control plane refuses to start when:
 
 ## Endpoint reference
 
-All `/auth/*` routes take JSON and need no Bearer token.
+All `/auth/*` routes take JSON and need no Bearer token, except `POST /auth/logout` and `GET /auth/me`.
 
 | Endpoint | Request | Success | Errors |
 | --- | --- | --- | --- |
@@ -208,16 +246,19 @@ All `/auth/*` routes take JSON and need no Bearer token.
 | `POST /auth/verify` | `{token}` | `200 {"verified":true}` | `400 invalid or expired token` (unknown, reused, expired or wrong-purpose), `429` past 20 per hour per IP |
 | `POST /auth/verify/resend` | `{email}` | `202 {"status":"ok","message":"If that address has an account, we've sent it a link."}` for any well-formed email | `400 a valid email is required`, `429` |
 | `POST /auth/forgot` | `{email}` | Same responses and limits as resend; sends a reset link | |
-| `POST /auth/reset` | `{token, password}` | `200 {"reset":true}` | `400` short password or `invalid or expired token`, `429`. The token is checked after the length, so a short password does not burn it. |
+| `POST /auth/reset` | `{token, password}` | `200 {"reset":true}` | `400` short password or `invalid or expired token`, `429`. The token is checked after the length, so a short password does not burn it. A reset revokes every existing session of that user. |
+| `POST /auth/logout` | none; Bearer session JWT | `204`; every session of the caller is revoked | `400` for an API key, `401` without a valid session |
 
 `GET /v1/tenants/{id}/export` and `DELETE /v1/tenants/{id}` take a Bearer owner JWT; see above.
 
 ## Teams
 
-A workspace is one tenant. Sign-up creates its owner, and only the owner can export or delete it. The control plane has no member or invite API. The Settings page has a Team tab, but it keeps its member list in the browser's local storage, so it does not give anyone else access to the workspace. For shared programmatic access, [API keys](/docs/reference/api/) carry scopes; a key cannot be an owner.
+A workspace is one tenant. Sign-up creates its owner, and only the owner can export or delete it. Other users' roles are enforced as described in [Roles](#roles), but the control plane has no member or invite API yet, so a non-owner can only be created by an operator. The Settings page has a Team tab, but it keeps its member list in the browser's local storage, so it does not give anyone else access to the workspace. For shared programmatic access, [API keys](/docs/reference/api/) carry scopes; a key cannot be an owner.
 
 ## Limits
 
 - Invite codes cannot be listed or revoked. To cancel one, rotate `PAL_SIGNUP_INVITE_SECRET`, which invalidates all of them.
 - Rate limiting needs Redis. If Redis is absent or errors, sign-up **fails closed in prod** (`503 sign-up is temporarily unavailable`), so a Redis outage can't be used to create accounts without a limit. Login, verification and password reset fail open, because a Redis outage must not lock owners out. Only the captcha, sign-up mode and per-email checks protect those routes while Redis is down. In dev every route fails open. Bridge pairing keeps its own limiter in memory, so Redis has no effect on it.
 - Emailed links use `OAUTH_DASHBOARD_URL`, which defaults to localhost.
+- There is no refresh token. A session ends at `PAL_JWT_TTL` and the user signs in again.
+- Another replica can honor a revoked session for up to 60 seconds (see [Sessions and sign-out](#sessions-and-sign-out)).

@@ -22,6 +22,8 @@ test("rbac: only owner holds owner-level actions", () => {
   assert.equal(can("owner", "owner"), true);
   assert.equal(can("admin", "owner"), false);
   assert.equal(can("admin", "settings:write"), true);
+  assert.equal(can("member", "write"), false); // the owner's personal data (server: coarse write)
+  assert.equal(can("admin", "write"), true);
   assert.equal(can("kiosk", "runtime:admin"), false);
 });
 
@@ -30,7 +32,7 @@ test("canDebug requires runs:execute + agents:read + budgets:read and refuses ki
   assert.equal(canDebug("kiosk"), false); // has runs:execute but is refused server-side
   assert.equal(canDebug("viewer"), false); // reads but cannot execute
   assert.equal(canDebug(undefined), false);
-  assert.equal(can("kiosk", "budgets:read"), false);
+  assert.equal(can("kiosk", "budgets:read"), true); // kioskScopes' coarse read covers it
 });
 
 test("sandboxes + promotions mirror the server's role rules", () => {

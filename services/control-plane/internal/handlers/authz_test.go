@@ -115,7 +115,7 @@ func TestWithScope_JWT_AlwaysPasses(t *testing.T) {
 	srv := &server.Server{Logger: logger}
 	auth := NewAuthHandler(srv, testJWTSecret)
 
-	tok, err := auth.generateToken("u1", devTenantID, "owner@test.local", "Owner", "owner")
+	tok, err := auth.generateToken(context.Background(), "u1", devTenantID, "owner@test.local", "Owner", "owner")
 	if err != nil {
 		t.Fatalf("generateToken: %v", err)
 	}

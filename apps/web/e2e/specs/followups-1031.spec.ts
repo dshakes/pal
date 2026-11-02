@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 import { API_URL } from "../support/env";
 import { openOnboarding, signUp, uniqueEmail } from "../support/users";
 
-const token = (page: import("@playwright/test").Page) => page.evaluate(() => localStorage.getItem("pal_token"));
+// The session lives only in the HttpOnly cookie (S-3); the harness reads it from the browser context.
+const token = async (page: import("@playwright/test").Page) =>
+  (await page.context().cookies()).find((c) => c.name === "pal_token")?.value ?? "";
 const BANNER = "Add a model provider key";
 
 for (const theme of ["dark", "light"] as const) {

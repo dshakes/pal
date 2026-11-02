@@ -125,7 +125,9 @@ services:
       CONTROL_PLANE_ADDR: control-plane:50051
       MODEL_ROUTER_ADDR: model-router:50053
       WORKFLOW_ENGINE_ADDR: workflow-engine:50052
-      JWT_SECRET: pal-dev-jwt-secret-do-not-use-in-production
+      # API keys only (no session JWTs): introspected against the control plane.
+      PAL_CONTROL_PLANE_URL: http://control-plane:8080
+      PAL_GRPC_SERVICE_TOKEN: ${PAL_GRPC_SERVICE_TOKEN:-}
     depends_on:
       control-plane:
         condition: service_healthy

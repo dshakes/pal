@@ -89,6 +89,10 @@ controlPlane:
   # refuses to render until you set controlPlane.trustedProxies to your ingress controller's
   # POD CIDR (not a broad private range). The control-plane trusts
   # X-Forwarded-For only from these CIDRs and uses the rightmost untrusted hop (PR #429).
+  # It must ALSO cover the dashboard pods: browser API calls go through the dashboard's
+  # /api/pal proxy, which forwards one client IP it computed (never the browser's header).
+  # Without it every sign-in/sign-up/kiosk visitor shares the dashboard's rate-limit bucket.
+  # The dashboard trusts the same CIDRs for the ingress hop (PAL_DASHBOARD_TRUSTED_PROXIES).
   trustedProxies: ""
   # Internal gRPC TLS is wired by `mtls` below (cert-manager). Without it a
   # prod-class env refuses to serve gRPC unless PAL_GRPC_INSECURE=1 (ADR 0043).

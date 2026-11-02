@@ -20,7 +20,7 @@ global:
 controlPlane:
   replicas: 1
   autoscaling: {enabled: false}
-  trustedProxies: "10.0.0.0/8"   # kind pod CIDR
+  trustedProxies: "10.0.0.0/8"   # kind pod CIDR: covers ingress-nginx AND the dashboard pods (/api/pal proxy)
   env:
     PAL_ENV: "development"   # prod guards need TLS Secrets the chart cannot mint
 

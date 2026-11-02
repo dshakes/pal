@@ -31,9 +31,9 @@ async function loginAs(email: string): Promise<string> {
   return body.token;
 }
 
+// The session is the HttpOnly cookie only (S-3); nothing goes in localStorage.
 async function signedIn(page: Page, token: string) {
-  await page.context().addCookies([{ name: "pal_token", value: token, url: WEB_URL }]);
-  await page.addInitScript((t) => localStorage.setItem("pal_token", t), token);
+  await page.context().addCookies([{ name: "pal_token", value: token, url: WEB_URL, httpOnly: true, sameSite: "Lax" }]);
 }
 
 async function createAgent(token: string, name: string) {
@@ -186,8 +186,9 @@ for (const role of ROLES_UNDER_TEST) {
       if (canBuild) await expect(schedule).toBeDisabled();
       else await expect(schedule).toHaveCount(0);
 
+      // S-5: identity rotate/revoke + policy are owner|admin on the server, so not offered to members either.
       await page.goto(`/agents/agent-${role}?tab=security`);
-      await expect(page.getByRole("button", { name: "Rotate key" })).toHaveCount(canBuild ? 1 : 0);
+      await expect(page.getByRole("button", { name: "Rotate key" })).toHaveCount(0);
 
       // settings: admin-only sections are neither linked nor reachable by deep link
       await page.goto("/settings");

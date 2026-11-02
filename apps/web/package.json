@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack --port 3001",
+    "dev": "NODE_OPTIONS='--require ./peer-ip.cjs' next dev --turbopack --port 3001",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_OPTIONS='--require ./peer-ip.cjs' next start",
     "lint": "next lint",
     "test": "node --import=tsx/esm --test \"app/**/*.test.mts\" \"lib/**/*.test.mts\" \"scripts/**/*.test.mts\"",
     "test:e2e": "playwright test",

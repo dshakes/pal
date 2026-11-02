@@ -1,22 +1,17 @@
 // Typed client for the control-plane's WhatsApp personal-assistant
 // endpoints (VIPs, contact facts, pending drafts). Mirrors the
 // bridge-client pattern: pure functions, no state, single auth source
-// (the pal_token cookie/localStorage via api.ts).
+// (the HttpOnly pal_token cookie, added server-side by the /api/pal proxy).
 
-import { api } from "@/lib/api";
 import { PersonalApiError } from "@/lib/pal-space";
-import { runtimeApiUrl } from "@/lib/runtime-config";
 
 const API_BASE =
   (typeof window !== "undefined"
-    ? (runtimeApiUrl() ?? "http://localhost:8080")
+    ? "/api/pal"
     : (process.env.PAL_API_URL ?? "http://localhost:8080"));
 
 function authHeaders(): HeadersInit {
-  const token = api.token ?? api.restoreToken();
-  return token
-    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
-    : { "Content-Type": "application/json" };
+  return { "Content-Type": "application/json" };
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {

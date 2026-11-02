@@ -401,7 +401,7 @@ func TestOAuthCallback_LinkPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			claims, err := o.h.ValidateToken(tok)
+			claims, err := o.h.ValidateToken(context.Background(), tok)
 			if err != nil {
 				t.Fatal(err)
 			}

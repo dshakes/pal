@@ -46,7 +46,7 @@ type StaleSnap = { channel: string; generatedAt: number };
 const CHANNEL_NAME: Record<BridgeChannel, string> = { whatsapp: "WhatsApp", imessage: "iMessage" };
 
 export default function TodayPage() {
-  const canAct = useCan("runs:execute"); // approve/edit/discard + dismiss (UX gating, lib/rbac-matrix.ts)
+  const canAct = useCan("write"); // approve/edit/discard + dismiss: the owner's personal data (server: coarse write; UX gating, lib/rbac-matrix.ts)
   const { user } = useAuth();
   const { isConfigured } = useModels();
   const toast = useToast();

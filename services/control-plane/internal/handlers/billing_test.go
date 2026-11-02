@@ -384,8 +384,14 @@ func TestRLSBilling_Lifecycle(t *testing.T) {
 	if rr.Code != http.StatusOK || decodeBody(t, rr)["url"] != "https://checkout.stripe.test/"+customerA {
 		t.Fatalf("checkout: %d %s", rr.Code, rr.Body.String())
 	}
+	// S-5: billing is owner-only; an admin is refused.
 	rr = httptest.NewRecorder()
 	f.h.Checkout(rr, billingReq(t, http.MethodPost, "/v1/billing/checkout", tenantA, "admin", map[string]string{"planId": "pro"}))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("admin checkout: got %d, want 403", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	f.h.Checkout(rr, billingReq(t, http.MethodPost, "/v1/billing/checkout", tenantA, "owner", map[string]string{"planId": "pro"}))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("second checkout: %d %s", rr.Code, rr.Body.String())
 	}

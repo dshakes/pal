@@ -353,7 +353,7 @@ type Verify = { state: "ok" } | { state: "mismatch" } | null;
 
 export function SecurityTab({ name }: { name: string }) {
   // Rotate/revoke/policy writes are ScopeAgentsWrite on the server; UX gating (lib/rbac-matrix.ts).
-  const canWrite = useCan("agents:write");
+  const canWrite = useCan("settings:write"); // policy PUT + identity rotate/revoke: owner|admin (server RequireSessionRole)
   const toast = useToast();
 
   const [identity, setIdentity] = useState<AgentIdentity | null>(null);

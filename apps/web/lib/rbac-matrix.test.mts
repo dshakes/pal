@@ -26,13 +26,15 @@ test("viewer and unknown roles are offered nothing that changes state", () => {
 
 test("member builds and runs but is not offered admin surfaces", () => {
   const m = ids("member");
-  for (const ok of ["agent.create", "agent.edit", "agent.run", "agent.security", "evalsuite.run", "run.takeover", "brief.act", "marketplace.use"]) {
+  for (const ok of ["agent.create", "agent.edit", "agent.run", "evalsuite.run", "run.takeover", "marketplace.use"]) {
     assert.ok(m.includes(ok), `member should get ${ok}`);
   }
   for (const no of [
     "settings.keys", "settings.billing", "settings.devices", "settings.dlp", "settings.audit", "settings.danger",
     "budget.edit", "connector.manage", "mcp.manage", "runtime.admin", "runtime.schedule", "promote.approve",
     "dataplane.manage", "surface.manage", "voice.manage", "automation.trust", "agent.mcp.connect", "agent.template",
+    // S-5: agent identity/policy is owner|admin; the owner's held replies and automations are personal data.
+    "agent.security", "brief.act", "automation.act",
   ]) {
     assert.ok(!m.includes(no), `member must NOT get ${no}`);
   }

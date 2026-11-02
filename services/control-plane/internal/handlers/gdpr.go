@@ -94,12 +94,27 @@ func (h *GDPRHandler) DeleteTenant(w http.ResponseWriter, r *http.Request) {
 		zap.String("initiated_by_user", claims.Subject),
 	)
 
+	// The workspace's users, so this replica refuses their sessions the moment
+	// the rows are gone (other replicas: within sessionCacheTTL).
+	var userIDs []string
+	// rls-exempt: owner-initiated erasure of the caller's own tenant (checked above).
+	rows, err := h.srv.Pool.Query(ctx, `SELECT id::text FROM users WHERE tenant_id = $1`, targetID)
+	if err == nil {
+		userIDs, err = pgx.CollectRows(rows, pgx.RowTo[string])
+	}
+	if err != nil {
+		log.Error("GDPR purge: list users failed", zap.String("tenant_id", targetID), zap.Error(err))
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		return
+	}
+
 	// --- Cascade-delete in a single transaction (shared with the kiosk sweep) ---
 	deleted, err := purgeTenantRows(ctx, h.srv.Pool, log, targetID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
+	h.auth.ForgetSessions(userIDs...)
 
 	log.Warn("GDPR tenant purge complete",
 		zap.String("tenant_id", targetID),

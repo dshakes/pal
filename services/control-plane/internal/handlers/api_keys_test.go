@@ -75,7 +75,7 @@ func newKeyFixture(t *testing.T) *keyFixture {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM tenants WHERE id=$1`, f.tenantID) })
 	var err error
-	if f.jwt, err = auth.generateToken(f.userID, f.tenantID, email, "k", "owner"); err != nil {
+	if f.jwt, err = auth.generateToken(context.Background(), f.userID, f.tenantID, email, "k", "owner"); err != nil {
 		t.Fatal(err)
 	}
 	return f

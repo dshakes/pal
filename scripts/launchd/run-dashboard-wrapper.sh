@@ -61,7 +61,7 @@ start_standalone() {
   cp -r .next/static .next/standalone/.next/static 2>/dev/null || true
   [[ -d public ]] && cp -r public .next/standalone/public
   echo "[$(date +%T)] starting standalone server on :${PORT:-3001}"
-  exec env HOSTNAME="${PAL_DASHBOARD_HOST:-127.0.0.1}" node .next/standalone/server.js
+  exec env HOSTNAME="${PAL_DASHBOARD_HOST:-127.0.0.1}" node --require ./peer-ip.cjs .next/standalone/server.js
 }
 
 # Build ONLY when there is no standalone bundle yet (first run, or after a clean).

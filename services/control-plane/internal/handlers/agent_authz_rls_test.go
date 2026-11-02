@@ -70,7 +70,7 @@ func (a *authzEnv) setPolicy(t *testing.T, agentID string, p agentpolicy.Policy)
 
 func (a *authzEnv) ownerToken(t *testing.T, tenantID, role string) string {
 	t.Helper()
-	tok, err := a.auth.generateToken(uuid.NewString(), tenantID, "owner@test.local", "Owner", role)
+	tok, err := a.auth.generateToken(context.Background(), uuid.NewString(), tenantID, "owner@test.local", "Owner", role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestRLSAgentIdentityAPI_TokenMintJWKSAndConfusion(t *testing.T) {
 	}
 
 	// An agent token is NOT a user session.
-	if _, err := a.auth.ValidateToken(minted.Token); err == nil {
+	if _, err := a.auth.ValidateToken(context.Background(), minted.Token); err == nil {
 		t.Fatal("agent token accepted as a user session")
 	}
 	// Nor is an HS256 agent-instance token signed with the JWT secret (the
@@ -328,7 +328,7 @@ func TestRLSAgentIdentityAPI_TokenMintJWKSAndConfusion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.auth.ValidateToken(inst); err == nil {
+	if _, err := a.auth.ValidateToken(context.Background(), inst); err == nil {
 		t.Fatal("agent-instance token accepted as a user session")
 	}
 
