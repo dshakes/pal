@@ -102,7 +102,7 @@ describe("bridge HTTP hardening (Host allowlist, fail-closed token, peer tokens)
     const host = INDEX.indexOf("isAllowedHost(req.headers.host, ALLOWED_HOSTS)");
     expect(host).toBeGreaterThan(-1);
     expect(host).toBeLessThan(INDEX.indexOf("app.use(cors("));
-    expect(INDEX).toMatch(/verifyClient: .*isAllowedHost\(/);
+    expect(INDEX).toMatch(/verifyClient:[\s\S]{0,400}isAllowedHost\(/);
     expect(INDEX).toContain("res.status(403).json({ error: \"forbidden host\" })");
   });
   it("an unset token refuses /session with 403 naming PAL_IMESSAGE_BRIDGE_TOKEN (never next())", () => {
@@ -125,5 +125,30 @@ describe("bridge HTTP hardening (Host allowlist, fail-closed token, peer tokens)
       expect(win, `no token near: ${win.slice(0, 80)}`).toMatch(/peerAuthHeaders\("whatsapp"|Authorization/);
     }
     expect(SRC).not.toMatch(/peerAuthHeaders\("imessage"/);
+  });
+});
+
+describe("WebSocket is authorised at the upgrade (cross-site WS hijack)", () => {
+  it("verifyClient enforces Host, Origin and token/ticket via authorizeWs, on loopback too", () => {
+    const i = INDEX.indexOf("verifyClient:");
+    expect(i).toBeGreaterThan(-1);
+    const body = INDEX.slice(i, i + 1500);
+    expect(body).toContain("isAllowedHost(req.headers.host, ALLOWED_HOSTS)");
+    expect(body).toMatch(/authorizeWs\(\{\s*origin: req\.headers\.origin,/);
+    expect(body).toContain("authorizeWs(");
+    expect(body).toContain("policy: TOKEN_POLICY");
+    expect(body).toContain('searchParams.get("ticket")');
+    expect(body).toMatch(/cb\(r\.ok, r\.ok \? undefined : r\.status/);
+  });
+  it("no loopback-only exemption remains; nothing is sent before auth (QR / messages)", () => {
+    expect(INDEX).not.toMatch(/if \(BRIDGE_TOKEN && !isLoopback\)/);
+    expect(INDEX).not.toMatch(/searchParams\.get\("token"\)/);
+  });
+  it("tickets are minted only through the token-guarded /session route", () => {
+    const guard = INDEX.indexOf('app.use("/session", requireToken');
+    const route = INDEX.indexOf('app.post("/session/:tenantId/ws-ticket"');
+    expect(guard).toBeGreaterThan(-1);
+    expect(route).toBeGreaterThan(guard);
+    expect(INDEX).toContain("WS_TICKETS.issue(req.params.tenantId)");
   });
 });

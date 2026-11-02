@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { buildBridgeWsUrl, fetchBridgeWsTicket } from "@/lib/bridge-client";
 import {
   AlertCircle,
   AlertTriangle,
@@ -721,9 +722,18 @@ export function WhatsAppPairing({
     // proxy WS connections.  The bridge URL (a localhost port) is not a
     // secret; the token is intentionally omitted (it would be visible in
     // devtools).  Bridge REST calls are secured via the server-side proxy.
-    const wsUrl = bridgeUrl.replace(/^http/, "ws");
-    const qs = new URLSearchParams({ tenantId });
-    const ws = new WebSocket(`${wsUrl}/ws?${qs.toString()}`);
+    void (async () => {
+    let wsFullUrl: string;
+    try {
+      // Single-use ticket minted server-side (the browser cannot hold the bridge token).
+      wsFullUrl = buildBridgeWsUrl(bridgeUrl, tenantId, await fetchBridgeWsTicket(tenantId, "whatsapp"));
+    } catch {
+      setState("error");
+      setStateReason("Couldn't get a WebSocket ticket from the bridge (is PAL_BRIDGE_TOKEN set?).");
+      return;
+    }
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    const ws = new WebSocket(wsFullUrl);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -862,6 +872,7 @@ export function WhatsAppPairing({
     ws.onclose = () => {
       if (wsRef.current === ws) wsRef.current = null;
     };
+    })();
   }, [bridgeUrl, tenantId, refreshBotState, refreshDiagnostics, onConnected, onDisconnected, pushActivity]);
 
   // ---- actions ----

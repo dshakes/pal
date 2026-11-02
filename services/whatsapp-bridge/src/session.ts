@@ -1,3 +1,4 @@
+import { trustFyiDue, markTrustFyi } from "@pal/bridge-core/trust-list-fyi";
 import { peerAuthHeaders } from "@pal/bridge-core/bridge-http-guard";
 import { palStateDir } from "@pal/bridge-core/state-dir";
 import makeWASocket, {
@@ -3548,9 +3549,10 @@ export class WhatsAppSession {
     const names = this.ownerProfileStore.untrustedRelationshipNames();
     if (names.length === 0) return;
     this.logger.warn({ count: names.length, names: names.slice(0, 20) }, "## Relationships entries with no number / `also:` alias cannot open WhatsApp trust gates (spouse agent, number-sharing, ## Now, location)");
-    void this.confirmToSelf(
+    if (this.stateDir && !trustFyiDue(this.stateDir, names)) return; // same list already told to the owner
+        void this.confirmToSelf(
       `🧭 ${names.length} ${names.length === 1 ? "person" : "people"} in your ## Relationships ${names.length === 1 ? "has" : "have"} no phone number or "also:" alias, so on WhatsApp I won't auto-share numbers/location or run tasks for ${names.length === 1 ? "them" : "them"}: ${names.slice(0, 12).join(", ")}${names.length > 12 ? ", …" : ""}. Add "| also: +1…" to enable.`,
-    ).catch(() => {});
+    ).then(() => { if (this.stateDir) markTrustFyi(this.stateDir, names); }).catch(() => {});
   }
 
   private blockedHolds = new Map<string, number>();

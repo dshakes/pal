@@ -376,24 +376,26 @@ func isPersonalDocsTool(name string) bool {
 	return false
 }
 
+// personalDocsTokenFor picks the token of the bridge the call is going to. Each bridge
+// validates only its own (WhatsApp: PAL_BRIDGE_TOKEN, iMessage: PAL_IMESSAGE_BRIDGE_TOKEN),
+// so sending the other's token is a guaranteed 401.
+func personalDocsTokenFor(waBound bool, getenv func(string) string) string {
+	if waBound {
+		return getenv("PAL_BRIDGE_TOKEN")
+	}
+	return getenv("PAL_IMESSAGE_BRIDGE_TOKEN")
+}
+
 // executePersonalDocsTool proxies the call to the bridge running on the
 // user's Mac. Bridge URL configurable via PAL_PERSONAL_DOCS_BRIDGE_URL
 // (default http://127.0.0.1:3200, the iMessage bridge port). Auth via
-// PAL_IMESSAGE_BRIDGE_TOKEN / PAL_BRIDGE_TOKEN.
+// the DESTINATION bridge's own token (personalDocsTokenFor): iMessage-bound tools send
+// PAL_IMESSAGE_BRIDGE_TOKEN, WhatsApp-bound tools send PAL_BRIDGE_TOKEN.
 func executePersonalDocsTool(ctx context.Context, tenantID, name string, params map[string]any) (any, error) {
 	base := strings.TrimRight(os.Getenv("PAL_PERSONAL_DOCS_BRIDGE_URL"), "/")
 	if base == "" {
 		base = personalDocsBridgeDefaultURL
 	}
-	// Either bridge token works — both are 127.0.0.1-bound and run on the
-	// same Mac under the same trust boundary. Prefer the iMessage token
-	// (default bridge for personal-docs) and fall back to the WhatsApp
-	// bridge token.
-	token := os.Getenv("PAL_IMESSAGE_BRIDGE_TOKEN")
-	if token == "" {
-		token = os.Getenv("PAL_BRIDGE_TOKEN")
-	}
-
 	if tenantID == "" {
 		return nil, errors.New("personal-docs tool: tenant_id required")
 	}
@@ -406,6 +408,7 @@ func executePersonalDocsTool(ctx context.Context, tenantID, name string, params 
 	}
 
 	var endpoint string
+	waBound := false // true for tools served by the WhatsApp bridge (waBase)
 	body := map[string]any{}
 	switch name {
 	case personalDocsSearchTool:
@@ -503,6 +506,7 @@ func executePersonalDocsTool(ctx context.Context, tenantID, name string, params 
 			body["limit"] = int(v)
 		}
 		endpoint = fmt.Sprintf("%s/session/%s/whatsapp/search", waBase, tenantID)
+		waBound = true
 	case imessageGroupsListTool:
 		endpoint = fmt.Sprintf("%s/session/%s/imessage/groups", base, tenantID)
 	case imessageGroupMembersTool:
@@ -515,6 +519,7 @@ func executePersonalDocsTool(ctx context.Context, tenantID, name string, params 
 		endpoint = fmt.Sprintf("%s/session/%s/imessage/group", base, tenantID)
 	case whatsappGroupsListTool:
 		endpoint = fmt.Sprintf("%s/session/%s/whatsapp/groups", waBase, tenantID)
+		waBound = true
 	case whatsappGroupMembersTool:
 		if v, ok := params["jid"].(string); ok && strings.TrimSpace(v) != "" {
 			body["jid"] = strings.TrimSpace(v)
@@ -523,6 +528,7 @@ func executePersonalDocsTool(ctx context.Context, tenantID, name string, params 
 			body["name"] = strings.TrimSpace(v)
 		}
 		endpoint = fmt.Sprintf("%s/session/%s/whatsapp/group", waBase, tenantID)
+		waBound = true
 	case whatsappHistoryBackfillTool:
 		jid, _ := params["jid"].(string)
 		jid = strings.TrimSpace(jid)
@@ -534,6 +540,7 @@ func executePersonalDocsTool(ctx context.Context, tenantID, name string, params 
 			body["count"] = int(v)
 		}
 		endpoint = fmt.Sprintf("%s/session/%s/whatsapp/history/backfill", waBase, tenantID)
+		waBound = true
 	case readCalendarTool:
 		if v, ok := params["days"].(float64); ok && v > 0 {
 			body["days"] = int(v)
@@ -592,7 +599,7 @@ func executePersonalDocsTool(ctx context.Context, tenantID, name string, params 
 	if !isGet {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if token != "" {
+	if token := personalDocsTokenFor(waBound, os.Getenv); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 

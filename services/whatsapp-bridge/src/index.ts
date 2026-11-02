@@ -21,6 +21,8 @@
 // JIDs are validated at the boundary — see validateJid. The rest of the
 // service trusts the validated JID shape.
 
+import type { IncomingMessage } from "http";
+import { authorizeWs, allowedWsOrigins, WsTicketStore } from "@pal/bridge-core/bridge-ws-auth";
 import { isAllowedHost, parseAllowedHosts, tokenPolicy } from "@pal/bridge-core/bridge-http-guard";
 import { ownerApprovedSend } from "@pal/bridge-core/reply-mode";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -113,10 +115,31 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 
 const server = createServer(app);
+const WS_TICKETS = new WsTicketStore();
+const WS_ORIGINS = allowedWsOrigins(CORS_ORIGIN);
 const wss = new WebSocketServer({
   server,
   path: "/ws",
-  verifyClient: (info: { req: { headers: { host?: string } } }) => isAllowedHost(info.req.headers.host, ALLOWED_HOSTS),
+  // Auth happens at the UPGRADE, so an unauthorised page never receives a single frame
+  // (messages, bot replies, the pairing QR). Host + Origin + (token | single-use ticket).
+  verifyClient: (info: { req: IncomingMessage }, cb: (ok: boolean, code?: number, msg?: string) => void) => {
+    const req = info.req;
+    if (!isAllowedHost(req.headers.host, ALLOWED_HOSTS)) { cb(false, 403, "forbidden host"); return; }
+    const url = new URL(req.url || "/", "http://localhost");
+    const auth = (req.headers.authorization || "") as string;
+    const r = authorizeWs({
+      origin: req.headers.origin,
+      allowedOrigins: WS_ORIGINS,
+      policy: TOKEN_POLICY,
+      token: BRIDGE_TOKEN,
+      bearer: auth.startsWith("Bearer ") ? auth.slice(7) : "",
+      ticket: url.searchParams.get("ticket") || undefined,
+      tenantId: url.searchParams.get("tenantId") || "default",
+      tickets: WS_TICKETS,
+    });
+    if (!r.ok) logger.warn({ origin: req.headers.origin, reason: r.reason }, "WebSocket upgrade refused");
+    cb(r.ok, r.ok ? undefined : r.status, r.ok ? undefined : r.reason);
+  },
 });
 
 logger.info(
@@ -191,6 +214,12 @@ app.get("/diagnostics", (_, res) => {
 
 // All /session/* routes require auth when a token is configured.
 app.use("/session", requireToken);
+
+// Short-lived single-use WebSocket ticket. The dashboard SERVER calls this (proxy injects
+// the bearer token) and hands the ticket to the browser, which cannot hold the secret.
+app.post("/session/:tenantId/ws-ticket", (req, res) => {
+  res.json(WS_TICKETS.issue(req.params.tenantId));
+});
 
 // GET /session/:tenantId/diagnostics -- per-session snapshot
 app.get("/session/:tenantId/diagnostics", (req, res) => {
@@ -825,25 +854,7 @@ wss.on("connection", (ws, req) => {
   const url = new URL(req.url || "/", `http://localhost`);
   const tenantId = url.searchParams.get("tenantId") || "default";
 
-  // Token auth also applies to WS — but ONLY on non-loopback binds. The QR
-  // stream is consumed by a BROWSER WebSocket that connects directly to the
-  // bridge (Next.js route handlers can't proxy WS), and the shared token is a
-  // SERVER-side secret the browser deliberately never receives (it would be
-  // visible in devtools). On the default 127.0.0.1 bind the WS is only reachable
-  // locally, so it is open — matching the client, which sends no token. The HTTP
-  // /session mutation routes stay token-gated (dashboard proxies them with a
-  // Bearer server-side). A non-loopback bind still requires the token here.
-  if (BRIDGE_TOKEN && !isLoopback) {
-    const header = (req.headers.authorization || "") as string;
-    const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
-    const qs = url.searchParams.get("token") || "";
-    const provided = bearer || qs;
-    if (!provided || !timingSafeEqual(provided, BRIDGE_TOKEN)) {
-      logger.warn({ tenantId }, "WebSocket unauthorized");
-      ws.close(4401, "unauthorized");
-      return;
-    }
-  }
+  // Auth/Origin/Host were enforced at the upgrade (verifyClient) — an unauthorised page never gets here.
 
   logger.info({ tenantId }, "WebSocket client connected");
 

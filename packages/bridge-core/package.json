@@ -85,6 +85,8 @@
     "./grounding-gate": "./src/grounding-gate.ts",
     "./reply-mode": "./src/reply-mode.ts",
     "./bridge-http-guard": "./src/bridge-http-guard.ts",
+    "./bridge-ws-auth": "./src/bridge-ws-auth.ts",
+    "./trust-list-fyi": "./src/trust-list-fyi.ts",
     "./world-model": "./src/world-model.ts",
     "./voice-score": "./src/voice-score.ts",
     "./voice-refine": "./src/voice-refine.ts",
