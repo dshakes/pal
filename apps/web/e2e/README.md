@@ -26,7 +26,7 @@ Logs, binaries and artifacts go to `$E2E_RUN_DIR` (default `$TMPDIR/pal-e2e-run`
 
 Reusing a stack (`E2E_REUSE_STACK=1`): global-setup is skipped, so YOU must start the fixture bridge and give the processes these env vars, or approving a held reply would POST to the owner's live bridges on :3100/:3200. `pal-space.spec.ts` aborts unless `GET $BRIDGE_WA_URL/health` reports `version: "fixture"`.
 - control-plane: `PAL_BRIDGE_URL=http://127.0.0.1:3412 PAL_IMESSAGE_BRIDGE_URL=http://127.0.0.1:3413 PAL_BRIDGE_TOKEN= PAL_IMESSAGE_BRIDGE_TOKEN=`
-- next dev: the same four, plus `NEXT_PUBLIC_PAL_BRIDGE_URL=http://127.0.0.1:3412 NEXT_PUBLIC_PAL_IMESSAGE_BRIDGE_URL=http://127.0.0.1:3413`
+- next dev: `PAL_BRIDGE_OWNER_TENANT=<tenantId of palspace-owner@e2e.pal.test>` (the bridge proxy only serves the owner tenant's owner/admin; global-setup signs that user up first), and the same four, plus `NEXT_PUBLIC_PAL_BRIDGE_URL=http://127.0.0.1:3412 NEXT_PUBLIC_PAL_IMESSAGE_BRIDGE_URL=http://127.0.0.1:3413`
 - fixture: `startFixtureBridge(3412)` from `e2e/support/fixture-bridge.ts`; nothing may listen on 3413.
 
 Iterating: boot the stack once yourself and run with `E2E_REUSE_STACK=1 npx playwright test <file>` to skip setup/teardown.

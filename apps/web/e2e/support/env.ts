@@ -47,3 +47,10 @@ export const BRIDGE_IM_URL = `http://127.0.0.1:${BRIDGE_IM_PORT}`;
 if ([BRIDGE_WA_PORT, BRIDGE_IM_PORT].some((p) => p === 3100 || p === 3200)) {
   throw new Error("e2e refuses :3100/:3200 — those are the owner's live bridges.");
 }
+
+// The bridge proxy only lets the OWNER tenant's owner/admin drive a bridge
+// (lib/server-session.ts, PAL_BRIDGE_OWNER_TENANT). global-setup signs this user
+// up BEFORE starting the dashboard and names its tenant as the owner tenant, so
+// the guard stays on; pal-space.spec.ts logs in as the same user.
+export const PAL_SPACE_EMAIL = "palspace-owner@e2e.pal.test";
+export const PAL_SPACE_PASSWORD = "e2e-correct-horse-battery";

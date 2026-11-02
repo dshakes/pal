@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { API_URL, BRIDGE_WA_URL, RUN_DIR, WEB_URL } from "../support/env";
-import { PASSWORD, uniqueEmail } from "../support/users";
+import { API_URL, BRIDGE_WA_URL, PAL_SPACE_EMAIL, PAL_SPACE_PASSWORD, RUN_DIR, WEB_URL } from "../support/env";
 
 // Dashboard v3 slice 6: the pal (consumer) space — Today, Holds, People & memory,
 // Documents — against the real control-plane and a FIXTURE bridge. The owner's
@@ -44,13 +43,14 @@ test.beforeAll(async () => {
   if (health?.version !== "fixture") {
     throw new Error(`pal-space e2e aborted: ${BRIDGE_WA_URL}/health is not the fixture bridge. Start it (global-setup does) and point the control-plane at it; see e2e/README.md.`);
   }
-  const r = await fetch(`${API_URL}/auth/signup`, {
+  // The bridge-owner user created by global-setup (see support/env.ts).
+  const r = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: uniqueEmail("palspace"), password: PASSWORD, name: "Pal Owner" }),
+    body: JSON.stringify({ email: PAL_SPACE_EMAIL, password: PAL_SPACE_PASSWORD }),
   });
   const body = (await r.json()) as { token?: string };
-  if (!body.token) throw new Error(`sign-up failed: ${r.status}`);
+  if (!body.token) throw new Error(`login failed: ${r.status}`);
   token = body.token;
   await post("/v1/life-events", { kind: "bill", channel: "whatsapp", summary: "Electric bill due Friday", urgency: "high" });
   await post("/v1/commitments", { title: "Send Raju the deck", source: "self", urgency: "soon" });

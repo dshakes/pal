@@ -5,7 +5,7 @@ import path from "node:path";
 import {
   API_PORT, API_URL, CP_DIR, CP_LOG, GRPC_PORT, LLM_PORT, LLM_RULES, METRICS_PORT,
   PG_ADMIN_URL, REDIS_DB, REDIS_HOST, REDIS_PORT, RUN_DIR, WEB_PORT, WEB_URL,
-  BRIDGE_IM_PORT, BRIDGE_IM_URL, BRIDGE_WA_PORT, BRIDGE_WA_URL,
+  BRIDGE_IM_PORT, BRIDGE_IM_URL, BRIDGE_WA_PORT, BRIDGE_WA_URL, PAL_SPACE_EMAIL, PAL_SPACE_PASSWORD,
 } from "./support/env";
 import { startFixtureBridge } from "./support/fixture-bridge";
 import { flushRedis } from "./support/redis";
@@ -135,9 +135,19 @@ export default async function globalSetup() {
     }, CP_LOG);
     await waitFor(`${API_URL}/healthz`, "control-plane");
 
+    // The bridge-owner tenant must exist before the dashboard starts (it is read from env).
+    const su = await fetch(`${API_URL}/auth/signup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: PAL_SPACE_EMAIL, password: PAL_SPACE_PASSWORD, name: "Pal Owner" }),
+    });
+    const owner = (await su.json()) as { user?: { tenantId?: string } };
+    if (!owner.user?.tenantId) throw new Error(`could not sign up the bridge-owner user: ${su.status}`);
+
     start("web", "npx", ["next", "dev", "--port", String(WEB_PORT)], WEB_DIR, {
       NEXT_PUBLIC_API_URL: API_URL,
       PAL_API_URL: API_URL,
+      PAL_BRIDGE_OWNER_TENANT: owner.user.tenantId,
       // The dashboard proxy (/api/bridge) and the browser WebSocket default to the live bridges.
       PAL_BRIDGE_URL: BRIDGE_WA_URL,
       PAL_IMESSAGE_BRIDGE_URL: BRIDGE_IM_URL,
