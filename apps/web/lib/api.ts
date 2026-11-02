@@ -14,6 +14,7 @@ import type {
 // throws. No fabricated rows leak into the UI as fake runs.
 import { publicApiBase } from "./public-url";
 import { isNoSessionPath } from "./no-session-paths";
+import { oauthStartUrl } from "./oauth-url.ts";
 import { parseApiErrorBody } from "./eval-format";
 import { openRunStream, type StreamState } from "./sse";
 import type { BillingOverview } from "./billing";
@@ -604,10 +605,19 @@ class PalAPI {
     await this.request(`/v1/tenants/${encodeURIComponent(tenantId)}`, { method: "DELETE" });
   }
 
-  /** invite: an invite code for invite-only sign-up; the server keeps it in the OAuth state. */
-  async oauthStart(provider: string, invite?: string): Promise<{ redirect_url: string }> {
-    const q = invite ? `?invite=${encodeURIComponent(invite)}` : "";
-    return this.request<{ redirect_url: string }>(`/auth/oauth/${provider}/start${q}`);
+  /**
+   * URL to NAVIGATE the window to (not fetch): the control plane sets a
+   * browser-binding cookie on this response and 302s to the provider, so the
+   * callback can refuse a sign-in this browser did not start (login CSRF).
+   * invite: an invite code for invite-only sign-up; the server keeps it in the
+   * OAuth state.
+   *
+   * Always the API's PUBLIC host (lib/oauth-url.ts), never `this.baseUrl`: in
+   * the browser that is the /api/pal proxy, which refuses navigations and
+   * drops Set-Cookie, so the browser-binding cookie would never be set.
+   */
+  oauthStartUrl(provider: string, invite?: string): string {
+    return oauthStartUrl(provider, invite);
   }
 
   /** Exchange the one-time OAuth code (delivered to /auth/callback?code=…) for
@@ -2548,7 +2558,8 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
 
   // ---- Commitments ----------------------------------------------------------
 
-  async listCommitments(params?: { status?: string; tier?: string; limit?: number }): Promise<Commitment[]> {
+  /** `strict` rethrows instead of returning [] so a caller can say a source is down. */
+  async listCommitments(params?: { status?: string; tier?: string; limit?: number; strict?: boolean }): Promise<Commitment[]> {
     const q = new URLSearchParams();
     if (params?.status) q.set("status", params.status);
     if (params?.tier) q.set("tier", params.tier);
@@ -2556,9 +2567,29 @@ Ensure the code string and yaml string are properly escaped for JSON (newlines a
     const qs = q.toString();
     try {
       return await this.request<Commitment[]>(`/v1/commitments${qs ? `?${qs}` : ""}`);
-    } catch {
+    } catch (err) {
+      if (params?.strict) throw err;
       return [];
     }
+  }
+
+  // ---- People + memory (pal space) -------------------------------------------
+  // Raw payloads: callers narrow with parsePeople / parseMemoryContext (lib/pal-space).
+
+  async listPeople(): Promise<unknown> {
+    return this.request<unknown>(`/v1/people`);
+  }
+
+  async getMemoryContext(personId: string, opts?: { limit?: number; windowDays?: number }): Promise<unknown> {
+    const qs = new URLSearchParams({ personId });
+    if (opts?.limit) qs.set("limit", String(opts.limit));
+    if (opts?.windowDays) qs.set("windowDays", String(opts.windowDays));
+    return this.request<unknown>(`/v1/memory/context?${qs.toString()}`);
+  }
+
+  /** `{enabled:false, deadlines:[]}` unless PAL_IMMIGRATION_SENTINEL is on server-side. */
+  async listImmigrationDeadlines(): Promise<unknown> {
+    return this.request<unknown>(`/v1/immigration/deadlines`);
   }
 
   // ---- Domain Records -------------------------------------------------------

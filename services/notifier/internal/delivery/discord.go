@@ -21,7 +21,7 @@ type DiscordDeliverer struct {
 // NewDiscordDeliverer creates a new DiscordDeliverer.
 func NewDiscordDeliverer(logger *zap.Logger) *DiscordDeliverer {
 	return &DiscordDeliverer{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: deliveryDialPolicy().newHTTPClient(15 * time.Second), // SSRF guard: Recipient is tenant input
 		logger: logger.Named("discord"),
 	}
 }
@@ -71,6 +71,11 @@ func (d *DiscordDeliverer) Deliver(ctx context.Context, n *Notification) (*Deliv
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal discord payload: %w", err)
+	}
+
+	// SSRF / misdirection: only the provider's own webhook host, over https.
+	if err := deliveryDialPolicy().checkProviderURL(n.Recipient, discordWebhookHosts, "/api/webhooks/"); err != nil {
+		return &DeliveryResult{Success: false, ErrorMessage: err.Error(), AttemptedAt: time.Now()}, nil
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.Recipient, bytes.NewReader(body))

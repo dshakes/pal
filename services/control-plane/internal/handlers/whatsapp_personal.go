@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ import (
 //     the pending ones with approve/edit/discard actions.
 //
 // All endpoints are tenant-scoped via the standard auth middleware.
+// deliverDraft is the delivery seam (tests stub it; production is deliverViaBridge).
+var deliverDraft = deliverViaBridge
+
 type WhatsAppPersonalHandler struct {
 	srv  *server.Server
 	auth *AuthHandler
@@ -389,56 +393,60 @@ func (h *WhatsAppPersonalHandler) ActOnDraft(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctx := middleware.InjectTenantID(r.Context(), claims.TenantID)
-	// Fetch the draft + JID + channel — we need them to call the right bridge.
-	var jid, draftText, channel string
-	if err := h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT jid, draft_text, channel FROM whatsapp_pending_drafts
-			 WHERE tenant_id = $1 AND id = $2 AND status = 'pending'`,
-			claims.TenantID, id,
-		).Scan(&jid, &draftText, &channel)
-	}); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "draft not found or already resolved"})
-		return
-	}
-
-	var finalStatus string
-	var finalText string
+	// Validate BEFORE touching the row, so a bad request never consumes the draft.
+	var finalStatus, editedText string
 	switch body.Action {
 	case "approve":
 		finalStatus = "approved"
-		finalText = draftText
 	case "edit":
 		if strings.TrimSpace(body.FinalText) == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "finalText required for edit"})
 			return
 		}
 		finalStatus = "edited"
-		finalText = body.FinalText
+		editedText = body.FinalText
 	case "discard":
 		finalStatus = "discarded"
-		finalText = ""
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "action must be approve|edit|discard"})
 		return
 	}
 
+	// Claim the draft in ONE statement. `AND status = 'pending'` makes the claim
+	// atomic: of two concurrent acts exactly one gets a row back, so a draft can
+	// never be delivered twice. (A separate SELECT-then-UPDATE let both through.)
+	ctx := middleware.InjectTenantID(r.Context(), claims.TenantID)
+	var jid, draftText, channel string
 	if err := h.srv.WithTenant(ctx, func(tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`UPDATE whatsapp_pending_drafts SET status = $1, final_text = NULLIF($2, ''), acted_at = now()
-			 WHERE tenant_id = $3 AND id = $4`,
-			finalStatus, finalText, claims.TenantID, id,
-		)
-		return e
+		return tx.QueryRow(ctx,
+			`UPDATE whatsapp_pending_drafts
+			    SET status = $1::text,
+			        final_text = CASE WHEN $1::text = 'approved' THEN draft_text ELSE NULLIF($2::text, '') END,
+			        acted_at = now()
+			  WHERE tenant_id = $3 AND id = $4 AND status = 'pending'
+			  RETURNING jid, draft_text, channel`,
+			finalStatus, editedText, claims.TenantID, id,
+		).Scan(&jid, &draftText, &channel)
 	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "draft not found or already resolved"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	finalText := ""
+	switch finalStatus {
+	case "approved":
+		finalText = draftText
+	case "edited":
+		finalText = editedText
+	}
+
 	// Send via the bridge that queued the draft.
 	if finalStatus != "discarded" && finalText != "" {
-		if err := deliverViaBridge(channel, claims.TenantID, jid, finalText); err != nil {
+		if err := deliverDraft(channel, claims.TenantID, jid, finalText); err != nil {
 			h.logger().Warn("draft send via bridge failed",
 				zap.String("draft_id", id),
 				zap.String("channel", channel),

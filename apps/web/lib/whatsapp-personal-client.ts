@@ -3,6 +3,8 @@
 // bridge-client pattern: pure functions, no state, single auth source
 // (the HttpOnly pal_token cookie, added server-side by the /api/pal proxy).
 
+import { PersonalApiError } from "@/lib/pal-space";
+
 const API_BASE =
   (typeof window !== "undefined"
     ? "/api/pal"
@@ -19,7 +21,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`whatsapp-personal ${res.status}: ${body.slice(0, 200)}`);
+    throw new PersonalApiError(res.status, body);
   }
   return (await res.json()) as T;
 }

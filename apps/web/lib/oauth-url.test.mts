@@ -24,3 +24,16 @@ test("default base comes from the injected public API URL", () => {
     delete (globalThis as Record<string, unknown>).window;
   }
 });
+
+// api.ts pulls in `@/` aliases the node test runner cannot resolve, so pin the
+// wiring by source: the login page navigates via api.oauthStartUrl, and that
+// must delegate to the API-host builder above, never build from this.baseUrl
+// (= /api/pal in the browser).
+test("the login page's OAuth navigation goes through the API-host builder", async () => {
+  const { readFileSync } = await import("node:fs");
+  const apiSrc = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+  const login = readFileSync(new URL("../app/login/page.tsx", import.meta.url), "utf8");
+  assert.match(apiSrc, /oauthStartUrl\(provider: string, invite\?: string\): string \{\s*return oauthStartUrl\(provider, invite\);/);
+  assert.doesNotMatch(apiSrc, /\$\{this\.baseUrl\}\/auth\/oauth\//);
+  assert.match(login, /window\.location\.href = api\.oauthStartUrl\(/);
+});
