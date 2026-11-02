@@ -800,10 +800,15 @@ export interface AutoActDecision {
 }
 
 export interface AutoActOpts {
-  // Global kill switch. When false, NO auto — every safe-auto kind falls back
-  // to 'suggest'. The bridge reads PAL_LIFE_EVENT_AUTOACT (default 'on')
-  // and passes the boolean here. Default true (owner asked for on-by-default).
+  // Global switch. Only `true` allows 'auto'; anything else (incl. unset) falls
+  // back to 'suggest' (ask-first). The bridge passes autoActEnabled(env).
+  // SAFE-BY-DEFAULT (GA PR-1): auto-act is opt-in via PAL_LIFE_EVENT_AUTOACT=on.
   enabled?: boolean;
+}
+
+/** PAL_LIFE_EVENT_AUTOACT -> boolean. Unset/unknown => false (ask first). */
+export function autoActEnabled(raw: string | undefined): boolean {
+  return ["on", "1", "true"].includes((raw ?? "").trim().toLowerCase());
 }
 
 // The conservative default-on set: safe kinds the bot auto-acts on out of the
@@ -862,7 +867,7 @@ export function autoActDecision(
   opts: AutoActOpts = {},
 ): AutoActDecision {
   const key = idempotencyKeyFor(event);
-  const enabled = opts.enabled !== false; // default on
+  const enabled = opts.enabled === true; // default off: ask first
   const isSafe = AUTO_DEFAULT_ON.has(event.kind);
 
   // (2) Not a safe-auto kind → never auto. Actionable → suggest; else none.

@@ -100,3 +100,20 @@ test("email alias is lowercased + resolvable", () => {
   assert.equal(store.relationshipFor("raju.work@example.com"), "friend");
   assert.equal(store.canonicalNameFor("raju.work@example.com"), "Raju");
 });
+
+// ── GA PR-1: inner-circle membership must not be spoofable by a display name ──
+test("declaredRelationshipFor: handle / alias match, display name and first-name token do NOT", () => {
+  const st = storeFrom(SAMPLE + "- +15125551234: manager\n");
+  assert.equal(st.declaredRelationshipFor("+15125551234"), "manager");
+  assert.equal(st.declaredRelationshipFor("15125551234@s.whatsapp.net"), "manager");
+  assert.equal(st.declaredRelationshipFor("15551234567@s.whatsapp.net"), "brother-in-law"); // owner-declared alias
+  // A stranger whose pushName is "Shiva"/"Sujith" gets nothing (relationshipFor WOULD match by name/token).
+  assert.equal(st.declaredRelationshipFor("+10000000000"), undefined);
+  assert.equal(st.relationshipFor("+10000000000", "Shiva"), "friend");
+});
+
+test("untrustedRelationshipNames: name-only entries are listed, numbers and aliased people are not", () => {
+  const st = storeFrom(SAMPLE + "- +15125551234: manager\n");
+  // Sujith + Madhu have `also:` numbers; Shiva is name-only; the bare number is a handle.
+  assert.deepEqual(st.untrustedRelationshipNames(), ["shiva"]);
+});

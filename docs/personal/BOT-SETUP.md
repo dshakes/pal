@@ -245,3 +245,47 @@ mid-call, it also falls back to Polly: voice-clone never fails a call.
 | `PAL_ELEVENLABS_API_KEY` | ElevenLabs API key | — |
 | `PAL_ELEVENLABS_VOICE_ID` | The cloned voice to speak in | — |
 | `PAL_VOICE_CACHE_PUBLIC_URL` | Public base URL the bridge serves `/voice-cache/<sha>.mp3` from | — |
+
+### Safe-by-default replies (`PAL_REPLY_MODE`)
+
+Out of the box the bridges never auto-send to a contact: every reply is drafted to your
+self-chat (`reply 'send' to approve`). Loosen it deliberately in `~/.pal/bridge.env`:
+
+| Value | Behaviour |
+|---|---|
+| `drafts` (default) | Draft every contact reply for approval. |
+| `inner-circle` | Auto-send only to contacts listed in `## Relationships`; draft unknown senders, spam-matched senders and groups. |
+| `everyone` | Reply to everybody (the pre-GA behaviour). |
+
+An unrecognised value falls back to `drafts` and logs a warning. Each bridge prints
+`reply mode: <mode> (source: ...)` at startup. Mute, the kill switch and the
+money/promise and grounding holds still apply on top.
+
+Life-event auto-act (delivery -> Deliveries note, appointment/travel -> Calendar) is also
+ask-first by default; set `PAL_LIFE_EVENT_AUTOACT=on` to let it act on its own.
+
+The mode is enforced where messages leave the bridge, so overnight replays, history catch-up,
+the spouse agent, voice-note acks, reactions and live-watch follow-ups are held too. The one
+exception is the fixed life-threat reply. On WhatsApp, `inner-circle` recognises contacts by phone
+number (or an `also:` alias) in `## Relationships`, not by name, because a contact controls their own
+display name; list the number to include them. Saying "resume automation" persists the life-event opt-in.
+
+If PAL's spend limit is reached (HTTP 402), contact messages are held, nothing is sent, and you
+get at most one heads-up per day.
+
+### Trust gates need number-keyed relationships (WhatsApp)
+
+On WhatsApp the contact's display name (pushName) is chosen by the contact, so it can be spoofed.
+Every trust gate therefore matches `## Relationships` by phone number / JID or an `also:` alias only:
+the spouse agent (todos + calendar), automatic contact-sharing, `## Now`, location sharing, and
+task capture. A relationship keyed only by name still shapes tone but opens none of those gates, so
+those features quietly stop recognising that person (they hold for you instead). List the number:
+
+```markdown
+## Relationships
+- Sam: wife | also: +15125551234
+- +15125559876: manager
+```
+
+A contact that WhatsApp delivers as an `@lid` id (no phone number) cannot match by number. iMessage
+names come from your own address book / corrections, so name-keyed entries still work there.

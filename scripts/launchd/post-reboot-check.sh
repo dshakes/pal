@@ -44,7 +44,7 @@ UID_NUM="$(id -u)"
   printf "api  /readyz    -> %s\n" "$(curl -s -o /dev/null -w '%{http_code}' -m 4 http://localhost:8080/readyz)"
   printf "dashboard :3001 -> %s\n" "$(curl -s -o /dev/null -w '%{http_code}' -m 4 http://localhost:3001)"
   printf "wa-bridge /health -> %s\n" "$(curl -s -m 4 http://localhost:3100/health 2>/dev/null)"
-  printf "wa pairing      -> %s\n" "$(curl -s -m 4 http://localhost:3100/session/00000000-0000-0000-0000-000000000001/has-creds 2>/dev/null)"
+  printf "wa pairing      -> %s\n" "$(curl -s -m 4 ${PAL_BRIDGE_TOKEN:+-H "Authorization: Bearer $PAL_BRIDGE_TOKEN"} http://localhost:3100/session/00000000-0000-0000-0000-000000000001/has-creds 2>/dev/null)"
 
   echo
   echo "--- launchd agents ---"

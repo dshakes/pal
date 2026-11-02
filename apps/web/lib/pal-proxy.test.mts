@@ -65,7 +65,7 @@ test("CSP: nonce'd, no unsafe-eval in prod, framing denied; worker has no networ
   assert.doesNotMatch(prod, /script-src[^;]*unsafe-inline/);
   assert.match(prod, /frame-ancestors 'none'/);
   assert.match(prod, /object-src 'none'/);
-  assert.match(prod, /connect-src 'self'(;|$)/);
+  assert.match(prod, /connect-src 'self'( ws:\/\/[\w.:]+)*(;|$)/); // only the exact bridge ws origins, never a wildcard
   assert.match(buildCsp("abc", true), /unsafe-eval/);
   assert.match(CODE_RUNNER_WORKER_CSP, /default-src 'none'/);
 });

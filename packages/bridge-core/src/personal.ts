@@ -3,6 +3,7 @@
 // All requests go through authedFetch so they're authenticated as
 // the bridge's service principal.
 
+import { peerAuthHeaders } from "./bridge-http-guard.js";
 import { authedFetch } from "./auth.js";
 import type { Logger } from "pino";
 
@@ -529,7 +530,7 @@ export class PersonalClient {
       const timeout = setTimeout(() => ctrl.abort(), 3000);
       await fetch(`${otherBridgeUrl}/session/${tenantId}/send-self`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: peerAuthHeaders(otherChannel, { "Content-Type": "application/json" }),
         body: JSON.stringify({ message: crossText }),
         signal: ctrl.signal,
       });

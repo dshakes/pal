@@ -199,7 +199,7 @@ check_bridge() {
   fi
   # Inspect session state for the dev tenant.
   local diag state paired
-  diag=$(curl -sS "http://localhost:3100/session/00000000-0000-0000-0000-000000000001/diagnostics" -m 2 2>/dev/null)
+  diag=$(curl -sS ${PAL_BRIDGE_TOKEN:+-H "Authorization: Bearer $PAL_BRIDGE_TOKEN"} "http://localhost:3100/session/00000000-0000-0000-0000-000000000001/diagnostics" -m 2 2>/dev/null)
   state=$(echo "$diag" | sed -nE 's/.*"state":"([^"]+)".*/\1/p')
   paired=$(echo "$diag" | sed -nE 's/.*"paired":(true|false).*/\1/p')
   case "$state" in

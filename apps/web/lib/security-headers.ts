@@ -12,6 +12,25 @@
 
 const TURNSTILE = "https://challenges.cloudflare.com";
 
+/** Exact ws origins of the local bridges (the dashboard's WebSocket connects to them directly
+ *  with a single-use ticket). Never a wildcard: only the configured bridge URLs + loopback defaults. */
+export function bridgeWsOrigins(env: Record<string, string | undefined> = process.env): string[] {
+  const urls = [
+    env.NEXT_PUBLIC_PAL_BRIDGE_URL || "http://localhost:3100",
+    env.NEXT_PUBLIC_PAL_IMESSAGE_BRIDGE_URL || "http://localhost:3200",
+    "http://127.0.0.1:3100",
+    "http://127.0.0.1:3200",
+  ];
+  const out = new Set<string>();
+  for (const u of urls) {
+    try {
+      const o = new URL(u);
+      if (o.protocol === "http:" || o.protocol === "https:") out.add(`${o.protocol === "https:" ? "wss:" : "ws:"}//${o.host}`);
+    } catch { /* ignore malformed */ }
+  }
+  return [...out];
+}
+
 export function buildCsp(nonce: string, dev: boolean): string {
   return [
     "default-src 'self'",
@@ -19,7 +38,7 @@ export function buildCsp(nonce: string, dev: boolean): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    `connect-src 'self'${dev ? " ws: wss:" : ""}`,
+    `connect-src 'self' ${bridgeWsOrigins().join(" ")}${dev ? " ws: wss:" : ""}`,
     "worker-src 'self'",
     `frame-src ${TURNSTILE}`,
     "object-src 'none'",

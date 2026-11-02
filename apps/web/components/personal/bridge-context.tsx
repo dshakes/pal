@@ -185,7 +185,18 @@ export function BridgeProvider({ tenantId, channel, children }: ProviderProps) {
       wsRef.current.close();
       wsRef.current = null;
     }
-    const ws = new WebSocket(bridge.bridgeWebSocketUrl(tenantId, channel));
+    void (async () => {
+    let wsUrl: string;
+    try {
+      wsUrl = await bridge.bridgeWebSocketTicketUrl(tenantId, channel);
+    } catch {
+      // No ticket (bridge down / token not configured): retry on the usual backoff.
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = setTimeout(() => connectWS(), 3000);
+      return;
+    }
+    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
@@ -316,6 +327,7 @@ export function BridgeProvider({ tenantId, channel, children }: ProviderProps) {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       reconnectTimer.current = setTimeout(() => connectWS(), 3000);
     };
+    })();
   }, [tenantId, refreshBotState, pushActivity]);
 
   // Open WS whenever we know the bridge is reachable. We try once when

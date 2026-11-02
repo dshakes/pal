@@ -620,6 +620,10 @@ func (h *JarvisHandler) sendBriefWhatsApp(ctx context.Context, tenantID, brief s
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The bridge refuses /session routes without its token (fail-closed).
+	if tok := os.Getenv("PAL_BRIDGE_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
