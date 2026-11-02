@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -289,5 +290,68 @@ func TestLogoutRacingLookupCannotRecache(t *testing.T) {
 	c.put("u", 0, now, epoch) // ...and the stale result arrives.
 	if _, ok := c.get("u", now); ok {
 		t.Fatal("stale pre-logout version was re-cached")
+	}
+}
+
+// TestSessionEventsStream_LogoutTerminates: same guarantee for the session
+// events stream (Redis pub/sub). Needs REDIS_URL pointing at a scratch Redis.
+func TestSessionEventsStream_LogoutTerminates(t *testing.T) {
+	if os.Getenv("REDIS_URL") == "" {
+		t.Skip("REDIS_URL not set; skipping (never defaults to a shared Redis here)")
+	}
+	setSignupEnv(t, "", "open", "")
+	useRealSessionLookup(t)
+	prev := streamRecheckInterval
+	streamRecheckInterval = 50 * time.Millisecond
+	t.Cleanup(func() { streamRecheckInterval = prev })
+
+	sh := newSessionTestHandler(t)
+	if sh.srv.Redis == nil {
+		t.Fatal("REDIS_URL set but unreachable")
+	}
+	ctx := context.Background()
+	email := uniqueEmail(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("correct-horse-battery"), bcrypt.MinCost)
+	var userID string
+	if err := sh.srv.Pool.QueryRow(ctx, `INSERT INTO users (tenant_id, email, display_name, auth_provider, auth_subject, password_hash, role, email_verified_at)
+		VALUES ($1, $2, 'sse', 'local', $2, $3, 'owner', now()) RETURNING id`, devTenantID, email, string(hash)).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = sh.srv.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID) })
+	token, err := sh.auth.generateToken(ctx, userID, devTenantID, email, "sse", "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr := authedJSON(sh.CreateSession, http.MethodPost, "/v1/sessions", token, map[string]any{"agentName": "sse-guard-agent"}, nil)
+	if cr.Code != http.StatusCreated {
+		t.Fatalf("create session: %d %s", cr.Code, cr.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(cr.Body.Bytes(), &created)
+	sessionID := created.ID
+	t.Cleanup(func() { _, _ = sh.srv.Pool.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, sessionID) })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/"+sessionID+"/events", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.SetPathValue("id", sessionID)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sh.GetEvents(httptest.NewRecorder(), req)
+	}()
+	select {
+	case <-done:
+		t.Fatal("stream ended before logout")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if code := callAuthed(sh.auth.WithScope(ScopeRead, sh.auth.Logout), http.MethodPost, token); code != http.StatusNoContent {
+		t.Fatalf("logout: %d", code)
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("open session SSE stream survived logout")
 	}
 }
