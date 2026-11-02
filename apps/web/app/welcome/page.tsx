@@ -37,9 +37,9 @@ export default function WelcomePage() {
 
       <div className="mt-8 grid w-full max-w-3xl gap-4 md:grid-cols-2">
         <PathCard
-          title="Your personal pal"
+          title="PAL, your personal agent"
           body="Answers in your voice on WhatsApp and iMessage, holds anything risky for your OK, and briefs you on what needs you."
-          cta="Set up pal"
+          cta="Set up PAL"
           icon={MessageCircle}
           grad="var(--pal-grad)"
           onClick={() => pick("pal", PAL_ONBOARDING)}
@@ -56,9 +56,9 @@ export default function WelcomePage() {
       </div>
 
       <div className="mt-6 flex gap-4 text-xs text-zinc-500">
-        <button onClick={() => pick("pal", MODE_HOME.pal)} className="hover:text-zinc-200">Skip to pal</button>
+        <button onClick={() => pick("pal", MODE_HOME.pal)} className="hover:text-zinc-200">Skip to PAL</button>
         <span aria-hidden>·</span>
-        <button onClick={() => pick("runtime", MODE_HOME.runtime)} className="hover:text-zinc-200">Skip to Runtime</button>
+        <button onClick={() => pick("runtime", MODE_HOME.runtime)} className="hover:text-zinc-200">Skip to PAL Runtime</button>
         <span aria-hidden>·</span>
         <Link href="/settings" className="hover:text-zinc-200">Settings</Link>
       </div>

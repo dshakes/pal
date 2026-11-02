@@ -7,7 +7,71 @@ This project is pre-1.0; there are no stable release branches yet.
 
 ---
 
-## [Unreleased]
+## [Unreleased] - 0.3.0
+
+Summary of what has merged since v0.2.0 (270 merge commits), grouped by area. The
+detailed per-feature entries that follow are the record; ADR numbers point at the
+decision. Nothing here is tagged yet.
+
+### Upgrade notes (breaking or required)
+
+- **Helm chart 0.3.0.** Ingress is split into an API host and an app host, and the
+  chart refuses to render with `ingress.enabled` unless `controlPlane.trustedProxies`
+  is set (and `networkPolicy.ingressFrom` when network policy is on). In production
+  the control plane refuses to start without `PAL_CALLBACK_SIGNING_SECRET`, and with
+  `open` or `invite` sign-up it needs Redis. OAuth sign-up now follows `PAL_SIGNUP_MODE`.
+  Migrations are forward-only; take a `pg_dump` first. See docs `operate/upgrading`.
+- **Rename to PAL (ADR 0032).** `PAL_*` env vars, `pal` CLI, `pal.v1` protos, module
+  `github.com/dshakes/pal`, DB and MinIO names. Legacy names are accepted during a
+  transition. The expansion is "Personalized Agentic Layer" (ADR 0032 amendment).
+
+### Agent lifecycle and governance
+
+- Promotion: immutable frozen versions, sandbox/staging/prod environments, server-side
+  gates, human approval for prod, canary with auto-rollback, append-only audit,
+  `pal sandbox run` (ADR 0054).
+- Per-agent identity and default-deny least-privilege policy enforced at every
+  dispatch, hash-chained audit (ADR 0055).
+- Agentic evals: authoring, LLM-as-judge, hermetic tool mocks (ADR 0052); `pal ci`
+  shift-left gates (ADR 0053).
+- Post-deployment observability: trace tree, SLOs and error budgets, sampled
+  production evals, anomaly incidents (ADR 0056).
+- Debug and support agents that propose fixes a person must approve (ADR 0059).
+
+### Protocols and integrations
+
+- A2A v0.3: spec card, JSON-RPC tasks, outbound `a2a_call` (ADR 0057).
+- MCP 2025-06-18 client and PAL MCP server, OAuth 2.1, policy-gated tools (ADR 0058).
+- Async completion callbacks and batch invocation (ADR 0033); signed inbound webhook
+  triggers (ADR 0028); Stripe billing, off by default (ADR 0049).
+
+### Console and onboarding
+
+- Dashboard v2 and v3: PAL / PAL Runtime spaces, Ask PAL, Overview, lifecycle tabs,
+  Promotions, Sandboxes, Reliability, Incidents, Debug.
+- Onboarding agent, a multi-turn conversation for both products (ADR 0051); PAL
+  first-run and `pal setup` (ADR 0048); device tenancy and bridge enrollment (ADR 0047).
+- Sign-up modes, email verification, password reset and data export (ADR 0027).
+
+### Security and operations
+
+- mTLS on every internal gRPC hop (ADR 0043); API-key scope and RLS secure defaults in
+  production (ADR 0042); supply-chain provenance, SBOMs and digest-pinned images (ADR 0044).
+- Egress DLP (ADR 0030) and host-asserted software measurement (ADR 0031).
+- Helm chart that installs out of the box, scheduler and surface-gateway, HPA/PDB,
+  network policy, backup CronJob and restore drill; SLO burn-rate alerts (ADR 0041);
+  multi-region active-passive enablers (ADR 0046).
+- Fixes: XFF-safe rate limits, connector SSRF guard, mail header injection, real
+  pairing codes, patched dependencies.
+
+### Examples, docs and site
+
+- Runnable examples (support desk, PR triage, incident responder, daily digest,
+  Telegram assistant, voice receptionist, data analyst) with a fixture-tier e2e lane.
+- Docs site rebuilt for PAL and PAL Runtime, with interactive diagrams, a landing page
+  and, in this release, new pages for promotion, agent policy, the console and upgrading.
+
+### Detailed entries
 
 ### Changed
 
@@ -428,7 +492,7 @@ KVM.
 
 ---
 
-## [0.1.0] - Unreleased
+## [0.1.0] - Not released (superseded by 0.2.0)
 
 Public alpha. All five modules are implemented; Module 1 microVM live-boot is
 fail-closed pending Linux/KVM integration CI.

@@ -1,0 +1,117 @@
+---
+title: Agent identity and policy
+description: "Every agent is a principal with a signed identity and a default-deny, least-privilege policy that is checked on every tool, connector, A2A and microVM action."
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Without this layer, an agent acts with the **tenant's** authority: a prompt-injected agent could call any connector the tenant installed. With it, each registered agent is its own **principal** with an identity and a **policy** that lists exactly what it may do. Anything not listed is denied. The decision record is [ADR 0055](repo:/blob/master/docs/adr/0055-agent-identity-and-policy.md).
+
+## Default-deny, and `legacy_permissive`
+
+| Agent | Policy it starts with |
+| --- | --- |
+| Created after migration 0038 | An empty `enforce` policy. It can do **nothing** until you grant it. (An agent labelled `handoff=human` gets only `handoff_to_human`.) |
+| Existed before that migration | `legacy_permissive`: everything is allowed, but every decision is still evaluated and audited, so the blast radius is visible. The dashboard warns on these agents. |
+
+Sessions whose `agent_name` has no row in `agents` (the iMessage and WhatsApp bridge personas) are not agents. They keep acting under the calling user's authority. `PAL_AGENT_POLICY_STRICT=1` denies tool dispatch for such unregistered names.
+
+## The policy document
+
+```json
+{
+  "mode": "enforce",
+  "tools": ["web_search", "shell_exec"],
+  "connectors": { "github": ["list_*", "get_issue"], "slack": ["post_message"] },
+  "mcpServers": ["filesystem"],
+  "egressHosts": ["api.github.com", "*.example.org"],
+  "a2aTargets": ["research-agent", "marketplace:<slug>"],
+  "a2aInbound": ["tenant:self", "tenant:<uuid>", "*"],
+  "secrets": ["pal.secret/llm/*"],
+  "budget": { "maxToolCallsPerRun": 50, "maxA2AInboundPerMinute": 30 },
+  "version": 3
+}
+```
+
+- `mode` is `enforce` or `legacy_permissive`.
+- Matching is exact or glob. `*` matches within a field and `"*"` alone matches anything. Hosts are lowercased, ports are ignored, and `*.example.org` matches subdomains but not the apex.
+- `mcpServers` entries are `slug` or `slug.tool`. A call also needs the server's host in `egressHosts`.
+- `version` is for optimistic concurrency: a `PUT` carrying a stale version gets `409`.
+- Cost ceilings stay in [budgets](/docs/build/budgets/) (HTTP 402); the policy only counts tool calls and inbound A2A.
+
+### Manage it with `pal agents policy`
+
+```bash
+pal agents policy get support-bot                 # -o json for the raw document
+pal agents policy propose support-bot             # least-privilege proposal from observed behaviour, with a rationale per field
+pal agents policy propose support-bot --apply     # save it, read it back, report "verified" only if the read-back matches
+pal agents policy set support-bot -f policy.json  # replace
+```
+
+`propose` never saves unless you pass `--apply`. `pal deploy` also applies a `policy:` block from the manifest, or for a new agent offers the server's proposal. The same operations are in the dashboard's agent **Security** tab.
+
+## Where it is enforced
+
+Every dispatch calls `principal.Authorize(...)` before the side effect, and each call **re-reads** the identity and policy. A revoke or a policy edit therefore takes effect on the very next tool call of a run already in flight.
+
+| Dispatch point | Checked |
+| --- | --- |
+| Tool loop (sessions, `/v1/completions`, run executor) | built-in tool, or `connector` `<id>__<action>` |
+| Workflow `tool`, `connector` and `subagent` nodes | tool, connector, A2A target |
+| Workflow-engine `tool_call` step | tool, from the run's agent policy |
+| `POST /v1/connectors/{id}/execute` as an agent | connector action |
+| A2A invoke and marketplace invoke | caller's `a2aTargets` **and** target's `a2aInbound` |
+| MCP tool call | `mcpServers` and `egressHosts` |
+| microVM schedule bound to an agent | each egress host, each secret ref |
+| Runtime secret relay | each secret ref against the VM's agent |
+| Run admission | the identity must be `active`; a revoked agent's run fails with `agent_identity_revoked` |
+
+A new dispatch point must call `Authorize`, or it is a policy bypass.
+
+## 403 `agent_policy_denied`
+
+A deny returns HTTP `403` with `{"code":"agent_policy_denied","kind":...,"target":...}`. Inside a run it also writes a `policy_denied` journal event, so the run waterfall shows what the agent tried, plus an audit row and a trace span event. To fix a legitimate deny, add the target to the policy (`propose --apply` is the quick way). To see denies: `pal agents audit <name> --event policy_denied`.
+
+## Identity and tokens
+
+Each agent has an Ed25519 identity with a SPIFFE id, `spiffe://<PAL_TRUST_DOMAIN>/tenant/<tenant>/agent/<agent>` (trust domain default `pal.local`). No private key is stored: it is derived on demand from `PAL_AGENT_IDENTITY_ROOT_KEY` (at least 32 bytes) and the key generation. If the root key is unset, the JWT secret is used and the control plane logs a warning. Treat the root key as a root secret; with it, anyone can mint tokens for any agent.
+
+```bash
+pal agents identity show support-bot
+pal agents identity rotate support-bot                       # new key generation; every old token stops verifying
+pal agents identity revoke support-bot --reason "leaked key" # no new tokens, and its runs fail admission
+```
+
+Agent tokens are short-lived EdDSA JWTs (`PAL_AGENT_TOKEN_TTL`, default 5 minutes, clamped to 30 seconds to 15 minutes) bound to one audience, such as `pal:connectors` or the target agent's SPIFFE id. They are returned once and never stored or logged. An agent calling the API **as itself** sends the token in the `X-Pal-Agent-Token` header. Only routes registered with the agent-aware scope check accept it, and the token must name the audience that route expects. `POST /v1/agents/{name}/identity/token` mints one and needs a JWT owner or admin session. The public key is served at `GET /.well-known/pal-agent-keys/{agentId}`.
+
+The A2A card advertises this scheme (`type: agent-token`, header `X-Pal-Agent-Token`) instead of a long-lived API key. HS256 user-session tokens are never accepted as agent tokens, and agent tokens are rejected as user sessions.
+
+## The audit chain
+
+`agent_identity_audit` records `identity.created|rotated|revoked`, `token.minted|rejected`, `policy.allowed|denied|updated` and `a2a.invoke`, each with tenant, agent, version, run, step, token id (`jti`), principal, action, target, decision and reason. Tokens are never written to it.
+
+Rows are hash-chained per tenant: `row_hash = sha256(prev_hash || canonical row)`. A trigger rejects UPDATE and DELETE for every role, and the application role has only `SELECT` and `INSERT`.
+
+```bash
+pal agents audit support-bot --limit 50      # lists events and recomputes the chain
+pal agents audit support-bot --event policy_denied
+```
+
+The API returns `chainValid` alongside the events (`GET /v1/agents/{name}/audit`). A `false` there means a row was altered or removed.
+
+## Routes
+
+| Endpoint | Scope |
+| --- | --- |
+| `GET /v1/agents/{name}/policy` | `agents:read` |
+| `PUT /v1/agents/{name}/policy` | `agents:write` |
+| `POST /v1/agents/{name}/policy/propose` | `agents:read` (never saved) |
+| `GET /v1/agents/{name}/identity` | `agents:read` |
+| `POST /v1/agents/{name}/identity/{rotate,revoke}` | `agents:write` |
+| `POST /v1/agents/{name}/identity/token` | `admin` (JWT owner/admin) |
+| `GET /v1/agents/{name}/audit` | `agents:read` |
+| `GET /.well-known/pal-agent-keys/{agentId}` | public |
+
+<Aside type="caution">`PAL_AGENT_IDENTITY_ROOT_KEY` rotates by changing the env value and bumping every agent's generation. Plan it as a maintenance step.</Aside>
+
+See also [Identity and secrets](/docs/security/identity/) for microVM identity and secret vending, and [Egress](/docs/security/egress/) for the network allowlist that `egressHosts` feeds.
