@@ -46,6 +46,8 @@ on:
       - "services/runtime-scheduler/**"
       - "scripts/db-restore-drill.sh"
       - "scripts/check-app-grants.sh"
+      - "scripts/ci-helm-prod-install.sh"
+      - "apps/web/**"
       - ".github/workflows/runtime-cluster-e2e.yml"
   workflow_dispatch: {}
 
@@ -200,13 +202,23 @@ jobs:
           kubectl wait node --all --for=condition=Ready --timeout=180s
           kubectl -n kube-system rollout status deploy/coredns --timeout=180s
 
-      - name: Build + load control-plane and runtime-scheduler images
+      - name: Build + load control-plane, runtime-scheduler and dashboard images
         run: |
           set -euo pipefail
           for svc in control-plane runtime-scheduler; do
             docker build -t "pal/$svc:ci" -f "services/$svc/Dockerfile" .
             kind load docker-image "pal/$svc:ci" --name "$KIND_CLUSTER_NAME"
           done
+          # No build-arg: the image must work anywhere (PAL_PUBLIC_API_URL is read at runtime).
+          docker build -t pal/web:ci -f apps/web/Dockerfile apps/web
+          kind load docker-image pal/web:ci --name "$KIND_CLUSTER_NAME"
+
+      # Before the chart, so its Ingress is admitted by a live controller.
+      - name: Install ingress-nginx
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.2/deploy/static/provider/baremetal/deploy.yaml
+          kubectl -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=300s
 
       - name: helm install (values-ci, generated secrets)
         run: |
@@ -239,6 +251,49 @@ jobs:
           DATABASE_URL="postgres://pal:${PGPASSWORD}@localhost:15432/pal?sslmode=disable" \
             scripts/check-app-grants.sh
 
+      # The path an operator's browser takes: sign up and call the API on the API host,
+      # load the dashboard on the app host, all through the ingress under enforced NetworkPolicies.
+      - name: Ingress e2e - sign up, authed call, dashboard login page
+        run: |
+          set -euo pipefail
+          kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 18088:80 &
+          pf=$!
+          trap 'kill $pf 2>/dev/null || true' EXIT
+          for _ in $(seq 30); do curl -s -o /dev/null localhost:18088 && break; sleep 1; done
+          api() { curl -fsS -H "Host: api.pal.test" "$@"; }
+          email="ci-$(openssl rand -hex 4)@example.com"
+          body="{\"email\":\"$email\",\"password\":\"ci-Passw0rd-$(openssl rand -hex 4)\",\"name\":\"CI\"}"
+          token="$(api -X POST -H 'Content-Type: application/json' -d "$body" localhost:18088/auth/signup | jq -er .token)"
+          # login with the same credentials, then use that token on authed routes
+          token="$(api -X POST -H 'Content-Type: application/json' -d "$body" localhost:18088/auth/login | jq -er .token)"
+          api -H "Authorization: Bearer $token" localhost:18088/auth/me | jq -e --arg e "$email" '.email == $e'
+          api -H "Authorization: Bearer $token" localhost:18088/v1/agents >/dev/null
+          # CORS: the dashboard origin is derived from the ingress and allowed on the API host
+          curl -sS -D - -o /dev/null -X OPTIONS -H "Host: api.pal.test" -H "Origin: http://app.pal.test" \
+            -H "Access-Control-Request-Method: GET" -H "Access-Control-Request-Headers: authorization" \
+            localhost:18088/v1/agents | grep -i '^access-control-allow-origin: http://app.pal.test'
+          # sign-in methods endpoint is reachable (OAuth/sign-up discovery used by the login page)
+          api localhost:18088/auth/providers | jq -e 'has("signup")'
+          # rendered env carries the public URLs (no localhost fallbacks)
+          env_of() { kubectl get deploy pal-control-plane -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='$1')].value}"; }
+          [ "$(env_of OAUTH_REDIRECT_BASE)" = http://api.pal.test ]
+          [ "$(env_of PAL_PUBLIC_BASE_URL)" = http://api.pal.test ]
+          [ "$(env_of OAUTH_DASHBOARD_URL)" = http://app.pal.test ]
+          [ "$(env_of PAL_DASHBOARD_URL)" = http://app.pal.test ]
+          # the control-plane HTTP port is NOT open to arbitrary pods (only the ingress namespace)
+          kubectl run np-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
+            curl -sS -m 5 -o /dev/null http://pal-control-plane:8080/healthz && { echo "::error::arbitrary pod reached control-plane:8080"; exit 1; } || true
+          # ...including pods in a tenant-style namespace
+          kubectl create namespace pal-t-ci
+          kubectl -n pal-t-ci run np-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
+            curl -sS -m 5 -o /dev/null http://pal-control-plane.default.svc:8080/healthz && { echo "::error::pal-t-ci pod reached control-plane:8080"; exit 1; } || true
+          # internal/metrics routes must not be reachable through the ingress
+          code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: api.pal.test' localhost:18088/internal/auth/introspect-key)"
+          [ "$code" = 404 ]
+          # dashboard login page, with the browser API URL injected at request time
+          curl -fsS -H "Host: app.pal.test" localhost:18088/login -o /tmp/login.html
+          grep -q 'window.__NEXT_PUBLIC_API_URL="http://api.pal.test"' /tmp/login.html
+
       - name: Backup CronJob produces a restorable dump
         run: |
           set -euo pipefail
@@ -262,9 +317,23 @@ jobs:
           grep -Eq 'ci_restore_marker +42 rows' /tmp/drill.txt
           scripts/db-restore-drill.sh --self-test
 
+      # The dev-mode install above runs PAL_ENV=development, which skips every prod startup
+      # guard. This second install runs PAL_ENV=production (values-prod + values-ci-prod, mTLS via
+      # cert-manager, RLS via pal_app, all secrets) and asserts the control-plane goes Ready.
+      - name: Install cert-manager (prod mTLS)
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml
+          kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=300s
+
+      - name: helm install (production guards live) - control-plane Ready
+        run: scripts/ci-helm-prod-install.sh
+
       - name: Diagnostics on failure
         if: failure()
         run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n prodcheck logs deploy/palp-control-plane --tail=60 || true
           kubectl get pods -o wide || true
           for p in $(kubectl get pods -o name); do echo "== $p"; kubectl logs "$p" --all-containers --tail=40 || true; done
           kubectl describe pods || true

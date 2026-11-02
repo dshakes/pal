@@ -9,6 +9,9 @@ test("status-specific copy", () => {
   assert.match(inv.message, /incorrect/i);
   assert.equal(describeAuthError(new Error('API 403: {"code":"email_unverified"}'), "signin").kind, "unverified");
   assert.equal(describeAuthError(new TypeError("Failed to fetch"), "signin").kind, "unreachable");
+  const un = describeAuthError(new TypeError("Failed to fetch"), "signin", "http://localhost:8080");
+  assert.match(un.message, /http:\/\/localhost:8080/);
+  assert.match(un.message, /CORS/);
   assert.equal(describeAuthError(new Error("API 500: oops"), "signin").kind, "server");
 });
 

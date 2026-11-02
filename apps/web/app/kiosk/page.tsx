@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/button";
 import { api } from "@/lib/api";
 import { KIOSK_STORAGE_KEY } from "./kiosk-logic";
+import { runtimeApiUrl } from "@/lib/runtime-config";
 
 // Public landing for `pal demo`: one button that mints an ephemeral demo
 // workspace (POST /v1/kiosk/session) and drops the visitor into the dashboard.
@@ -15,7 +16,7 @@ export default function KioskStart() {
     setBusy(true);
     setError(null);
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+      const base = runtimeApiUrl() ?? "http://localhost:8080";
       const res = await fetch(`${base}/v1/kiosk/session`, { method: "POST" });
       if (!res.ok) {
         throw new Error(res.status === 429 ? "Too many demos from this device. Try again later."

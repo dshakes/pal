@@ -1,0 +1,47 @@
+# values-ci-prod.yaml -- layered AFTER values-prod.yaml by the helm-install job's second install
+# (.github/workflows/runtime-cluster-e2e.yml): PAL_ENV=production with every prod startup guard
+# live (secrets, RLS via pal_app, mTLS via cert-manager, authz). Only the control-plane and
+# scheduler run (their images are built in the job); everything that needs a managed service or
+# an unbuilt image is scaled to 0. Passwords/tokens are generated per run and passed with --set.
+#
+#   helm install palp infra/helm/pal -n prodcheck -f values-prod.yaml -f values-ci-prod.yaml --set secrets...
+
+global:
+  image:
+    registry: ""
+    repository: pal
+    tag: ci
+    pullPolicy: Never
+
+controlPlane:
+  replicas: 1
+  autoscaling: {enabled: false}
+runtimeScheduler:
+  replicas: 1
+
+gateway:        {replicas: 0, autoscaling: {enabled: false}}
+modelRouter:    {replicas: 0, autoscaling: {enabled: false}}
+workflowEngine: {replicas: 0, autoscaling: {enabled: false}}
+runtimeManager: {replicas: 0}
+dashboard:      {replicas: 0, autoscaling: {enabled: false}}
+surfaceGateway: {replicas: 0}
+
+# In-cluster stores instead of managed ones (values-prod.yaml turns them off).
+postgresql:
+  enabled: true
+  persistence:
+    size: 1Gi
+minio:
+  enabled: true
+  persistence:
+    size: 1Gi
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+
+# prometheus-operator CRDs are not installed in the job.
+monitoring:
+  alerts: {enabled: false}
+  dashboards: {enabled: false}

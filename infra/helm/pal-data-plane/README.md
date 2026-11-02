@@ -107,8 +107,8 @@ PAL Runtime images (`imageVerification.imageReferences`, default = this chart's 
 
 - **keyless** (default) — Sigstore keyless: the signature must chain to a Fulcio
   cert whose OIDC identity is the GitHub Actions workflow that signed it.
-  `imageVerification.keyless.subject` = the `sign-images.yml` workflow identity,
-  `.issuer` = GitHub's OIDC issuer. **Update `subject` to your org/repo** before
+  `imageVerification.keyless.subjectRegExp` = a regex matching the `build-images.yml` signer (master and `vX.Y.Z` tag refs; the legacy exact `subject` is rejected),
+  `.issuer` = GitHub's OIDC issuer. **Update `subjectRegExp` to your org/repo** before
   enabling Enforce.
 - **key** — set `imageVerification.mode: key` and paste a PEM into
   `imageVerification.publicKey`.
@@ -171,7 +171,7 @@ Every image `build-images.yml` pushes is signed by digest with cosign
 (`id-token: write`) — no long-lived keys, no secrets — and carries a SLSA build
 provenance attestation and an SPDX SBOM attestation (ADR 0044). The signature's
 identity IS that workflow on `master`, which is exactly what
-`imageVerification.keyless.subject` trusts. `sign-images.yml` (manual backfill)
+`imageVerification.keyless.subjectRegExp` trusts. `sign-images.yml` (manual backfill)
 signs under a DIFFERENT identity; add it as a second attestor if you rely on it.
 Tenant workload images are verified by `infra/k8s/supply-chain/`.
 
