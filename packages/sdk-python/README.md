@@ -273,7 +273,7 @@ pal-runner --agent hello-world --input '{"name": "World"}'
 
 ## deepagents integration
 
-`pip install "path/to/pal/packages/sdk-python[deepagents]"` adds a
+`pip install "pal-runtime[deepagents]"` adds a
 [deepagents](https://github.com/langchain-ai/deepagents) sandbox backend that runs
 the agent's shell and filesystem inside a PAL microVM instead of on the host.
 Egress allowlist, secret vending, and per-tenant quota are enforced by the runtime,
