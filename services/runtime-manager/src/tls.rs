@@ -351,6 +351,12 @@ pub fn generate_vm_client_cert(
         .distinguished_name
         .push(DnType::OrganizationalUnitName, VM_CERT_OU);
 
+    // Client-only leaf: the guest dials the manager; the harness serves no TLS
+    // with this cert. Never a CA, signature-only key usage (ECDSA/Ed25519).
+    leaf_params.is_ca = rcgen::IsCa::NoCa;
+    leaf_params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
+    leaf_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+
     // Short validity window — the run is far shorter than this in practice.
     let now = time::OffsetDateTime::now_utc();
     leaf_params.not_before = now;
@@ -876,6 +882,28 @@ mod tests {
             parsed.extensions().len() > base.extensions().len(),
             "cert WITH measurement must have more extensions than cert WITHOUT"
         );
+    }
+
+    #[test]
+    fn vm_cert_is_client_only_leaf() {
+        use x509_parser::extensions::ParsedExtension;
+        let (ca_cert, ca_key) = make_ca("ca-eku");
+        let issued = generate_vm_client_cert("vm-eku", &ca_cert, &ca_key, None).unwrap();
+        let der = pem_to_der(issued.cert_pem.as_bytes());
+        let (_, c) = x509_parser::parse_x509_certificate(&der).unwrap();
+        assert!(!c.is_ca());
+        let (mut eku, mut ku) = (None, None);
+        for e in c.extensions() {
+            match e.parsed_extension() {
+                ParsedExtension::ExtendedKeyUsage(x) => eku = Some(x.clone()),
+                ParsedExtension::KeyUsage(x) => ku = Some(*x),
+                _ => {}
+            }
+        }
+        let eku = eku.expect("EKU present");
+        assert!(eku.client_auth && !eku.server_auth && !eku.any && !eku.code_signing);
+        let ku = ku.expect("KU present");
+        assert!(ku.digital_signature() && !ku.key_cert_sign() && !ku.key_encipherment());
     }
 
     /// A cert issued WITHOUT a measurement does NOT contain the UTF8String
