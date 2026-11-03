@@ -166,8 +166,8 @@ Never coin "PAL Pay" or other PAL-plus-noun product names without a trademark
 check. The CLI, packages and env vars are spelled `pal` / `PAL_*`; write them
 as they are in code.
 
-Taglines: **Your pal for every moment.** · **PAL Runtime: agents that finish,
-stay contained, and stay yours.**
+Taglines: **AI that does the work, and shows it.** · **PAL Runtime: put agents in
+production. Keep the receipts.** · **PAL: your messages, answered in your voice.**
 
 ## Origin
 

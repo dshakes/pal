@@ -16,7 +16,7 @@ p { margin: 28px 0 0; font-size: 30px; color: #b9bac0; letter-spacing: -0.01em; 
 .foot b { color: #ffb547; font-weight: 500; }
 </style></head><body>
 <svg viewBox="-4 -4 113 72" width="170" height="108"><g stroke="#fafaf8" fill="none" stroke-width="8" stroke-linecap="round"><path d="M6 19 V62 M82 19 V49 M101 4 V49"/><circle cx="21" cy="34" r="15"/><circle cx="67" cy="34" r="15"/></g><circle cx="67" cy="34" r="6" fill="#ff5b2e"/></svg>
-<div><h1>Agents that work for you. And only with your yes.</h1><p>PAL, your agent that asks first, and PAL Runtime, the runtime to build and ship your own.</p></div>
+<div><h1>AI that does the work, and shows it.</h1><p>PAL, your agent that asks first, and PAL Runtime, the runtime to build and ship your own.</p></div>
 <div class="foot"><span>the <b>Personalized Agentic Layer</b></span><span>Open beta · Apache-2.0</span></div>
 </body></html>`;
 const b = await chromium.launch();
