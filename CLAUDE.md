@@ -191,7 +191,7 @@ responses (SSE) unbuffered, and on login/sign-up/OAuth exchange/kiosk moves the
 returned `token` into the cookie (so the cookie exists when the call resolves — the
 old cookie-sync/auth-loop machinery is gone). CSRF rules (Sec-Fetch-Site/-Dest +
 Origin) are pure in `lib/pal-proxy.ts`; only `/v1/*` and `/auth/*` are proxied. Pages
-carry a nonce'd CSP from `middleware.ts` (`lib/security-headers.ts`); new inline
+carry a nonce'd CSP from `proxy.ts` (`lib/security-headers.ts`); new inline
 `<script>` needs `nonce={nonce}`. The snippet runner's worker
 (`public/code-runner-worker.js`) has its own no-network CSP. The dashboard must be in
 `PAL_TRUSTED_PROXIES`. The proxy drops the browser's `X-Forwarded-For`/`X-Real-IP`/`Forwarded`
@@ -2449,7 +2449,7 @@ path `health` or `session/<the session's tenant>/…`, and for writes
 application/json`; the `/api/pal` control-plane proxy reuses that guard for writes
 (plus Sec-Fetch-Site/-Dest checks on reads). Only `/api/signals` and `/api/pal/*`
 (the control plane authenticates it from the forwarded cookie) are public in
-`middleware.ts`; `/api/auth/session` was removed (the proxy sets the cookie).
+`proxy.ts`; `/api/auth/session` was removed (the proxy sets the cookie).
 
 ### Web-search grounding (built-in `web_search` tool)
 

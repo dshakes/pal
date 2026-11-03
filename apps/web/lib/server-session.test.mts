@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { clearSessionCache, getSession, rejectCrossSiteWrite } from "./server-session.ts";
 import * as route from "../app/api/bridge/[channel]/[...path]/route.ts";
-import { middleware } from "../middleware.ts";
+import { proxy } from "../proxy.ts";
 
 const CP = "http://cp.test";
 const WA = "http://wa.test";
@@ -198,18 +198,18 @@ test("rejectCrossSiteWrite lets GET through and refuses headerless writes", () =
 // login-CSRF guard is covered in lib/pal-proxy.test.mts.
 
 test("middleware: /api is no longer blanket-public", async () => {
-  const api = await middleware(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`));
+  const api = await proxy(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`));
   assert.equal(api.status, 401);
-  const forged = await middleware(req("GET", "/api/anything", { token: "forged" }));
+  const forged = await proxy(req("GET", "/api/anything", { token: "forged" }));
   assert.equal(forged.status, 401);
-  const ok = await middleware(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`, { token: GOOD }));
+  const ok = await proxy(req("GET", `/api/bridge/whatsapp/session/${TENANT}/bot`, { token: GOOD }));
   assert.equal(ok.headers.get("x-middleware-next"), "1");
   for (const p of ["/api/signals", "/api/pal/auth/login"]) {
-    const pub = await middleware(req("POST", p));
+    const pub = await proxy(req("POST", p));
     assert.equal(pub.headers.get("x-middleware-next"), "1", p);
   }
   // Pages still redirect to /login rather than 401.
-  const page = await middleware(req("GET", "/agents"));
+  const page = await proxy(req("GET", "/agents"));
   assert.equal(page.status, 307);
 });
 

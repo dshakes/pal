@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: __dirname,
   // S-3: static security headers everywhere; the nonce'd CSP is per request
-  // (middleware.ts). The snippet-runner worker gets its own no-network CSP.
+  // (proxy.ts). The snippet-runner worker gets its own no-network CSP.
   async headers() {
     return [
       { source: "/:path*", headers: [...STATIC_SECURITY_HEADERS] },
