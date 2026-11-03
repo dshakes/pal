@@ -27,7 +27,8 @@
     "dev": "tsup src/index.ts src/runner.ts src/runtime/index.ts --format esm --dts --watch",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build"
   },
   "files": [
     "dist",
@@ -44,8 +45,17 @@
     "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.8"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "overrides": {
     "esbuild": "^0.28.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dshakes/pal.git",
+    "directory": "packages/sdk-ts"
+  },
+  "homepage": "https://github.com/dshakes/pal/tree/master/packages/sdk-ts",
+  "publishConfig": {
+    "access": "public"
   }
 }
