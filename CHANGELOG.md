@@ -7,7 +7,9 @@ This project is pre-1.0; there are no stable release branches yet.
 
 ---
 
-## [Unreleased] - 0.3.0
+## [Unreleased]
+
+## [0.3.0] - 2026-11-03
 
 Summary of what has merged since v0.2.0 (270 merge commits), grouped by area. The
 detailed per-feature entries that follow are the record; ADR numbers point at the
@@ -576,5 +578,7 @@ fail-closed pending Linux/KVM integration CI.
 
 ---
 
-[Unreleased]: https://github.com/dshakes/pal/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dshakes/pal/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dshakes/pal/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/dshakes/pal/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dshakes/pal/releases/tag/v0.1.0
