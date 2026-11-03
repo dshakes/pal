@@ -82,7 +82,7 @@
 | Package | Status |
 |---|---|
 | `sdk-ts` | ✅ — `agent()`, `step()`, `step.map`, streaming; 24/24 vitest green |
-| `sdk-python` | 🟡 spike — management namespaces at parity with sdk-go (agents, runs, sessions, connectors, budgets, evals, experiments, marketplace, MCP, receipts, feedback, rehearsals); 66 tests green; `AgentContext` / durable `step()` runtime still stubs (`NotImplementedError`); published to PyPI as `pal-runtime` |
+| `sdk-python` | 🟡 spike — management namespaces at parity with sdk-go (agents, runs, sessions, connectors, budgets, evals, experiments, marketplace, MCP, receipts, feedback, rehearsals); 66 tests green; `AgentContext` / durable `step()` runtime still stubs (`NotImplementedError`); install from repo, not yet published to PyPI |
 | `sdk-go` | ⬜ stub |
 | `cli` (Go) | ✅ — `init`, `build`, `deploy`, `run`, `logs`, `replay` commands |
 | `proto` | ✅ — agents.proto, runs.proto, events.proto, models.proto, engine.proto |

@@ -27,7 +27,8 @@
     "dev": "tsup src/index.ts src/runner.ts src/runtime/index.ts --format esm --dts --watch",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build"
   },
   "files": [
     "dist",

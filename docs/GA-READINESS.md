@@ -66,7 +66,7 @@ The three new CI jobs are 🟡 until they have been observed green on GitHub; th
 | TypeScript SDK | ✅ | `vitest` 83 tests (includes `runtime` namespace) |
 | bridge-core (personal-assistant logic) | ✅ | `node --test` (tsx) 1615 tests incl. the bridge-parity gate; `tsc` enforced in CI |
 | WhatsApp + iMessage bridges | ✅ unit / 🔴 runtime | iMessage 121 + WhatsApp 122 tests, `tsc` clean; **runtime needs live paired WhatsApp/iMessage** and validation in the owner's real logs after deploy (commitment ledger, sent-log, mute drafting) |
-| Python SDK | ✅ | 97 pytest (incl. `runtime` namespace); management namespace parity (budgets/evals/experiments/marketplace/mcp/receipts/feedback/rehearsals); `connectors.execute` + `sessions.close` bugs fixed; `AgentContext`/`step()` runtime stubs (`NotImplementedError`); on PyPI as `pal-runtime` |
+| Python SDK | ✅ | 97 pytest (incl. `runtime` namespace); management namespace parity (budgets/evals/experiments/marketplace/mcp/receipts/feedback/rehearsals); `connectors.execute` + `sessions.close` bugs fixed; `AgentContext`/`step()` runtime stubs (`NotImplementedError`); not on PyPI |
 
 ## Hot path (Rust)
 
@@ -115,11 +115,11 @@ The three new CI jobs are 🟡 until they have been observed green on GitHub; th
 4. ~~Deployed docs unverified.~~ ✅ **Content closed** — `make validate-docs-live` proves all 21 routes serve 200 + real content. Pixel-level layout still needs a browser (🔴).
 5. **RLS enforcement flip** — handler cutover is complete and `PAL_RLS_ENFORCE=1` is safe to flip, but it is not yet enabled in any environment. Needs a per-env rollout with the `pal_app` role password and GRANT check.
 6. **Firecracker / KVM end-to-end** — 🔴 spawn contract, privilege drop, and pause/resume/fork are unit-tested but no microVM has been booted on a Linux/KVM host with this code, including guest network re-identify after restore.
-7. **Python SDK `AgentContext`** — management surface parity is done (97 tests); the runtime context (`step()`, `ctx.llm`) still raises `NotImplementedError`.
+7. **Python SDK `AgentContext`** — management surface parity is done (97 tests); the runtime context (`step()`, `ctx.llm`) still raises `NotImplementedError`. Not on PyPI.
 8. **Real-cluster `helm install`** — 🔴 charts render for values / staging / prod, but have not been installed on a live cluster.
 9. **Pixel QA** — 🔴 Playwright now covers behaviour in a real browser (`apps/web/e2e`) but not visual layout; needs a browser eyeball (also covers the dashboard VM Pause/Resume/Fork UI).
 10. **Bridges runtime** — 🔴 needs the owner's live paired channels and validation in real logs.
-11. **SDK registry publishing** — done: `@pal-runtime/sdk` on npm, `pal-runtime` on PyPI (Trusted Publishing via `publish-sdk-python.yml`).
+11. **SDK registry publishing** — Python (`pal-sdk`) and TypeScript SDKs are not published to PyPI/npm and `release.yml` has no publish step.
 12. **Real-account SaaS tiers** — connectors/providers are exercised against recorded fixtures in CI; live-account runs are manual (per-example READMEs). The real-LLM e2e tier is local-only.
 13. **Exhaustive per-feature coverage** — the breadth (17 connectors, voice, MCP marketplace, A2A, receipts, workflows) is largely test-backed but not individually re-exercised this cycle.
 

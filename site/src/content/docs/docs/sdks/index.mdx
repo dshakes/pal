@@ -19,22 +19,25 @@ Every sample here was checked against the SDK source on `master` (`packages/sdk-
 
 ## Install
 
-<Aside type="caution" title="Package names">
-The packages are `@pal-runtime/sdk` on npm and `pal-runtime` on PyPI. Packages under similar names (for example `pal-sdk` on PyPI) are not ours.
+<Aside type="caution" title="Not on a registry yet">
+None of the three is published. Install from a checkout. Do not install an SDK from PyPI or npm under a similar name: none of those packages are ours.
 </Aside>
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript" icon="seti:typescript">
 ```bash
-npm install @pal-runtime/sdk
+# in your checkout
+( cd packages/sdk-ts && npm install && npm run build )
+# in your project: a file path, not the registry
+npm install /path/to/checkout/packages/sdk-ts
 ```
 </TabItem>
 <TabItem label="Python" icon="seti:python">
 ```bash
-# Python 3.11+
-pip install pal-runtime
+# Python 3.11+, from the root of your checkout
+pip install ./packages/sdk-python
 # optional: LangChain deepagents sandbox backend
-pip install "pal-runtime[deepagents]"
+pip install "./packages/sdk-python[deepagents]"
 ```
 </TabItem>
 <TabItem label="Go" icon="seti:go">

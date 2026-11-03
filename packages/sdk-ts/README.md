@@ -2,8 +2,11 @@
 
 The official TypeScript SDK for [PAL Runtime](https://github.com/dshakes/pal) (Personalized Agentic Layer) — the open-source runtime for production AI agents with VPC deployment, pre-run cost forecasts, policy budgets, and eval-in-CI.
 
+Registry packages are not published yet: `npm install @pal-runtime/sdk` fails. Install from a checkout of the repo:
+
 ```bash
-npm install @pal-runtime/sdk
+( cd packages/sdk-ts && npm install && npm run build )
+npm install /path/to/pal/packages/sdk-ts      # in your project
 ```
 
 ## Quick start
