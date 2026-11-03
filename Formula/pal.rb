@@ -6,8 +6,8 @@
 class Pal < Formula
   desc "CLI for PAL Runtime, the production runtime for AI agents"
   homepage "https://github.com/dshakes/pal"
-  url "https://github.com/dshakes/pal/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "b29234e12cc6df3c25b0e0bf7fe5db39cafe0ec4147a067618efe92fd57299f7"
+  url "https://github.com/dshakes/pal/archive/refs/tags/v0.3.0.tar.gz"
+  sha256 "8206761d7372869902c8dc8119642d7aae6c59678f9e21a5d83e9b271b95a77a"
   license "Apache-2.0"
   head "https://github.com/dshakes/pal.git", branch: "master"
 
