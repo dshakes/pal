@@ -46,4 +46,4 @@ rustls-pki-types = "1"
 [dev-dependencies]
 jsonwebtoken = { version = "10.3", default-features = false, features = ["aws_lc_rs"] }
 # rcgen generates self-signed certs at test-time (never in production code)
-rcgen = "0.13"
+rcgen = "0.14"

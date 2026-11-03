@@ -480,7 +480,7 @@ async fn respond<W: AsyncWrite + Unpin>(w: &mut W, status: &str, reason: &str) {
 /// guest-side trust of it cannot vouch for any other name.
 pub struct MitmCa {
     ca_cert: rcgen::Certificate,
-    ca_key: rcgen::KeyPair,
+    issuer: rcgen::Issuer<'static, rcgen::KeyPair>,
     leaves: Mutex<HashMap<String, Arc<rustls::ServerConfig>>>,
 }
 
@@ -546,7 +546,7 @@ impl MitmCa {
         let ca_cert = params.self_signed(&ca_key)?;
         Ok(Some(Self {
             ca_cert,
-            ca_key,
+            issuer: rcgen::Issuer::new(params, ca_key),
             leaves: Mutex::new(HashMap::new()),
         }))
     }
@@ -579,7 +579,7 @@ impl MitmCa {
         params.not_after = now + time::Duration::days(365);
         params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
         let key = rcgen::KeyPair::generate()?;
-        let leaf = params.signed_by(&key, &self.ca_cert, &self.ca_key)?;
+        let leaf = params.signed_by(&key, &self.issuer)?;
         let mut cfg = rustls::ServerConfig::builder_with_provider(ring_provider())
             .with_safe_default_protocol_versions()?
             .with_no_client_auth()
@@ -1636,10 +1636,11 @@ mod e2e {
         let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
         let ca = ca_params.self_signed(&ca_key).unwrap();
+        let ca_issuer = rcgen::Issuer::new(ca_params, ca_key);
         let leaf_key = rcgen::KeyPair::generate().unwrap();
         let leaf = rcgen::CertificateParams::new(vec![host.to_string()])
             .unwrap()
-            .signed_by(&leaf_key, &ca, &ca_key)
+            .signed_by(&leaf_key, &ca_issuer)
             .unwrap();
         let cfg = rustls::ServerConfig::builder_with_provider(ring_provider())
             .with_safe_default_protocol_versions()
@@ -2217,6 +2218,39 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
         assert!(ca.ca_pem().starts_with("-----BEGIN CERTIFICATE-----"));
+    }
+
+    /// rcgen-upgrade guard: the per-VM egress CA stays a path-len-0 CA
+    /// name-constrained to the injecting hosts, and leaves can be issued.
+    #[test]
+    fn mitm_ca_properties() {
+        use x509_parser::prelude::*;
+        let ca = MitmCa::for_rules("vm-x", &[inject_rule("api.example.com")])
+            .unwrap()
+            .unwrap();
+        let der = ca.ca_der();
+        let (_, c) = parse_x509_certificate(&der).unwrap();
+        let bc = c.basic_constraints().unwrap().unwrap().value;
+        assert!(bc.ca);
+        assert_eq!(bc.path_len_constraint, Some(0));
+        let ku = c.key_usage().unwrap().unwrap().value;
+        assert!(ku.key_cert_sign() && ku.crl_sign());
+        let nc = c
+            .get_extension_unique(&x509_parser::oid_registry::OID_X509_EXT_NAME_CONSTRAINTS)
+            .unwrap()
+            .unwrap();
+        let ParsedExtension::NameConstraints(n) = nc.parsed_extension() else {
+            panic!("name constraints not parsed");
+        };
+        let permitted = n.permitted_subtrees.as_ref().unwrap();
+        assert_eq!(permitted.len(), 1);
+        assert!(matches!(
+            permitted[0].base,
+            GeneralName::DNSName("api.example.com")
+        ));
+        assert!(n.excluded_subtrees.is_none());
+        c.verify_signature(None).unwrap();
+        ca.server_config("api.example.com").unwrap();
     }
 
     #[test]
