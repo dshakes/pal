@@ -72,7 +72,7 @@ where
         // Honour an inbound W3C `traceparent`: make this span a child of the
         // upstream context. Empty context (no header) → a normal root span.
         let parent_cx = otel::extract_from_headers(req.headers());
-        span.set_parent(parent_cx);
+        let _ = span.set_parent(parent_cx); // Err only if the span is disabled
 
         // Auth runs before this layer, so Claims (and tenant_id) are present on
         // non-public routes.
