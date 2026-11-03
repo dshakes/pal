@@ -75,13 +75,15 @@ pub fn init() -> Option<SdkShutdown> {
         }
     };
 
-    let tracer_provider = opentelemetry_sdk::trace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+    let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
         .with_sampler(Sampler::AlwaysOn)
         .with_id_generator(RandomIdGenerator::default())
-        .with_resource(opentelemetry_sdk::Resource::new(vec![
-            opentelemetry::KeyValue::new("service.name", "pal-runtime-manager"),
-        ]))
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name("pal-runtime-manager")
+                .build(),
+        )
         .build();
 
     global::set_tracer_provider(tracer_provider.clone());
@@ -90,7 +92,7 @@ pub fn init() -> Option<SdkShutdown> {
 }
 
 /// RAII guard: flushes pending spans when dropped.
-pub struct SdkShutdown(opentelemetry_sdk::trace::TracerProvider);
+pub struct SdkShutdown(opentelemetry_sdk::trace::SdkTracerProvider);
 
 impl Drop for SdkShutdown {
     fn drop(&mut self) {
