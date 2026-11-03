@@ -44,6 +44,6 @@ rustls-pemfile = "2"
 rustls-pki-types = "1"
 
 [dev-dependencies]
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 # rcgen generates self-signed certs at test-time (never in production code)
 rcgen = "0.14"
