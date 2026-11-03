@@ -327,20 +327,17 @@ pub fn generate_vm_client_cert(
     ca_key_pem: &str,
     software_measurement: Option<&str>,
 ) -> anyhow::Result<IssuedVmCert> {
-    use rcgen::{CertificateParams, CustomExtension, DnType, KeyPair};
+    use rcgen::{CertificateParams, CustomExtension, DnType, Issuer, KeyPair};
 
     if vm_id.is_empty() {
         return Err(anyhow::anyhow!("cannot issue cert for empty vm_id"));
     }
 
     // Reconstruct the CA as an issuer from its PEM cert + key.
-    let ca_params = CertificateParams::from_ca_cert_pem(ca_cert_pem)
-        .map_err(|e| anyhow::anyhow!("parse manager CA cert PEM: {e}"))?;
     let ca_key = KeyPair::from_pem(ca_key_pem)
         .map_err(|e| anyhow::anyhow!("parse manager CA key PEM: {e}"))?;
-    let ca_cert = ca_params
-        .self_signed(&ca_key)
-        .map_err(|e| anyhow::anyhow!("reconstruct manager CA cert: {e}"))?;
+    let issuer = Issuer::from_ca_cert_pem(ca_cert_pem, ca_key)
+        .map_err(|e| anyhow::anyhow!("parse manager CA cert PEM: {e}"))?;
 
     // Build the leaf params: SAN=vm_id (via the constructor) + CN=vm_id.
     let mut leaf_params = CertificateParams::new(vec![vm_id.to_string()])
@@ -378,7 +375,7 @@ pub fn generate_vm_client_cert(
 
     let leaf_key = KeyPair::generate().map_err(|e| anyhow::anyhow!("generate leaf key: {e}"))?;
     let leaf_cert = leaf_params
-        .signed_by(&leaf_key, &ca_cert, &ca_key)
+        .signed_by(&leaf_key, &issuer)
         .map_err(|e| anyhow::anyhow!("sign leaf cert for vm_id '{vm_id}': {e}"))?;
 
     Ok(IssuedVmCert {
@@ -582,7 +579,7 @@ mod tests {
     #[test]
     fn pin_accepts_only_the_current_incarnations_cert() {
         let ca = rcgen::generate_simple_self_signed(vec!["ca".to_string()]).expect("ca");
-        let (ca_pem, ca_key) = (ca.cert.pem(), ca.key_pair.serialize_pem());
+        let (ca_pem, ca_key) = (ca.cert.pem(), ca.signing_key.serialize_pem());
         let old = generate_vm_client_cert("vm-x", &ca_pem, &ca_key, None).expect("old");
         let new = generate_vm_client_cert("vm-x", &ca_pem, &ca_key, None).expect("new");
         let der = |pem: &str| {
@@ -612,7 +609,7 @@ mod tests {
         let cert =
             rcgen::generate_simple_self_signed(vec![name.to_string()]).expect("rcgen failed");
         let cert_pem = cert.cert.pem().into_bytes();
-        let key_pem = cert.key_pair.serialize_pem().into_bytes();
+        let key_pem = cert.signing_key.serialize_pem().into_bytes();
         (cert_pem, key_pem)
     }
 
@@ -733,7 +730,7 @@ mod tests {
     /// Generate a CA cert + key PEM pair usable as a signer.
     fn make_ca(name: &str) -> (String, String) {
         let ca = rcgen::generate_simple_self_signed(vec![name.to_string()]).expect("rcgen CA");
-        (ca.cert.pem(), ca.key_pair.serialize_pem())
+        (ca.cert.pem(), ca.signing_key.serialize_pem())
     }
 
     /// An issued VM cert has CN/SAN == vm_id and parses as a valid X.509.
@@ -986,5 +983,60 @@ mod tests {
         }
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// rcgen-upgrade guard: every property of the issued per-VM cert that the
+    /// authz layer or a receipt verifier relies on.
+    #[test]
+    fn issued_vm_cert_properties() {
+        use x509_parser::prelude::*;
+        let ca = rcgen::generate_simple_self_signed(vec!["ca".to_string()]).unwrap();
+        let hex = "ab".repeat(32);
+        let issued = generate_vm_client_cert(
+            "vm-props",
+            &ca.cert.pem(),
+            &ca.signing_key.serialize_pem(),
+            Some(&hex),
+        )
+        .unwrap();
+        let der = certs(&mut BufReader::new(Cursor::new(issued.cert_pem.as_bytes())))
+            .next()
+            .unwrap()
+            .unwrap();
+        let (_, c) = parse_x509_certificate(&der).unwrap();
+        let ou = c.subject().iter_organizational_unit().next().unwrap();
+        assert_eq!(ou.as_str().unwrap(), VM_CERT_OU);
+        assert_eq!(
+            c.subject()
+                .iter_common_name()
+                .next()
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "vm-props"
+        );
+        let san = c.subject_alternative_name().unwrap().unwrap();
+        assert!(
+            san.value
+                .general_names
+                .iter()
+                .any(|g| matches!(g, GeneralName::DNSName("vm-props")))
+        );
+        let oid = x509_parser::der_parser::oid::Oid::from(crate::measurement::MEASUREMENT_CERT_OID)
+            .unwrap();
+        let ext = c.get_extension_unique(&oid).unwrap().unwrap();
+        assert!(!ext.critical);
+        assert_eq!(ext.value, [&[0x0C, 64][..], hex.as_bytes()].concat());
+        assert!(!c.is_ca());
+        let ttl = c.validity().not_after.timestamp() - c.validity().not_before.timestamp();
+        assert_eq!(ttl, VM_CERT_TTL_DAYS * 86_400);
+        // Issued by the reconstructed CA: issuer DN matches and signature verifies.
+        let ca_der = certs(&mut BufReader::new(Cursor::new(ca.cert.pem().as_bytes())))
+            .next()
+            .unwrap()
+            .unwrap();
+        let (_, ca_x) = parse_x509_certificate(&ca_der).unwrap();
+        assert_eq!(c.issuer(), ca_x.subject());
+        c.verify_signature(Some(ca_x.public_key())).unwrap();
     }
 }

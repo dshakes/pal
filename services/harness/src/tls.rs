@@ -182,7 +182,7 @@ mod tests {
             rcgen::generate_simple_self_signed(vec![name.to_string()]).expect("rcgen failed");
         (
             cert.cert.pem().into_bytes(),
-            cert.key_pair.serialize_pem().into_bytes(),
+            cert.signing_key.serialize_pem().into_bytes(),
         )
     }
 
