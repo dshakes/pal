@@ -44,8 +44,17 @@
     "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.8"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "overrides": {
     "esbuild": "^0.28.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dshakes/pal.git",
+    "directory": "packages/sdk-ts"
+  },
+  "homepage": "https://github.com/dshakes/pal/tree/master/packages/sdk-ts",
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -98,7 +98,7 @@ Console: http://localhost:3001, sign in as `admin@pal.local` / `pal` (local dev 
 
 ## Use it from code
 
-The SDKs are not on a registry yet; install from a checkout (`npm install /path/to/pal/packages/sdk-ts`, or `pip install /path/to/pal/packages/sdk-python`).
+Install the SDKs from the registries: `npm install @pal-runtime/sdk` or `pip install pal-runtime`.
 
 ```ts
 import { PalClient } from "@pal/sdk";
