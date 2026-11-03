@@ -7,10 +7,10 @@
   <img src="site/public/brand/logo-animated.svg" alt="PAL" width="168">
 </picture>
 
-<h3>Your pal for every moment.</h3>
+<h3>AI that does the work, and shows it.</h3>
 
 <p><b>PAL</b> lives in your iMessage and WhatsApp: it tells you what needs you, replies in your voice and holds anything risky for your yes.<br>
-<b>PAL Runtime</b> is the open-source layer it runs on, for the agents you build: they finish, stay contained, and stay yours.</p>
+<b>PAL Runtime</b> is the open-source layer it runs on, for the agents you build: put them in production and keep the receipts.</p>
 
 <p>
 <a href="https://github.com/dshakes/pal/actions/workflows/sdlc-e2e.yml"><img src="https://github.com/dshakes/pal/actions/workflows/sdlc-e2e.yml/badge.svg" alt="e2e"></a>

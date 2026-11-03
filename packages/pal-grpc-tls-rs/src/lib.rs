@@ -262,7 +262,7 @@ mod tests {
         let mut ca = CertificateParams::new(Vec::<String>::new()).unwrap();
         ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let ca_key = KeyPair::generate().unwrap();
-        let ca_cert = ca.self_signed(&ca_key).unwrap();
+        let issuer = rcgen::Issuer::new(ca, ca_key);
         let mut p = CertificateParams::new(vec!["localhost".to_string()]).unwrap();
         if let Some(s) = spiffe {
             p.subject_alt_names
@@ -273,7 +273,7 @@ mod tests {
         }
         p.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
         let key = KeyPair::generate().unwrap();
-        let pem = p.signed_by(&key, &ca_cert, &ca_key).unwrap().pem();
+        let pem = p.signed_by(&key, &issuer).unwrap().pem();
         rustls_pemfile::certs(&mut pem.as_bytes())
             .next()
             .unwrap()
