@@ -1,5 +1,5 @@
 // Dashboard security headers (S-3). The CSP carries a per-request nonce, so it
-// is set by middleware.ts; app/layout.tsx stamps the same nonce on its two
+// is set by proxy.ts; app/layout.tsx stamps the same nonce on its two
 // inline scripts and Next applies it to its own bootstrap scripts.
 //
 // script-src is 'nonce-…' + 'strict-dynamic': only scripts the server emitted

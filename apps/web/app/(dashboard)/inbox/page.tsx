@@ -687,7 +687,6 @@ function ActionQueue({
 }
 
 function CompactRunRow({ run, showAgent }: { run: Run; showAgent?: boolean }) {
-  const StatusDot = statusDotFor(run.status);
   const summary = summarizeInput(run.input);
   return (
     <li>
@@ -695,7 +694,7 @@ function CompactRunRow({ run, showAgent }: { run: Run; showAgent?: boolean }) {
         href={`/runs/${run.id}`}
         className="mc-glass flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-white/[0.12] hover:shadow-lg"
       >
-        <StatusDot />
+        <StatusDot status={run.status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {showAgent && <span className="truncate text-[12px] font-medium text-zinc-200">{run.agentName}</span>}
@@ -773,7 +772,6 @@ function SessionEntry({ group, groupedWithPrev }: { group: SessionGroup; grouped
   }
 
   const agg = aggregateSession(group.runs);
-  const StatusDot = statusDotFor(agg.status);
 
   return (
     <li className="mc-glass overflow-hidden rounded-xl border border-white/[0.07] bg-white/[0.024] backdrop-blur-xl transition-all duration-200 hover:-translate-y-0.5 hover:border-white/[0.12] hover:shadow-lg">
@@ -789,7 +787,7 @@ function SessionEntry({ group, groupedWithPrev }: { group: SessionGroup; grouped
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-xs font-medium text-zinc-100">{agg.agentLabel}</span>
-            <StatusDot />
+            <StatusDot status={agg.status} />
             <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] tabular-nums text-zinc-400">{agg.count} runs</span>
           </div>
           <p className="mt-0.5 truncate text-[12px] text-zinc-500">Session · {agg.count} steps</p>
@@ -812,7 +810,6 @@ function SessionEntry({ group, groupedWithPrev }: { group: SessionGroup; grouped
 
 function RunRow({ run, groupedWithPrev, nested = false }: { run: Run; groupedWithPrev: boolean; nested?: boolean }) {
   const summary = summarizeInput(run.input);
-  const StatusDot = statusDotFor(run.status);
 
   return (
     <li>
@@ -829,7 +826,7 @@ function RunRow({ run, groupedWithPrev, nested = false }: { run: Run; groupedWit
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className={clsx("truncate text-xs font-medium", groupedWithPrev ? "text-zinc-400" : "text-zinc-100")}>{run.agentName}</span>
-            <StatusDot />
+            <StatusDot status={run.status} />
             {run.labels?.trigger && (
               <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] uppercase tracking-wide text-zinc-500">{String(run.labels.trigger)}</span>
             )}
@@ -846,7 +843,7 @@ function RunRow({ run, groupedWithPrev, nested = false }: { run: Run; groupedWit
 }
 
 // Small inline status glyph — quieter than a full badge.
-function statusDotFor(status: RunStatus) {
+function StatusDot({ status }: { status: RunStatus }) {
   const map: Record<string, { label: string; cls: string }> = {
     succeeded: { label: "✓", cls: "text-emerald-400" },
     failed: { label: "✕", cls: "text-red-400" },
@@ -856,9 +853,7 @@ function statusDotFor(status: RunStatus) {
     cancelled: { label: "—", cls: "text-zinc-500" },
   };
   const v = map[status] ?? map.queued;
-  return function StatusDot() {
-    return <span className={clsx("shrink-0 text-[12px]", v.cls)}>{v.label}</span>;
-  };
+  return <span className={clsx("shrink-0 text-[12px]", v.cls)}>{v.label}</span>;
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Per-request CSP nonce from middleware.ts (lib/security-headers.ts).
+  // Per-request CSP nonce from proxy.ts (lib/security-headers.ts).
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className={`dark ${interTight.variable} ${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>

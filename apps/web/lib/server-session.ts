@@ -1,6 +1,6 @@
 // Server-side dashboard session validation + same-origin write guard.
 //
-// Shared by middleware.ts and any Route Handler that acts with a server-held
+// Shared by proxy.ts and any Route Handler that acts with a server-held
 // secret (e.g. the bridge proxy). Edge- and Node-safe: plain fetch + Web Crypto,
 // no next/headers, so middleware can import it.
 //
