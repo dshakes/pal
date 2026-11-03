@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Mail,
-  Github,
+  GitBranch,
   MessageSquare,
   StickyNote,
   Calendar,
@@ -41,7 +41,7 @@ interface ConnectorDef {
 // the top two.
 const CONNECTORS: ConnectorDef[] = [
   { id: "gmail", label: "Gmail", description: "Read + reply", icon: Mail, tint: "text-rose-300", bg: "bg-rose-500/10" },
-  { id: "github", label: "GitHub", description: "Issues + PRs", icon: Github, tint: "text-zinc-200", bg: "bg-zinc-500/10" },
+  { id: "github", label: "GitHub", description: "Issues + PRs", icon: GitBranch, tint: "text-zinc-200", bg: "bg-zinc-500/10" },
   { id: "slack", label: "Slack", description: "Channels + DMs", icon: MessageSquare, tint: "text-purple-300", bg: "bg-purple-500/10" },
   { id: "linear", label: "Linear", description: "Tickets", icon: Layers, tint: "text-sky-300", bg: "bg-sky-500/10" },
   { id: "notion", label: "Notion", description: "Docs + databases", icon: StickyNote, tint: "text-zinc-200", bg: "bg-zinc-500/10" },
