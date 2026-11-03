@@ -63,6 +63,15 @@ decision. Nothing here is tagged yet.
   multi-region active-passive enablers (ADR 0046).
 - Fixes: XFF-safe rate limits, connector SSRF guard, mail header injection, real
   pairing codes, patched dependencies.
+- Dependency security updates: OpenTelemetry 0.33 / tracing-opentelemetry 0.34 in the
+  Rust services (baggage DoS advisory); jsonwebtoken 10.4 with the aws-lc-rs backend in
+  the gateway's tests (auth-bypass advisory; the gateway itself verifies API keys via
+  introspection, not JWTs); rcgen 0.14 for VM and egress certificates (cert properties
+  unchanged, covered by tests); grpc-go 1.83.2; zod 4 in examples; Next.js 16 in the
+  dashboard.
+- Known, not fixed in this release: `minimatch` (ReDoS) reaches the dashboard only through
+  ESLint, a dev-time tool that never ships or sees untrusted input. Planned upgrade.
+  TypeScript 7 waits on typescript-eslint, tsup and Astro check support.
 
 ### Examples, docs and site
 
