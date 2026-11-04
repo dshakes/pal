@@ -130,8 +130,8 @@ export function ViewCode({ title, snippets, variant = "button", className }: Vie
               <span>
                 Install:&nbsp;
                 <code className="font-mono text-zinc-400">
-                  {active === "ts" && "npm install ./packages/sdk-ts  # from a PAL checkout; not on npm yet"}
-                  {active === "python" && "pip install ./packages/sdk-python  # from a PAL checkout; not on PyPI yet"}
+                  {active === "ts" && "npm install @pal-runtime/sdk"}
+                  {active === "python" && "pip install pal-runtime"}
                   {active === "go" && "go get github.com/dshakes/pal/packages/sdk-go"}
                   {active === "curl" && "—"}
                 </code>

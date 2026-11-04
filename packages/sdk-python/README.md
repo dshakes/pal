@@ -11,14 +11,15 @@ HTTP surface.
 
 ## Install
 
-Registry packages are not published yet. The distribution is named `pal-runtime`; do not
-`pip install pal-sdk` (that PyPI name belongs to an unrelated project). Install from the repo:
+The distribution is named `pal-runtime`; do not
+`pip install pal-sdk` (that PyPI name belongs to an unrelated project).
 
 ```bash
-pip install "path/to/pal/packages/sdk-python"          # add [deepagents] for the extra below
-# or in CI:
-pip install "git+https://github.com/dshakes/pal.git#subdirectory=packages/sdk-python"
+pip install pal-runtime                # add [deepagents] for the extra below
+pip install "pal-runtime[deepagents]"
 ```
+
+Contributors can install from a checkout: `pip install -e packages/sdk-python`.
 
 The import package is `pal` (`from pal import PalClient`); the CLI entry point is `pal-runner`.
 
