@@ -78,7 +78,7 @@ Work needed before accepting non-owner production traffic.
 - [x] **Version tags** — `v0.2.0` exists (`git tag`)
 - [ ] **Release process documented** — `.github/workflows/release.yml` does tag + GitHub Release + Homebrew tap sync, but there is no `RELEASING.md` and no SDK/Helm publish step. OPEN
 - [x] **Go SDK populated** — `packages/sdk-go/client.go` (+ `client_test.go`) is at management-surface parity with the Python SDK
-- [ ] **SDKs published to registries** — OPEN: `pal-sdk` is not on PyPI (`packages/sdk-python`, v0.1.0), the TS SDK is not on npm (`packages/sdk-ts`, v0.1.0), and `release.yml` has no publish step; install-from-repo only
+- [x] **SDKs published to registries** — DONE 2026-11-03: npm `@pal-runtime/sdk` 0.1.0 (published manually by the owner) and PyPI `pal-runtime` 0.1.0 (trusted-publishing workflow `.github/workflows/publish-sdk-python.yml`)
 
 ---
 

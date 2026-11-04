@@ -19,7 +19,7 @@ Composes with deepagents' own ``CompositeBackend`` — e.g. mount a
 ``StoreBackend`` at ``/memories/`` for state that outlives the VM, while
 everything else executes inside the microVM.
 
-Requires ``pip install "./packages/sdk-python[deepagents]"  (from a repo checkout)``.
+Requires ``pip install "pal-runtime[deepagents]"``.
 """
 
 from __future__ import annotations

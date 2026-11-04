@@ -1,6 +1,6 @@
 """deepagents agent running on a PAL microVM sandbox.
 
-Requires: pip install "./packages/sdk-python[deepagents]"  (from a repo checkout)
+Requires: pip install "pal-runtime[deepagents]"
 Env: PAL_API_URL, PAL_API_KEY
 
 Demonstrates:
