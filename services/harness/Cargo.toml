@@ -15,7 +15,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tonic = { version = "0.12", features = ["tls"] }
 prost = "0.13"
-prost-types = "0.13"
+prost-types = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # OpenTelemetry — W3C trace-context propagation so the in-VM harness joins
